@@ -1,78 +1,93 @@
-<!-- 输入法根视图:单行紧凑输入条(36dp)+ 屏幕键盘(可选,默认隐藏) -->
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  输入法根视图:36dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
+  - 组词中:候选行(整行候选 + 页码)——飞字/选字目标尽量大
+  - 空闲时:状态行(模式徽标 + 屏幕键盘开关 + 收起)
+  屏幕键盘(可选,默认隐藏)追加在下方。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@color/status_bg"
     android:orientation="vertical">
 
-    <!-- 单行紧凑输入条:模式 + 组词 + 候选(手势)+ 翻页 + 开关 -->
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_height="36dp">
 
-    <TextView
-        android:id="@+id/tv_mode"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:minWidth="30dp"
-        android:paddingStart="6dp"
-        android:paddingEnd="2dp"
-        android:text="@string/mode_cn"
-        android:textColor="@color/status_active"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        <!-- 状态行(空闲) -->
+        <LinearLayout
+            android:id="@+id/status_row"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-    <TextView
-        android:id="@+id/tv_composition"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:gravity="center_vertical"
-        android:paddingStart="2dp"
-        android:paddingEnd="2dp"
-        android:singleLine="true"
-        android:textColor="@color/candidate_matched"
-        android:textSize="12sp" />
+            <TextView
+                android:id="@+id/tv_mode"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:minWidth="30dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="2dp"
+                android:text="@string/mode_cn"
+                android:textColor="@color/status_active"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
-    <!-- 候选区:点选 / 上滑选字 / 左右滑翻页,占满剩余宽度 -->
-    <dev.hwkbd.ime.ui.CandidateBarView
-        android:id="@+id/candidate_bar"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1" />
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
 
-    <TextView
-        android:id="@+id/tv_page"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:paddingStart="2dp"
-        android:paddingEnd="2dp"
-        android:textColor="@color/candidate_hint"
-        android:textSize="10sp" />
+            <ImageButton
+                android:id="@+id/btn_soft_keyboard"
+                android:layout_width="30dp"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/pref_show_soft_keyboard"
+                android:scaleType="fitCenter"
+                android:src="@android:drawable/ic_menu_edit"
+                android:tint="@color/status_fg" />
 
-    <ImageButton
-        android:id="@+id/btn_soft_keyboard"
-        android:layout_width="30dp"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:contentDescription="@string/pref_show_soft_keyboard"
-        android:scaleType="fitCenter"
-        android:src="@android:drawable/ic_menu_edit"
-        android:tint="@color/status_fg" />
+            <ImageButton
+                android:id="@+id/btn_hide_ime"
+                android:layout_width="30dp"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/app_name"
+                android:scaleType="fitCenter"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:tint="@color/status_fg" />
+        </LinearLayout>
 
-    <ImageButton
-        android:id="@+id/btn_hide_ime"
-        android:layout_width="30dp"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:contentDescription="@string/app_name"
-        android:scaleType="fitCenter"
-        android:src="@android:drawable/ic_menu_close_clear_cancel"
-        android:tint="@color/status_fg" />
-    </LinearLayout>
+        <!-- 候选行(组词中):整行候选 + 页码 -->
+        <LinearLayout
+            android:id="@+id/candidate_row"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <dev.hwkbd.ime.ui.CandidateBarView
+                android:id="@+id/candidate_bar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/tv_page"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:paddingStart="2dp"
+                android:paddingEnd="4dp"
+                android:textColor="@color/candidate_hint"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- 屏幕键盘:三层层切换 + 5 区上滑选字(默认隐藏,偏好开启后显示) -->
     <dev.hwkbd.ime.ui.SoftKeyboardView

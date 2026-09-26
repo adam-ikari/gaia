@@ -39,8 +39,9 @@ class ImeService : InputMethodService() {
     private lateinit var controller: ImeController
     private lateinit var engine: PinyinEngine
 
+    private var statusRow: View? = null
+    private var candidateRow: View? = null
     private var statusMode: TextView? = null
-    private var statusComposition: TextView? = null
     private var statusPage: TextView? = null
     private var candidateBar: CandidateBarView? = null
     private var softKeyboard: SoftKeyboardView? = null
@@ -134,8 +135,9 @@ class ImeService : InputMethodService() {
 
     override fun onCreateInputView(): View {
         val root = layoutInflater.inflate(R.layout.ime_root, null)
+        statusRow = root.findViewById(R.id.status_row)
+        candidateRow = root.findViewById(R.id.candidate_row)
         statusMode = root.findViewById(R.id.tv_mode)
-        statusComposition = root.findViewById(R.id.tv_composition)
         statusPage = root.findViewById(R.id.tv_page)
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
@@ -290,10 +292,14 @@ class ImeService : InputMethodService() {
         }
         val lockTag = if (s.lock != null) getString(R.string.lock_badge) else ""
         statusMode?.text = modeText + layerTag + lockTag
-        statusComposition?.text = s.raw
         statusPage?.text = if (s.totalPages > 0) "${s.page + 1}/${s.totalPages}" else ""
         candidateBar?.setState(s)
         softKeyboard?.setState(s)
+
+        // 单行两态:组词中整行给候选,空闲时整行给状态
+        val composingNow = s.hasComposition
+        statusRow?.visibility = if (composingNow) View.GONE else View.VISIBLE
+        candidateRow?.visibility = if (composingNow) View.VISIBLE else View.GONE
 
         // 组词区同步:编辑框里显示下划线拼音
         val ic = currentInputConnection
