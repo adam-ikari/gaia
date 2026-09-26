@@ -51,6 +51,18 @@ class UserDictTest {
         val r = u.prefixEntries("ni")
         assertEquals(2, r.size)
     }
+
+    @Test
+    fun `删除用户词清除频次与词条`() {
+        val u = UserDict()
+        u.bump("你好")
+        u.addEntry("coco", "可可", 5)
+        assertTrue(u.removeWord("你好"))
+        assertTrue(u.removeWord("可可"))
+        assertEquals(0, u.count("你好"))
+        assertEquals(0, u.entryCount)
+        assertFalse(u.removeWord("没词")) // 不存在的词返回 false
+    }
 }
 
 class MiniJsonTest {

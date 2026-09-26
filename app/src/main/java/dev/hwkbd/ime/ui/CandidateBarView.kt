@@ -21,6 +21,7 @@ class CandidateBarView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     var onSelect: ((Int) -> Unit)? = null
+    var onLongPress: ((Int) -> Unit)? = null
     var onPage: ((Int) -> Unit)? = null
     var swipeSelectEnabled = true
     var swipePageEnabled = true
@@ -72,18 +73,36 @@ class CandidateBarView @JvmOverloads constructor(
         return if (slots.getOrNull(idx) != null) idx else -1
     }
 
+    private var longPressFired = false
+    private val longPressRunnable = Runnable {
+        if (downCell >= 0) {
+            longPressFired = true
+            onLongPress?.invoke(downCell)
+        }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downY = event.y
                 downCell = cellIndexAt(downX)
+                longPressFired = false
+                postDelayed(longPressRunnable, 600L)
                 performClick()
             }
+            MotionEvent.ACTION_MOVE -> {
+                // 移动出按下槽位则取消长按
+                if (!longPressFired && cellIndexAt(event.x) != downCell) {
+                    removeCallbacks(longPressRunnable)
+                }
+            }
             MotionEvent.ACTION_UP -> {
+                removeCallbacks(longPressRunnable)
                 val dx = event.x - downX
                 val dy = event.y - downY
                 when {
+                    longPressFired -> Unit // 长按已在定时器里处理
                     kotlin.math.abs(dx) < touchSlop && kotlin.math.abs(dy) < touchSlop -> onTap(downX)
                     swipeSelectEnabled && dy < -flingDistance && -dy > kotlin.math.abs(dx) -> {
                         val i = cellIndexAt(downX)
@@ -93,6 +112,7 @@ class CandidateBarView @JvmOverloads constructor(
                         onPage?.invoke(if (dx < 0) 1 else -1)
                 }
             }
+            MotionEvent.ACTION_CANCEL -> removeCallbacks(longPressRunnable)
         }
         return true
     }

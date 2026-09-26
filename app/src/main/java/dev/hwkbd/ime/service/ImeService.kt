@@ -144,6 +144,7 @@ class ImeService : InputMethodService() {
         statusMode = root.findViewById(R.id.tv_mode)
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
+            onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
         }
         softKeyboard = root.findViewById<SoftKeyboardView>(R.id.soft_keyboard).apply {

@@ -176,6 +176,22 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `长按候选删除用户词刷新排序`() {
+        val r = rig()
+        repeat(2) { // 跨档需要两次使用
+            r.type("nihao")
+            r.key(KeyEvent.KEYCODE_SPACE) // 选"你好"(前缀候选) → 频次加权
+        }
+        r.type("ni")
+        assertEquals("你好", r.c.state.candidates.first().word) // 被顶到第一(越过精确命中"你")
+        val slot = r.c.state.pageItems().indexOfFirst { it.word == "你好" }
+        r.c.removeUserWord(slot) // 长按删除
+        assertEquals(0, r.c.userCountOf("你好")) // 用户频次清零
+        assertEquals("你", r.c.state.candidates.first().word) // 精确命中"你"回到第一
+        assertFalse(r.c.state.candidates.take(2).any { it.word == "你好" }) // "你好"跌出前二
+    }
+
+    @Test
     fun `候选为空时方向键透传`() {
         val r = rig()
         assertFalse(r.key(KeyEvent.KEYCODE_DPAD_LEFT))

@@ -171,6 +171,18 @@ class ImeController(
         host.render()
     }
 
+    /** 长按候选(显示位):删除该词的用户频次/词条(可可同款),刷新当前候选。 */
+    fun removeUserWord(displayIndex: Int) {
+        val logical = state.currentPageLogical()
+        val li = ImeState.DISPLAY_ORDER.getOrNull(displayIndex) ?: return
+        val c = logical.getOrNull(li) ?: return
+        engine.user.removeWord(c.word)
+        refreshQuery()
+    }
+
+    /** 词的用户使用频次(测试/调试用)。 */
+    fun userCountOf(word: String): Int = engine.user.count(word)
+
     fun pageStep(delta: Int) {
         if (state.totalPages == 0) return
         state.page = (state.page + delta).coerceIn(0, state.totalPages - 1)

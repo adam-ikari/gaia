@@ -29,6 +29,23 @@ class UserDict {
         dirty = true
     }
 
+    /**
+     * 删除一个词的全部用户痕迹:使用频次记录 + 导入词条(可可"长按候选删词"同款)。
+     * 返回是否确实删过东西(内置词库的词删频次后仍存在,只是不再被加权)。
+     */
+    fun removeWord(word: String): Boolean {
+        val hadCount = counts.remove(word) != null
+        var hadEntry = false
+        val it = entries.values.iterator()
+        while (it.hasNext()) {
+            val ws = it.next()
+            if (ws.remove(word) != null) hadEntry = true
+            if (ws.isEmpty()) it.remove()
+        }
+        if (hadCount || hadEntry) dirty = true
+        return hadCount || hadEntry
+    }
+
     /** 新增导入词条;拼音只接受小写字母与分隔符 '。 */
     fun addEntry(pinyin: String, word: String, freq: Int): Boolean {
         if (pinyin.isEmpty() || word.isEmpty()) return false
