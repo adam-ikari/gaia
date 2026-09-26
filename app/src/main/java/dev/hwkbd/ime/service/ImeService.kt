@@ -42,7 +42,6 @@ class ImeService : InputMethodService() {
     private var statusRow: View? = null
     private var candidateRow: View? = null
     private var statusMode: TextView? = null
-    private var statusPage: TextView? = null
     private var candidateBar: CandidateBarView? = null
     private var softKeyboard: SoftKeyboardView? = null
     private var btnSoftKeyboard: ImageButton? = null
@@ -138,7 +137,6 @@ class ImeService : InputMethodService() {
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
         statusMode = root.findViewById(R.id.tv_mode)
-        statusPage = root.findViewById(R.id.tv_page)
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
             onPage = { controller.pageStep(it) }
@@ -214,12 +212,69 @@ class ImeService : InputMethodService() {
         }
     }
 
-    /** 探测键盘表面(TOUCHPAD)滑动是否以 Motion 形式送达输入法窗口。 */
-    override fun onGenericMotionEvent(event: MotionEvent?): Boolean {
-        event?.let {
-            if (it.source and 0x2 != 0 || it.source and 0x200000 != 0 || it.source and 0x100008 != 0) {
-                android.util.Log.i(TAG, "ime generic: act=${it.actionMasked} src=0x${Integer.toHexString(it.source)} x=${it.x.toInt()} y=${it.y.toInt()}")
+    /**
+     * 飞字:键盘表面(TOUCHPAD)滑动选字。
+     * 事件经 onGenericMotionEvent 送达(src=0x100008),坐标空间约 1440x720。
+     * 手势 = DOWN 起点向上位移超过阈值 → 按起点横坐标落在 5 区的哪一区选候选。
+     */
+    private class FlyDetector {
+        private var downX = 0f
+        private var downY = 0f
+        private var downAt = 0L
+        private var tracking = false
+
+        fun onMotion(action: Int, x: Float, y: Int): Int? {
+            android.util.Log.i(TAG, "fly: act=$action x=$x y=$y tracking=$tracking")
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = x
+                    downY = y.toFloat()
+                    downAt = System.currentTimeMillis()
+                    tracking = true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val wasTracking = tracking
+                    tracking = false
+                    if (!wasTracking || action == MotionEvent.ACTION_CANCEL) return null
+                    val dy = downY - y
+                    val dx = kotlin.math.abs(x - downX)
+                    val dt = System.currentTimeMillis() - downAt
+                    // 上滑 60 单位以上、横向漂移不大于纵向位移、800ms 内 → 飞字
+                    if (dy >= 60f && dy > dx && dt < 800) {
+                        return zoneOf(downX)
+                    }
+                }
             }
+            return null
+        }
+
+        /** 全宽按 zoneWeights 比例分 5 区。 */
+        private fun zoneOf(x: Float): Int {
+            val w = ImeRuntime.prefs.getString(PREF_HZ_SPLIT, "1,2,4,2,1")
+                ?.split(',')?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.isNotEmpty() }
+                ?: listOf(1, 2, 4, 2, 1)
+            val total = w.sum().toFloat()
+            var acc = 0f
+            val f = x / FLY_X_MAX * total
+            for (i in w.indices) {
+                acc += w[i]
+                if (f < acc) return i
+            }
+            return w.size - 1
+        }
+    }
+
+    private val flyDetector = FlyDetector()
+
+    /** 探测键盘表面(TOUCHPAD)滑动:全量日志 + 飞字手势识别。 */
+    override fun onGenericMotionEvent(event: MotionEvent?): Boolean {
+        event ?: return super.onGenericMotionEvent(event)
+        if (event.source and SOURCE_TOUCHPAD_MASK != 0) {
+            val zone = flyDetector.onMotion(event.actionMasked, event.x, event.y.toInt())
+            if (zone != null && controller.state.hasComposition) {
+                controller.selectCandidate(zone)
+            }
+            return true
         }
         return super.onGenericMotionEvent(event)
     }
@@ -292,7 +347,6 @@ class ImeService : InputMethodService() {
         }
         val lockTag = if (s.lock != null) getString(R.string.lock_badge) else ""
         statusMode?.text = modeText + layerTag + lockTag
-        statusPage?.text = if (s.totalPages > 0) "${s.page + 1}/${s.totalPages}" else ""
         candidateBar?.setState(s)
         softKeyboard?.setState(s)
 
@@ -315,6 +369,12 @@ class ImeService : InputMethodService() {
 
     companion object {
         private const val TAG = "ImeService"
+
+        /** InputDevice.SOURCE_TOUCHPAD(避免 SDK 版本差异直接用常量)。 */
+        private const val SOURCE_TOUCHPAD_MASK = 0x100008
+
+        /** 键盘表面触摸坐标 X 上限(dumpsys 实测 raw 0..1440)。 */
+        private const val FLY_X_MAX = 1440f
         const val PREF_SHOW_SOFT = "show_soft_keyboard"
         const val PREF_PAGE_SIZE = "candidate_page_size"
         const val PREF_FULLWIDTH = "fullwidth_symbols_in_cn"
