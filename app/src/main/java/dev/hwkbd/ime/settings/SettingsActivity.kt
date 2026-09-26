@@ -70,6 +70,9 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             findPreference<Preference>("dict_stats")?.setOnPreferenceClickListener { showStats(); true }
+            findPreference<Preference>("playground")?.setOnPreferenceClickListener {
+                startActivity(Intent(requireContext(), dev.hwkbd.ime.playground.PlaygroundActivity::class.java)); true
+            }
             findPreference<Preference>("probe")?.setOnPreferenceClickListener {
                 startActivity(Intent(requireContext(), dev.hwkbd.ime.probe.KeyProbeActivity::class.java)); true
             }

@@ -56,5 +56,12 @@
             android:exported="true"
             android:label="@string/probe_title"
             android:windowSoftInputMode="stateVisible" />
+
+        <!-- 实验场:干净输入框试拼音/飞字/层切换 -->
+        <activity
+            android:name=".playground.PlaygroundActivity"
+            android:exported="false"
+            android:label="@string/playground_title"
+            android:windowSoftInputMode="stateVisible" />
     </application>
 </manifest>

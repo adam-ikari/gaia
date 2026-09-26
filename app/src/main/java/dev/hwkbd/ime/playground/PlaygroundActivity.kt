@@ -1,0 +1,39 @@
+package dev.hwkbd.ime.playground
+
+import android.os.Bundle
+import android.widget.Button
+import android.widget.EditText
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import dev.hwkbd.ime.R
+import java.io.BufferedReader
+import java.io.InputStreamReader
+
+/**
+ * 实验场:一个干净的输入框,专门用来试拼音/飞字/层切换/快捷键,
+ * 下方可查看本输入法的运行日志(词库加载、飞字事件),方便真机反馈问题。
+ */
+class PlaygroundActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_playground)
+        val et = findViewById<EditText>(R.id.et_playground)
+        val logView = findViewById<TextView>(R.id.tv_play_log)
+
+        findViewById<Button>(R.id.btn_play_clear).setOnClickListener { et.setText("") }
+        findViewById<Button>(R.id.btn_play_paste_log).setOnClickListener {
+            logView.text = readRecentImeLog()
+        }
+    }
+
+    /** logcat -d 抓本应用最近的 ImeService 日志(需要 adb 才能拿全,这里尽力而为)。 */
+    private fun readRecentImeLog(): String = try {
+        val process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-s", "ImeService:*", "-t", "100"))
+        val out = BufferedReader(InputStreamReader(process.inputStream)).readText()
+        process.waitFor()
+        if (out.isBlank()) "无日志(logcat 不可用或为空)" else out.takeLast(4000)
+    } catch (e: Exception) {
+        "读取日志失败:${e.message}\n(完整日志请用 adb logcat -s ImeService)"
+    }
+}

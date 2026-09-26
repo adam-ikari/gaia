@@ -4,6 +4,10 @@
     <string name="settings_title">全键盘输入法 设置</string>
     <string name="layer_map_title">三层键位映射</string>
     <string name="probe_title">按键探测</string>
+    <string name="playground_title">实验场</string>
+    <string name="playground_hint">在输入框里试:拼音组词 / 空格选字 / Ctrl(Fn)+QWERT 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
+    <string name="playground_hint2">在这里输入…</string>
+    <string name="playground_show_log">查看输入法日志</string>
 
     <!-- 输入方式状态条 -->
     <string name="mode_cn">中</string>

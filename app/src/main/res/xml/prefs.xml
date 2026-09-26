@@ -72,6 +72,9 @@
 
     <PreferenceCategory android:title="@string/pref_category_dev">
         <Preference
+            android:key="playground"
+            android:title="@string/playground_title" />
+        <Preference
             android:key="probe"
             android:title="@string/pref_probe" />
         <Preference
