@@ -21,7 +21,9 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
 
         fun add(word: String, pinyin: String, kind: CandidateKind, base: Long) {
             if (word.isEmpty()) return
-            val score = base + user.count(word) * USER_BOOST
+            // 档位加分保证 精确>前缀>组词 的整体次序(字典词频最高约 70 万,
+            // 档位差需盖过它);用户词频加权仍可跨档把高频词顶上去。
+            val score = base + KIND_BONUS[kind.ordinal] + user.count(word) * USER_BOOST
             val prev = out[word]
             if (prev == null || score > prev.score) {
                 out[word] = Candidate(word, pinyin, kind, score)
@@ -48,8 +50,9 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
         // 3. DP 分段组词:把整串拼音切成若干段,每段取词频最高的精确命中
         segmentBest(raw)?.let { (word, score) -> add(word, raw, CandidateKind.SEGMENT, score) }
 
+        // 分数降序(分数里已含档位加分:EXACT 400 万 / PREFIX 250 万 / SEGMENT 0)
         return out.values
-            .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.kind.ordinal })
+            .sortedWith(compareByDescending<Candidate> { it.score })
             .take(limit)
     }
 
@@ -98,6 +101,10 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
     companion object {
         /** 一次上屏对词频的加权:大于 jieba 词库的最大词频,保证"最近用过"排最前。 */
         const val USER_BOOST = 1_000_000L
+
+        /** 档位加分:EXACT > PREFIX > SEGMENT,档差需盖过字典最大词频(约 73 万)。 */
+        private val KIND_BONUS = longArrayOf(4_000_000L, 2_500_000L, 0L)
+
         private const val PREFIX_SCAN_CAP = 400
         private const val MAX_WORD_PINYIN = 24
     }

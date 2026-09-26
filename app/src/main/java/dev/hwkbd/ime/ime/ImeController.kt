@@ -27,8 +27,8 @@ class ImeController(
     private val symTracker = TapTracker()
     private val shiftTracker = TapTracker()
 
-    /** Sym 键的真实 keycode 需真机探测后配置,默认 PICTSYMBOLS("Sym" 的 AOSP 定义)。 */
-    var symKeycode: Int = KeyEvent.KEYCODE_PICTSYMBOLS
+    /** Sym 键 keycode。Titan 2 实测:AGUI_SYM → KEYCODE_SYM(63),可用探测页改。 */
+    var symKeycode: Int = KeyEvent.KEYCODE_SYM
 
     /** Alt 键 keycode(默认左右都算)。 */
     var altKeycodes: IntArray = intArrayOf(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)

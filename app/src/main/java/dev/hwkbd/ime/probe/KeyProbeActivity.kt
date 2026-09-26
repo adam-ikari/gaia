@@ -55,7 +55,7 @@ class KeyProbeActivity : AppCompatActivity() {
             render()
         }
         findViewById<Button>(R.id.btn_reset_sym).setOnClickListener {
-            ImeRuntime.prefs.edit().putInt(ImeService.PREF_SYM_KEYCODE, KeyEvent.KEYCODE_PICTSYMBOLS).apply()
+            ImeRuntime.prefs.edit().putInt(ImeService.PREF_SYM_KEYCODE, KeyEvent.KEYCODE_SYM).apply()
             render()
         }
         render()
@@ -83,8 +83,13 @@ class KeyProbeActivity : AppCompatActivity() {
     }
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        appendLine("MOTION action=%d source=0x%x".format(ev.action, ev.source))
+        appendLine("GENERIC act=%d src=0x%x x=%d y=%d".format(ev.actionMasked, ev.source, ev.x.toInt(), ev.y.toInt()))
         return super.dispatchGenericMotionEvent(ev)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        appendLine("TOUCH act=%d src=0x%x x=%d y=%d".format(ev.actionMasked, ev.source, ev.x.toInt(), ev.y.toInt()))
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun appendLine(s: String) {
@@ -93,7 +98,7 @@ class KeyProbeActivity : AppCompatActivity() {
     }
 
     private fun render() {
-        val sym = ImeRuntime.prefs.getInt(ImeService.PREF_SYM_KEYCODE, KeyEvent.KEYCODE_PICTSYMBOLS)
+        val sym = ImeRuntime.prefs.getInt(ImeService.PREF_SYM_KEYCODE, KeyEvent.KEYCODE_SYM)
         findViewById<TextView>(R.id.tv_sym_status).text =
             getString(R.string.probe_sym_current, sym, KeyEvent.keyCodeToString(sym))
         logView.text = log

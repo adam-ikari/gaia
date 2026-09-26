@@ -17,3 +17,12 @@ local.properties
 
 # dictgen
 node_modules/
+
+# 本机调试临时文件
+.tapfeet/
+.coco/
+.probe_screen.png
+.ui.xml
+.getevent.log
+.coco.apk
+.tapfeet.apk

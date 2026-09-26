@@ -78,7 +78,21 @@ class PinyinEngineTest {
         )
         assertEquals("你", e.query("ni", 10).first().word)
         e.onCommitted("你好")
-        assertEquals("你好", e.query("ni", 10).first().word)
+        assertEquals("你", e.query("ni", 10).first().word) // 一次使用不足以跨档
+        e.onCommitted("你好")
+        assertEquals("你好", e.query("ni", 10).first().word) // 两次后跨档
+    }
+
+    @Test
+    fun `高频前缀词不压过精确命中`() {
+        val e = engine(
+            "ni\t你\t234587",
+            "nian\t年\t734437",
+            "niandai\t年代\t8000",
+        )
+        val r = e.query("ni", 10)
+        assertEquals(listOf("你", "年", "年代"), r.map { it.word })
+        assertEquals(CandidateKind.EXACT, r.first().kind)
     }
 
     @Test

@@ -31,7 +31,7 @@ class CandidateBarView @JvmOverloads constructor(
     private var totalPages = 0
 
     private val density = resources.displayMetrics.density
-    private val arrowWidth = 40f * density
+    private val arrowWidth = 26f * density
     private val touchSlop = 12f * density
     private val flingDistance = 24f * density
 
@@ -40,12 +40,12 @@ class CandidateBarView @JvmOverloads constructor(
     private val dividerPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_divider) }
     private val wordPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, R.color.candidate_fg)
-        textSize = 21f * resources.displayMetrics.scaledDensity
+        textSize = 17f * resources.displayMetrics.scaledDensity
         typeface = Typeface.DEFAULT_BOLD
     }
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, R.color.arrow_fg)
-        textSize = 15f * resources.displayMetrics.scaledDensity
+        textSize = 11f * resources.displayMetrics.scaledDensity
     }
 
     private var downX = 0f
@@ -125,7 +125,7 @@ class CandidateBarView @JvmOverloads constructor(
             val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
             wordPaint.textSize *= if (items[i].word.length > 6) 0.7f else 1f
             canvas.drawText(items[i].word, x, y, wordPaint)
-            wordPaint.textSize = 21f * resources.displayMetrics.scaledDensity
+            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
             if (i > 0) {
                 canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
             }

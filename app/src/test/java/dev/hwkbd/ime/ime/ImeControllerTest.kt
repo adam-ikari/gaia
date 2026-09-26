@@ -235,10 +235,10 @@ class ImeControllerTest {
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
-        r.key(KeyEvent.KEYCODE_PICTSYMBOLS)
-        r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS)
-        r.key(KeyEvent.KEYCODE_PICTSYMBOLS)
-        r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
     }
 
@@ -262,10 +262,10 @@ class ImeControllerTest {
     @Test
     fun `L3 空格输出箭头`() {
         val r = rig()
-        r.key(KeyEvent.KEYCODE_PICTSYMBOLS)
-        r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS)
-        r.key(KeyEvent.KEYCODE_PICTSYMBOLS)
-        r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS) // 双击锁定 L3
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
         r.key(KeyEvent.KEYCODE_SPACE)
         assertEquals(listOf("->"), r.h.commits)
@@ -275,8 +275,8 @@ class ImeControllerTest {
     fun `Sym 三击循环层`() {
         val r = rig()
         repeat(3) {
-            r.key(KeyEvent.KEYCODE_PICTSYMBOLS)
-            r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS)
+            r.key(KeyEvent.KEYCODE_SYM)
+            r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         }
         // tap1 一次性 L3,tap2 锁定 L3,tap3 循环 → 解除锁定回 L1
         assertEquals(null, r.c.state.lock)
@@ -287,9 +287,9 @@ class ImeControllerTest {
     fun `Sym 单击 keyUp 才生效进 L3 一次性`() {
         val r = rig()
         r.c.state.mode = ImeMode.EN
-        assertTrue(r.key(KeyEvent.KEYCODE_PICTSYMBOLS))
+        assertTrue(r.key(KeyEvent.KEYCODE_SYM))
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
-        r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
         r.key(kc('q'))
         assertEquals(listOf("{"), r.h.commits)
@@ -300,12 +300,12 @@ class ImeControllerTest {
     fun `按住 Sym 加键等于 Ctrl 组合松开不切层`() {
         val r = rig()
         r.type("ni")
-        r.key(KeyEvent.KEYCODE_PICTSYMBOLS) // 按住
+        r.key(KeyEvent.KEYCODE_SYM) // 按住
         assertTrue(r.key(kc('q'))) // Sym+q = 选候选1
         assertEquals(listOf("你"), r.h.commits)
         assertTrue(r.key(kc('c'))) // Sym+c = 透传 Ctrl+C
         assertEquals(listOf("${kc('c')}/true/false"), r.h.keys)
-        r.c.onKeyUp(KeyEvent.KEYCODE_PICTSYMBOLS)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 松开不切层
     }
 

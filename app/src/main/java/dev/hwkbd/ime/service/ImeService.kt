@@ -6,6 +6,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
 import android.text.InputType
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -91,19 +92,37 @@ class ImeService : InputMethodService() {
         applyPrefs()
         executor.execute {
             val t0 = System.currentTimeMillis()
-            runCatching {
+            try {
                 val lines = ArrayList<String>(300_000)
-                assets.open("dict.txt.gz").use { ins ->
-                    BufferedReader(InputStreamReader(GZIPInputStream(ins), Charsets.UTF_8), 1 shl 16).useLines { seq ->
+                openDictAsset().use { ins ->
+                    BufferedReader(InputStreamReader(ins, Charsets.UTF_8), 1 shl 16).useLines { seq ->
                         seq.forEach { lines.add(it) }
                     }
                 }
                 dict.load(lines)
                 ImeRuntime.dict = dict
+                android.util.Log.i(TAG, "dict loaded: ${dict.size} entries, ${System.currentTimeMillis() - t0} ms")
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "dict load FAILED", e)
             }
-            android.util.Log.i(TAG, "dict loaded: ${dict.size} entries, ${System.currentTimeMillis() - t0} ms")
             controller.refreshQuery()
         }
+    }
+
+    /**
+     * 打开内置词库流。AAPT2 打包时会把 assets 的 dict.txt.gz 解压并改名为 dict.txt,
+     * 所以资产名动态解析,并按 gzip 魔数(1f 8b)自适应明文/压缩两种形态。
+     */
+    private fun openDictAsset(): java.io.InputStream {
+        val names = assets.list("") ?: emptyArray()
+        val name = names.firstOrNull { it.startsWith("dict.txt") }
+            ?: throw java.io.FileNotFoundException("no dict.txt* asset, got: ${names.joinToString()}")
+        val raw = java.io.PushbackInputStream(assets.open(name), 2)
+        val magic = ByteArray(2)
+        val n = raw.read(magic)
+        if (n == 2) raw.unread(magic)
+        val gz = n == 2 && magic[0] == 0x1f.toByte() && magic[1] == 0x8b.toByte()
+        return if (gz) GZIPInputStream(raw) else raw
     }
 
     override fun onDestroy() {
@@ -193,6 +212,16 @@ class ImeService : InputMethodService() {
         }
     }
 
+    /** 探测键盘表面(TOUCHPAD)滑动是否以 Motion 形式送达输入法窗口。 */
+    override fun onGenericMotionEvent(event: MotionEvent?): Boolean {
+        event?.let {
+            if (it.source and 0x2 != 0 || it.source and 0x200000 != 0 || it.source and 0x100008 != 0) {
+                android.util.Log.i(TAG, "ime generic: act=${it.actionMasked} src=0x${Integer.toHexString(it.source)} x=${it.x.toInt()} y=${it.y.toInt()}")
+            }
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
     // ------------------------------------------------------------------ 窗口策略
 
     /** 有硬键盘也要显示输入视图:候选栏是硬件键盘方案的核心选字通道。 */
@@ -218,7 +247,7 @@ class ImeService : InputMethodService() {
         controller.state.pageSize = p.getString(PREF_PAGE_SIZE, "5")?.toIntOrNull() ?: 5
         controller.fullWidthSymbolsInCn = p.getBoolean(PREF_FULLWIDTH, true)
         controller.pageReverse = p.getBoolean(PREF_PAGE_REVERSE, false)
-        controller.symKeycode = p.getInt(PREF_SYM_KEYCODE, KeyEvent.KEYCODE_PICTSYMBOLS)
+        controller.symKeycode = p.getInt(PREF_SYM_KEYCODE, KeyEvent.KEYCODE_SYM)
         val alt = p.getInt(PREF_ALT_KEYCODE, -1)
         controller.altKeycodes =
             if (alt > 0) intArrayOf(alt) else intArrayOf(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)
@@ -241,7 +270,14 @@ class ImeService : InputMethodService() {
 
     // ------------------------------------------------------------------ 渲染
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private fun updateUi() {
+        // 词库后台线程加载完成会触发 render,统一调度回主线程
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mainHandler.post { updateUi() }
+            return
+        }
         val s: ImeState = controller.state
         val modeText = when (s.mode) {
             ImeMode.CN -> getString(R.string.mode_cn)
