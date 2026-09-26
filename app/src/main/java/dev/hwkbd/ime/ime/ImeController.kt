@@ -239,12 +239,12 @@ class ImeController(
     // ------------------------------------------------------------------ 内部处理
 
     private fun handleCtrlKey(code: Int, shift: Boolean): Boolean {
-        // Ctrl+Q/W/E/R/T = 候选 1..5,对应显示位 [2,1,3,0,4](首选在中间)
+        // Ctrl+Q/W/E/R/T 按键盘几何对应五个候选槽(Q=最左 … T=最右)
         val idx = when (code) {
-            KeyEvent.KEYCODE_Q -> 2
+            KeyEvent.KEYCODE_Q -> 0
             KeyEvent.KEYCODE_W -> 1
-            KeyEvent.KEYCODE_E -> 3
-            KeyEvent.KEYCODE_R -> 0
+            KeyEvent.KEYCODE_E -> 2
+            KeyEvent.KEYCODE_R -> 3
             KeyEvent.KEYCODE_T -> 4
             else -> -1
         }

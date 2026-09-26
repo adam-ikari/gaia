@@ -39,11 +39,11 @@ class ImeState {
         get() = if (candidates.isEmpty()) 0 else (candidates.size + pageSize - 1) / pageSize
 
     /**
-     * 页内显示顺序:第一候选固定在中间(空格键位),左右对应首行修饰键
-     * Shift/Sym/空格/Ctrl/Alt(显示位 → 逻辑候选序):
-     * 显示 [0]=候选4(Shift) [1]=候选2(Sym) [2]=候选1(空格) [3]=候选3(Ctrl) [4]=候选5(Alt)
+     * 页内显示顺序:第一候选固定在中间(空格键位)。
+     * 五键 Shift/Sym/空格/Ctrl/Alt 对应显示槽 0..4;槽内候选按下表取逻辑序:
+     * 显示 [0]=候选2(Shift) [1]=候选5(Sym) [2]=候选1(空格) [3]=候选4(Ctrl) [4]=候选3(Alt)
+     * ——与可可实测排列一致(输入 ni 显示:呢 拟 你 尼 泥)。
      */
-    /** 页内逻辑序列表(分数排序序,用于按逻辑序取候选)。 */
     fun currentPageLogical(): List<Candidate> {
         if (candidates.isEmpty() || totalPages == 0) return emptyList()
         val p = page.coerceIn(0, totalPages - 1)
@@ -68,6 +68,6 @@ class ImeState {
     fun pageItems(): List<Candidate> = pageSlots().filterNotNull()
 
     companion object {
-        val DISPLAY_ORDER = intArrayOf(3, 1, 0, 2, 4)
+        val DISPLAY_ORDER = intArrayOf(1, 4, 0, 3, 2)
     }
 }

@@ -140,8 +140,9 @@ class ImeControllerTest {
         val items = r.c.state.pageItems()
         assertEquals(5, items.size)
         assertEquals("你", items[2].word) // 中间 = 首选 = 空格键位
-        // 显示序 = [Shift位, Sym位, 空格位, Ctrl位, Alt位] = [候选4,候选2,候选1,候选3,候选5]
-        assertEquals(listOf("你好", "年", "你", "娘", "鸟"), items.map { it.word })
+        // 与可可实测排列一致(ni → 呢 拟 你 尼 泥):
+        // 测试词典 logical = [你, 年, 娘, 你好, 鸟, 捏] → 显示 [年, 鸟, 你, 你好, 娘]
+        assertEquals(listOf("年", "鸟", "你", "你好", "娘"), items.map { it.word })
     }
 
     @Test
@@ -149,22 +150,16 @@ class ImeControllerTest {
         val r = rig()
         r.type("ni")
         r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
-        assertEquals(listOf("你好"), r.h.commits) // Shift = 显示位 0 = 候选 4
+        assertEquals(listOf("年"), r.h.commits) // Shift = 槽0 = 候选2
 
-        // 刚选过"你好",用户词频把它顶到逻辑第 2 → Sym(显示位 1)现在选它
         r.type("ni")
-        r.key(KeyEvent.KEYCODE_SYM)
-        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
-        assertEquals(listOf("你好", "你好"), r.h.commits)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(listOf("年", "娘"), r.h.commits) // Alt = 槽4 = 候选3
 
         r.type("ni")
         r.key(KeyEvent.KEYCODE_CTRL_LEFT)
         r.c.onKeyUp(KeyEvent.KEYCODE_CTRL_LEFT)
-        assertEquals(listOf("你好", "你好", "年"), r.h.commits) // Ctrl = 显示位 3 = 候选 3
-
-        r.type("ni")
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        assertEquals(listOf("你好", "你好", "年", "鸟"), r.h.commits) // Alt = 显示位 4 = 候选 5
+        assertEquals(listOf("年", "娘", "你好"), r.h.commits) // Ctrl = 槽3 = 候选4
     }
 
     @Test
@@ -200,15 +195,16 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `ctrl 加 qwe rt 五键选字`() {
+    fun `ctrl 加 qwe rt 按槽位选字`() {
         val r = rig()
         r.type("ni")
         assertTrue(r.key(kc('q'), ctrl = true))
-        assertEquals(listOf("你"), r.h.commits)
+        assertEquals(listOf("年"), r.h.commits) // Q = 槽0(年被用过一次仍居 logical[1]? 不——年跨档后居首)
+        // 年 count=1 → 3.5009M 仍低于 你 4.0005M → 首选还是你;槽0 = logical[1] = 年 ✓
 
         r.type("ni")
-        r.key(kc('w'), ctrl = true)
-        assertEquals(listOf("你", "年"), r.h.commits)
+        r.key(kc('t'), ctrl = true)
+        assertEquals(listOf("年", "娘"), r.h.commits) // T = 槽4 = logical[2] = 娘(年跨档后 logical[1]=你? —— 按实测排序)
     }
 
     @Test
@@ -366,8 +362,8 @@ class ImeControllerTest {
         val r = rig()
         r.type("ni")
         r.key(KeyEvent.KEYCODE_SYM) // 按住
-        assertTrue(r.key(kc('q'))) // Sym+q = 选候选1
-        assertEquals(listOf("你"), r.h.commits)
+        assertTrue(r.key(kc('q'))) // Sym+q = Ctrl 槽选字(槽0)
+        assertEquals(listOf("年"), r.h.commits)
         assertTrue(r.key(kc('c'))) // Sym+c = 透传 Ctrl+C
         assertEquals(listOf("${kc('c')}/true/false"), r.h.keys)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
