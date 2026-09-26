@@ -75,46 +75,41 @@ class KeyLayout(private val maps: Map<Layer, Map<Int, KeyOut>>) {
                     maps.getOrPut(layer) { mutableMapOf() }[code] = out
                 }
             }
-            return if (errors.isEmpty()) KeyLayoutParse(KeyLayout(maps), emptyList()) else KeyLayoutParse(null, errors)
+            return if (errors.isEmpty()) {
+                // 缺 [L1] 段时补默认字母层(自定义布局通常只改 L2/L3)
+                maps.getOrPut(Layer.L1) { default().mapFor(Layer.L1).toMutableMap() }
+                KeyLayoutParse(KeyLayout(maps), emptyList())
+            } else KeyLayoutParse(null, errors)
         }
 
         fun default(): KeyLayout {
             val l1 = mutableMapOf<Int, KeyOut>()
             for (i in 0..25) l1[KeyEvent.KEYCODE_A + i] = KeyOut.Text(('a' + i).toString())
-            for ((c, s) in listOf(
-                KeyEvent.KEYCODE_COMMA to ",", KeyEvent.KEYCODE_PERIOD to ".",
-                KeyEvent.KEYCODE_SLASH to "/", KeyEvent.KEYCODE_SEMICOLON to ";",
-                KeyEvent.KEYCODE_APOSTROPHE to "'", KeyEvent.KEYCODE_GRAVE to "`",
-                KeyEvent.KEYCODE_MINUS to "-", KeyEvent.KEYCODE_EQUALS to "=",
-                KeyEvent.KEYCODE_LEFT_BRACKET to "[", KeyEvent.KEYCODE_RIGHT_BRACKET to "]",
-                KeyEvent.KEYCODE_BACKSLASH to "\\",
-            )) l1[c] = KeyOut.Text(s)
 
-            // L2 符号数字层:q..p = 1234567890,键帽上档符号
-            // 注意字母 keycode 按字母表序(A=29..Z=54),不是 QWERTY 排列,必须按键名映射
+            // L2 符号数字层(Alt):与 TitanKey.kcm 厂商键帽定案完全一致——
+            // 数字 0-9 九宫格排在 WER/SDF/XCV(Q=0),标点在右手区;本机无独立标点键。
             val l2 = mutableMapOf<Int, KeyOut>()
-            "qwertyuiop".forEachIndexed { i, c ->
-                l2[KeyEvent.KEYCODE_A + (c - 'a')] = KeyOut.Text("1234567890"[i].toString())
-            }
             for ((k, s) in listOf(
-                "a" to "!", "s" to "@", "d" to "#", "f" to "$", "g" to "%",
-                "h" to "^", "j" to "&", "k" to "*", "l" to "(", "semicolon" to ")",
-                "minus" to "_", "equals" to "+", "lbracket" to "{", "rbracket" to "}",
-                "bkslash" to "|", "grave" to "~", "apostrophe" to "\"",
-                "comma" to "<", "period" to ">", "slash" to "?",
+                "q" to "0", "w" to "1", "e" to "2", "r" to "3", "t" to "(",
+                "y" to ")", "u" to "-", "i" to "_", "o" to "/", "p" to ":",
+                "a" to "@", "s" to "4", "d" to "5", "f" to "6", "g" to "*",
+                "h" to "#", "j" to "+", "k" to "\"", "l" to "\\",
+                "z" to "!", "x" to "7", "c" to "8", "v" to "9", "b" to ".",
+                "n" to ",", "m" to "?",
             )) l2[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.Text(s)
 
-            // L3 编程层:高频开发符号,成对括号相邻
+            // L3 编程层(Sym):与可可扩展字符默认布局完全一致(功能键+成对括号相邻)
             val l3 = mutableMapOf<Int, KeyOut>()
             for ((k, s) in listOf(
-                "q" to "{", "w" to "}", "e" to "[", "r" to "]", "t" to "(", "y" to ")",
-                "u" to "<", "i" to ">", "o" to "\"", "p" to "'",
-                "a" to ":", "s" to ";", "d" to "=", "f" to "+", "g" to "-",
-                "h" to "*", "j" to "/", "k" to "_", "l" to "|",
-                "z" to "\\", "x" to "`", "c" to "&", "v" to "%", "b" to "#",
-                "n" to "@", "m" to "$", "comma" to "^", "period" to "~", "slash" to "|",
-                "space" to "->",
-            )) l3[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.Text(s)
+                "q" to "key:esc", "w" to "key:up", "e" to "~", "r" to "©",
+                "t" to "<", "y" to ">", "u" to "^", "i" to "key:pgup",
+                "o" to "key:pgdn", "p" to "key:tab",
+                "a" to "key:left", "s" to "key:down", "d" to "key:right", "f" to "%",
+                "g" to "[", "h" to "]", "j" to "`", "k" to "key:move_home",
+                "l" to "key:move_end",
+                "z" to "\\", "x" to "&", "c" to "|", "v" to "{", "b" to "}",
+                "n" to "=", "m" to "key:insert",
+            )) l3[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.parse(s)!!
 
             return KeyLayout(
                 mapOf(

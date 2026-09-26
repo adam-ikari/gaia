@@ -173,6 +173,10 @@ class ImeService : InputMethodService() {
         softKeyboard?.layout = layout
         composing = ""
         controller.resetForNewInput()
+        // 密码框强制英文态,避免拼音组词混入密码显示
+        if (isPasswordField(attribute) && controller.state.mode == ImeMode.CN) {
+            controller.toggleMode()
+        }
     }
 
     override fun onFinishInput() {

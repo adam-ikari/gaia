@@ -320,15 +320,6 @@ class ImeController(
     }
 
     private fun handleSpace(layer: Layer): Boolean {
-        // L3 的空格输出编程串(默认 "->")
-        val l3 = layout.mapFor(Layer.L3)[KeyEvent.KEYCODE_SPACE] as? KeyOut.Text
-        if (layer == Layer.L3 && l3 != null) {
-            flushComposition()
-            host.commitText(l3.text)
-            consumeOneShot()
-            host.render()
-            return true
-        }
         if (state.hasComposition) {
             if (state.candidates.isNotEmpty()) {
                 selectCandidate(if (state.highlight >= 0) state.highlight else TOP_DISPLAY)
@@ -345,9 +336,17 @@ class ImeController(
     private fun emitSymbol(text: String, layer: Layer) {
         flushComposition()
         var out = text
-        if (state.mode == ImeMode.CN) {
-            if (fullWidthSymbolsInCn && layer == Layer.L2) out = fullwidth(out)
-            if (layer == Layer.L1 && out.length == 1) out = CN_PUNCT[out] ?: out
+        if (state.mode == ImeMode.CN && fullWidthSymbolsInCn && layer == Layer.L2) {
+            // 中文标点特判(.→。),其余 ASCII 标点全角(,→，?→？…);
+            // 数字保持半角(Alt 层九宫格 0-9 常用于输号码)
+            out = out.map { c ->
+                when {
+                    c == '.' -> '。'
+                    c.code in 0x21..0x2F || c.code in 0x3A..0x40 ||
+                        c.code in 0x5B..0x60 || c.code in 0x7B..0x7E -> (c.code + 0xFEE0).toChar()
+                    else -> c
+                }
+            }.joinToString("")
         }
         host.commitText(out)
     }
@@ -377,18 +376,5 @@ class ImeController(
 
         /** 首选(逻辑第 1 候选)的显示位 = 中间(空格键)。 */
         const val TOP_DISPLAY = 2
-
-        /** 中文态 L1 标点的全角形态。 */
-        private val CN_PUNCT = mapOf(
-            "," to "\uFF0C",
-            "." to "\u3002",
-            ";" to "\uFF1B",
-            "?" to "\uFF1F",
-            "!" to "\uFF01",
-        )
-
-        private fun fullwidth(s: String): String = buildString {
-            for (c in s) append(if (c.code in 0x21..0x7E) (c.code + 0xFEE0).toChar() else c)
-        }
     }
 }

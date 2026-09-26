@@ -111,18 +111,11 @@ class ImeControllerTest {
 
     @Test
     fun `中文态标点全角逗号句号`() {
+        // Titan2 无独立标点键:中文标点走 Alt 层 N=, B=.
         val r = rig()
-        r.key(KeyEvent.KEYCODE_COMMA)
-        r.key(KeyEvent.KEYCODE_PERIOD)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT); r.key(kc('n'))
+        r.key(KeyEvent.KEYCODE_ALT_LEFT); r.key(kc('b'))
         assertEquals(listOf("\uFF0C", "\u3002"), r.h.commits)
-    }
-
-    @Test
-    fun `组词被符号打断先上屏首选`() {
-        val r = rig()
-        r.type("nihao")
-        r.key(KeyEvent.KEYCODE_COMMA)
-        assertEquals(listOf("你好", "\uFF0C"), r.h.commits)
     }
 
     // ---------------------------------------------------------------- 选字/翻页
@@ -255,8 +248,8 @@ class ImeControllerTest {
         r.c.state.mode = ImeMode.EN
         assertTrue(r.key(KeyEvent.KEYCODE_ALT_LEFT))
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
-        r.key(kc('q'))
-        assertEquals(listOf("1"), r.h.commits)
+        r.key(kc('w'))
+        assertEquals(listOf("1"), r.h.commits) // Alt 层 W=1(九宫格)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
 
@@ -266,8 +259,8 @@ class ImeControllerTest {
         r.c.state.mode = ImeMode.EN
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(kc('q'))
         r.key(kc('w'))
+        r.key(kc('e'))
         assertEquals(listOf("1", "2"), r.h.commits)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
         // 真实节奏:锁定后先输入符号,再次敲 Alt 时早已超出双击窗口 → 单击解锁
@@ -290,11 +283,19 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `中文态 L2 输出全角符号`() {
+    fun `中文态 L2 数字保持半角`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(kc('q'))
-        assertEquals(listOf("\uFF11"), r.h.commits) // 全角 1
+        r.key(kc('w'))
+        assertEquals(listOf("1"), r.h.commits) // 九宫格数字用于输号码,保持半角
+    }
+
+    @Test
+    fun `中文态 L2 标点全角`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(kc('t'))
+        assertEquals(listOf("\uFF08"), r.h.commits) // Alt 层 T=( → 全角(
     }
 
     @Test
@@ -302,12 +303,12 @@ class ImeControllerTest {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(kc('q'))
+        r.key(kc('w'))
         assertEquals(listOf("1"), r.h.commits)
     }
 
     @Test
-    fun `L3 空格输出箭头`() {
+    fun `L3 空格保持原功能`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
@@ -315,7 +316,7 @@ class ImeControllerTest {
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
         r.key(KeyEvent.KEYCODE_SPACE)
-        assertEquals(listOf("->"), r.h.commits)
+        assertEquals(listOf(" "), r.h.commits) // 空格在 L3 不再特判(与可可一致)
     }
 
     @Test
@@ -339,7 +340,8 @@ class ImeControllerTest {
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
         r.key(kc('q'))
-        assertEquals(listOf("{"), r.h.commits)
+        assertEquals(emptyList<String>(), r.h.commits) // L3 Q=Esc:功能键转发,不上屏文本
+        assertEquals(listOf("${KeyEvent.KEYCODE_ESCAPE}/false/false"), r.h.keys)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
 
