@@ -26,7 +26,7 @@ import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyLayoutStore
 import dev.hwkbd.ime.keymap.Layer
 import dev.hwkbd.ime.ui.CandidateBarView
-import dev.hwkbd.ime.ui.SoftKeyboardView
+import dev.hwkbd.ime.ui.ImeRootView
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.Executors
@@ -47,10 +47,6 @@ class ImeService : InputMethodService() {
     private var chipLayer: TextView? = null
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
-    private var softKeyboard: SoftKeyboardView? = null
-    private var btnSoftKeyboard: ImageButton? = null
-
-    private var showSoftKeyboard = true
     private var lastComposingForInsets = false
 
     /** 当前组词区内容(render 与 onUpdateSelection 对账用)。 */
@@ -150,17 +146,13 @@ class ImeService : InputMethodService() {
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
         }
-        softKeyboard = root.findViewById<SoftKeyboardView>(R.id.soft_keyboard).apply {
-            layout = KeyLayoutStore.load(this@ImeService)
-            onKey = { code -> controller.onKeyDown(code, false, false) }
-            onAltTap = { controller.onAltTap() }
-            onSymTap = { controller.onSymTap() }
-            onShiftTap = { controller.onShiftTap() }
-            onSelectZone = { controller.selectCandidate(it) }
-            onPage = { controller.pageStep(it) }
-        }
-        btnSoftKeyboard = root.findViewById<ImageButton>(R.id.btn_soft_keyboard).apply {
-            setOnClickListener { toggleSoftKeyboardPref() }
+        root.findViewById<ImageButton>(R.id.btn_settings).apply {
+            setOnClickListener {
+                startActivity(
+                    android.content.Intent(this@ImeService, dev.hwkbd.ime.settings.SettingsActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
         chipMode?.setOnClickListener { controller.toggleMode() }
@@ -172,9 +164,7 @@ class ImeService : InputMethodService() {
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         // 层映射可能被设置页改过,每次开始输入重新加载(开销可忽略)
-        val layout: KeyLayout = KeyLayoutStore.load(this)
-        controller.layout = layout
-        softKeyboard?.layout = layout
+        controller.layout = KeyLayoutStore.load(this)
         composing = ""
         controller.resetForNewInput()
         // 密码框强制英文态,避免拼音组词混入密码显示
@@ -345,15 +335,9 @@ class ImeService : InputMethodService() {
         controller.altKeycodes =
             if (alt > 0) intArrayOf(alt) else intArrayOf(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)
 
-        showSoftKeyboard = p.getBoolean(PREF_SHOW_SOFT, true)
         candidateBar?.swipeSelectEnabled = p.getBoolean(PREF_SWIPE_SELECT, true)
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
-        softKeyboard?.visibility = if (showSoftKeyboard) View.VISIBLE else View.GONE
         updateUi()
-    }
-
-    private fun toggleSoftKeyboardPref() {
-        ImeRuntime.prefs.edit().putBoolean(PREF_SHOW_SOFT, !showSoftKeyboard).apply()
     }
 
     // ------------------------------------------------------------------ 渲染
@@ -414,7 +398,6 @@ class ImeService : InputMethodService() {
         val s: ImeState = controller.state
         renderChips(s)
         candidateBar?.setState(s)
-        softKeyboard?.setState(s)
 
         // 单行两态:组词中整行给候选,空闲时整行给状态
         val composingNow = s.hasComposition
@@ -455,7 +438,6 @@ class ImeService : InputMethodService() {
         /** 手势返回码:飞字用区号(>=0),翻页用负数。 */
         private const val PAGE_PREV = -1
         private const val PAGE_NEXT = -2
-        const val PREF_SHOW_SOFT = "show_soft_keyboard"
         const val PREF_FULLWIDTH = "fullwidth_symbols_in_cn"
         const val PREF_PAGE_REVERSE = "page_reverse"
         const val PREF_SWIPE_SELECT = "swipe_select"

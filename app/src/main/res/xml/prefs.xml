@@ -3,11 +3,6 @@
 
     <PreferenceCategory android:title="@string/pref_category_general">
         <SwitchPreferenceCompat
-            android:key="show_soft_keyboard"
-            android:defaultValue="true"
-            android:title="@string/pref_show_soft_keyboard"
-            android:summary="@string/pref_show_soft_keyboard_desc" />
-        <SwitchPreferenceCompat
             android:key="fullwidth_symbols_in_cn"
             android:defaultValue="true"
             android:title="@string/pref_fullwidth" />
