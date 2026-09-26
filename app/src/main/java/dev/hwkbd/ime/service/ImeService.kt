@@ -272,8 +272,8 @@ class ImeService : InputMethodService() {
                     val dt = System.currentTimeMillis() - downAt
                     android.util.Log.i(TAG, "fly judge: dy=${dy.toInt()} dx=${dx.toInt()} dt=$dt")
                     if (dt > 1200) return null
-                    // 横向主位移 → 翻页(向右滑=下一条,向左=上一条,可可同向)
-                    if (adx > 60f && adx > dy) return if (dx > 0) PAGE_NEXT else PAGE_PREV
+                    // 横向主位移 → 翻页:左滑=下一页(内容拖拽隐喻,与候选栏手势一致)
+                    if (adx > 60f && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
                     // 纵向主位移(向上)→ 飞字
                     if (dy > 40f && dy > adx) return zoneOf(downX)
                 }
