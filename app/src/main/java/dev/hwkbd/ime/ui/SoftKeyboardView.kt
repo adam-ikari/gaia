@@ -37,9 +37,6 @@ class SoftKeyboardView @JvmOverloads constructor(
     var swipeSelectEnabled = true
     var swipePageEnabled = true
 
-    /** 5 区分栏比例,如 [1,2,4,2,1]。 */
-    var zoneWeights: IntArray = intArrayOf(1, 2, 4, 2, 1)
-
     var layout: KeyLayout? = null
 
     private var layer = Layer.L1
@@ -159,17 +156,14 @@ class SoftKeyboardView @JvmOverloads constructor(
         }
     }
 
-    /** 横向按 zoneWeights 分区,返回 x 所在区号。 */
+    /** 键面横向平分 5 区,返回 x 所在区号。 */
     private fun zoneIndexAt(x: Float): Int? {
-        val total = zoneWeights.sum()
-        if (total <= 0) return null
-        var acc = 0
-        val f = x / width * total
-        for (i in zoneWeights.indices) {
-            acc += zoneWeights[i]
-            if (f < acc) return i
-        }
-        return zoneWeights.size - 1
+        if (width <= 0) return null
+        return ((x / width * FLY_ZONES).toInt()).coerceIn(0, FLY_ZONES - 1)
+    }
+
+    companion object {
+        private const val FLY_ZONES = 5
     }
 
     override fun onDraw(canvas: Canvas) {

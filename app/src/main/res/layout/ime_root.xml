@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   输入法根视图:36dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
-  - 组词中:候选行(整行候选 + 页码)——飞字/选字目标尽量大
+  - 组词中:候选行(整行候选)——飞字/选字目标尽量大
   - 空闲时:状态行(模式徽标 + 屏幕键盘开关 + 收起)
-  屏幕键盘(可选,默认隐藏)追加在下方。
+  屏幕键盘(可选,默认隐藏)追加在下方。组词中 touchable 区扩到全屏接飞字。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<dev.hwkbd.ime.ui.ImeRootView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/status_bg"
+    android:background="@android:color/transparent"
+    android:gravity="bottom"
     android:orientation="vertical">
 
     <FrameLayout
@@ -20,6 +21,7 @@
             android:id="@+id/status_row"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/status_bg"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -62,11 +64,12 @@
                 android:tint="@color/status_fg" />
         </LinearLayout>
 
-        <!-- 候选行(组词中):整行候选 + 页码 -->
+        <!-- 候选行(组词中):整行候选 -->
         <LinearLayout
             android:id="@+id/candidate_row"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/status_bg"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -85,4 +88,4 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:visibility="gone" />
-</LinearLayout>
+</dev.hwkbd.ime.ui.ImeRootView>

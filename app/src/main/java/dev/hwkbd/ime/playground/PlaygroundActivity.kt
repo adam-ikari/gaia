@@ -27,6 +27,16 @@ class PlaygroundActivity : AppCompatActivity() {
         }
     }
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        android.util.Log.i("Playground", "touch act=${ev.actionMasked} src=0x${Integer.toHexString(ev.source)} x=${ev.x.toInt()} y=${ev.y.toInt()}")
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {
+        android.util.Log.i("Playground", "generic act=${ev.actionMasked} src=0x${Integer.toHexString(ev.source)} x=${ev.x.toInt()} y=${ev.y.toInt()}")
+        return super.dispatchGenericMotionEvent(ev)
+    }
+
     /** logcat -d 抓本应用最近的 ImeService 日志(需要 adb 才能拿全,这里尽力而为)。 */
     private fun readRecentImeLog(): String = try {
         val process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-s", "ImeService:*", "-t", "100"))
