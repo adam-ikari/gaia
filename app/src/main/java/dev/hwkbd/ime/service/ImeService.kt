@@ -13,6 +13,7 @@ import android.view.inputmethod.InputConnection
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.ImeRuntime
 import dev.hwkbd.ime.R
 import dev.hwkbd.ime.engine.PinyinDict
@@ -42,7 +43,8 @@ class ImeService : InputMethodService() {
 
     private var statusRow: View? = null
     private var candidateRow: View? = null
-    private var statusMode: TextView? = null
+    private var chipMode: TextView? = null
+    private var chipLayer: TextView? = null
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
     private var softKeyboard: SoftKeyboardView? = null
@@ -141,7 +143,8 @@ class ImeService : InputMethodService() {
         imeRoot?.flyHandler = { ev -> handleFlyMotion(ev) }
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
-        statusMode = root.findViewById(R.id.tv_mode)
+        chipMode = root.findViewById(R.id.chip_mode)
+        chipLayer = root.findViewById(R.id.chip_layer)
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
@@ -160,7 +163,7 @@ class ImeService : InputMethodService() {
             setOnClickListener { toggleSoftKeyboardPref() }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
-        statusMode?.setOnClickListener { controller.toggleMode() }
+        chipMode?.setOnClickListener { controller.toggleMode() }
         applyPrefs()
         updateUi()
         return root
@@ -357,6 +360,51 @@ class ImeService : InputMethodService() {
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
+    /** 状态徽标:颜色+背景表达模式与层,不堆文字。层芯片 锁=实心底 / 一次性=描边。 */
+    private fun renderChips(s: ImeState) {
+        val cn = s.mode == ImeMode.CN
+        chipMode?.apply {
+            text = if (cn) getString(R.string.mode_cn) else getString(R.string.mode_en)
+            setTextColor(
+                ContextCompat.getColor(
+                    this@ImeService,
+                    if (cn) R.color.status_active else R.color.status_fg,
+                )
+            )
+            background = null
+        }
+        val ctx = this@ImeService
+        when (s.effectiveLayer) {
+            Layer.L1 -> chipLayer?.visibility = View.GONE
+            Layer.L2 -> renderLayerChip(ctx, "符", R.color.chip_l2, s.lock != null)
+            Layer.L3 -> renderLayerChip(ctx, "S", R.color.chip_l3, s.lock != null)
+        }
+    }
+
+    private fun renderLayerChip(ctx: android.content.Context, label: String, colorRes: Int, locked: Boolean) {
+        val chip = chipLayer ?: return
+        val color = ContextCompat.getColor(ctx, colorRes)
+        val density = ctx.resources.displayMetrics.density
+        chip.text = label
+        chip.visibility = View.VISIBLE
+        if (locked) {
+            chip.setTextColor(0xFF16181D.toInt())
+            chip.background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 4f * density
+                setColor(color)
+            }
+        } else {
+            chip.setTextColor(color)
+            chip.background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 4f * density
+                setColor(android.graphics.Color.TRANSPARENT)
+                setStroke((1.2f * density).toInt(), color)
+            }
+        }
+    }
+
     private fun updateUi() {
         // 词库后台线程加载完成会触发 render,统一调度回主线程
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
@@ -364,17 +412,7 @@ class ImeService : InputMethodService() {
             return
         }
         val s: ImeState = controller.state
-        val modeText = when (s.mode) {
-            ImeMode.CN -> getString(R.string.mode_cn)
-            ImeMode.EN -> getString(R.string.mode_en)
-        }
-        val layerTag = when (s.effectiveLayer) {
-            Layer.L2 -> getString(R.string.mode_alt)
-            Layer.L3 -> getString(R.string.mode_sym)
-            Layer.L1 -> ""
-        }
-        val lockTag = if (s.lock != null) getString(R.string.lock_badge) else ""
-        statusMode?.text = modeText + layerTag + lockTag
+        renderChips(s)
         candidateBar?.setState(s)
         softKeyboard?.setState(s)
 
