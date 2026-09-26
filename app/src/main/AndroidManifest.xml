@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 探测页导出键值日志：用系统分享面板导出文本，因此声明可见查询 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HwKbd">
+
+        <!-- 输入法服务 -->
+        <service
+            android:name=".service.ImeService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+        <activity
+            android:name=".settings.SettingsActivity"
+            android:exported="true"
+            android:label="@string/settings_title">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 三层键位映射编辑 -->
+        <activity
+            android:name=".settings.LayerMapActivity"
+            android:exported="false"
+            android:label="@string/layer_map_title"
+            android:windowSoftInputMode="stateAlwaysVisible" />
+
+        <!-- 真机按键探测：抓 Sym / Fn / 方向键真实 keycode -->
+        <activity
+            android:name=".probe.KeyProbeActivity"
+            android:exported="true"
+            android:label="@string/probe_title"
+            android:windowSoftInputMode="stateVisible" />
+    </application>
+</manifest>

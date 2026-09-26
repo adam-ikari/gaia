@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">全键盘拼音输入法</string>
+    <string name="settings_title">全键盘输入法 设置</string>
+    <string name="layer_map_title">三层键位映射</string>
+    <string name="probe_title">按键探测</string>
+
+    <!-- 输入方式状态条 -->
+    <string name="mode_cn">中</string>
+    <string name="mode_en">Ab</string>
+    <string name="mode_alt">符</string>
+    <string name="mode_sym">sym</string>
+    <string name="lock_badge">锁</string>
+
+    <!-- 设置 -->
+    <string name="pref_category_general">常规</string>
+    <string name="pref_show_soft_keyboard">显示屏幕键盘</string>
+    <string name="pref_show_soft_keyboard_desc">关闭后只显示候选栏，物理键盘完全接管（推荐在 Titan 2 上按习惯选择）</string>
+    <string name="pref_candidate_count">每页候选数</string>
+    <string name="pref_hz_split">键区分栏比例（上滑选字）</string>
+    <string name="pref_hz_split_12421">1 : 2 : 4 : 2 : 1</string>
+    <string name="pref_hz_split_23432">2 : 3 : 4 : 3 : 2</string>
+    <string name="pref_swipe_select">候选栏上滑选字</string>
+    <string name="pref_swipe_page">候选栏左右滑翻页</string>
+    <string name="pref_keyboard_swipe">屏幕键盘上滑选字 / 左右滑翻页</string>
+    <string name="pref_page_reverse">翻页方向反转</string>
+
+    <string name="pref_category_keys">按键与层</string>
+    <string name="pref_layer_map">编辑三层键位映射</string>
+    <string name="pref_layer_reset">恢复默认键位映射</string>
+    <string name="pref_select_keys">五键选字键位</string>
+
+    <string name="pref_category_dict">词库</string>
+    <string name="pref_dict_import">导入词库文件</string>
+    <string name="pref_dict_export">导出用户词库</string>
+    <string name="pref_dict_reset">清空用户词库</string>
+    <string name="pref_dict_stats">词库状态</string>
+
+    <string name="pref_category_dev">调试</string>
+    <string name="pref_probe">按键探测器（抓 Sym/Fn 真实键值）</string>
+    <string name="pref_about">关于</string>
+
+    <!-- 键位编辑 -->
+    <string name="layer_save">保存</string>
+    <string name="layer_reset">恢复默认</string>
+    <string name="layer_export">导出文本</string>
+    <string name="layer_import">导入文本</string>
+    <string name="layer_invalid_line">第 %1$d 行格式错误：应为 「键=输出」，功能键写 key:键名</string>
+
+    <!-- 探测页 -->
+    <string name="probe_hint">点击这里获得焦点，然后按任意物理键（含 Sym / Fn / 方向键），下方会实时显示键值</string>
+    <string name="probe_clear">清空</string>
+    <string name="probe_share">导出</string>
+</resources>
