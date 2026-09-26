@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory android:title="@string/pref_category_general">
+        <SwitchPreferenceCompat
+            android:key="show_soft_keyboard"
+            android:defaultValue="true"
+            android:title="@string/pref_show_soft_keyboard"
+            android:summary="@string/pref_show_soft_keyboard_desc" />
+        <ListPreference
+            android:key="candidate_page_size"
+            android:defaultValue="5"
+            android:title="@string/pref_candidate_count"
+            android:entries="@array/candidate_count_entries"
+            android:entryValues="@array/candidate_count_values" />
+        <ListPreference
+            android:key="hz_split"
+            android:defaultValue="1,2,4,2,1"
+            android:title="@string/pref_hz_split"
+            android:entries="@array/hz_split_entries"
+            android:entryValues="@array/hz_split_values" />
+        <SwitchPreferenceCompat
+            android:key="fullwidth_symbols_in_cn"
+            android:defaultValue="true"
+            android:title="@string/pref_fullwidth" />
+        <SwitchPreferenceCompat
+            android:key="swipe_select"
+            android:defaultValue="true"
+            android:title="@string/pref_swipe_select" />
+        <SwitchPreferenceCompat
+            android:key="swipe_page"
+            android:defaultValue="true"
+            android:title="@string/pref_swipe_page" />
+        <SwitchPreferenceCompat
+            android:key="keyboard_swipe"
+            android:defaultValue="true"
+            android:title="@string/pref_keyboard_swipe" />
+        <SwitchPreferenceCompat
+            android:key="page_reverse"
+            android:defaultValue="false"
+            android:title="@string/pref_page_reverse" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_keys">
+        <Preference
+            android:key="layer_map"
+            android:title="@string/pref_layer_map" />
+        <Preference
+            android:key="layer_reset"
+            android:title="@string/pref_layer_reset" />
+        <Preference
+            android:key="select_keys"
+            android:title="@string/pref_select_keys"
+            android:summary="@string/select_keys_summary"
+            android:enabled="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_dict">
+        <Preference
+            android:key="dict_import"
+            android:title="@string/pref_dict_import" />
+        <Preference
+            android:key="dict_export"
+            android:title="@string/pref_dict_export" />
+        <Preference
+            android:key="dict_reset"
+            android:title="@string/pref_dict_reset" />
+        <Preference
+            android:key="dict_stats"
+            android:title="@string/pref_dict_stats" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_dev">
+        <Preference
+            android:key="probe"
+            android:title="@string/pref_probe" />
+        <Preference
+            android:key="about"
+            android:title="@string/pref_about" />
+    </PreferenceCategory>
+</PreferenceScreen>

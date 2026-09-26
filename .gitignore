@@ -14,3 +14,6 @@ local.properties
 
 # OS
 .DS_Store
+
+# dictgen
+node_modules/

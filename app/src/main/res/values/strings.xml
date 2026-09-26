@@ -24,6 +24,7 @@
     <string name="pref_swipe_page">候选栏左右滑翻页</string>
     <string name="pref_keyboard_swipe">屏幕键盘上滑选字 / 左右滑翻页</string>
     <string name="pref_page_reverse">翻页方向反转</string>
+    <string name="pref_fullwidth">中文态符号层输出全角</string>
 
     <string name="pref_category_keys">按键与层</string>
     <string name="pref_layer_map">编辑三层键位映射</string>
@@ -51,4 +52,20 @@
     <string name="probe_hint">点击这里获得焦点，然后按任意物理键（含 Sym / Fn / 方向键），下方会实时显示键值</string>
     <string name="probe_clear">清空</string>
     <string name="probe_share">导出</string>
+    <string name="probe_set_sym">设为 Sym 键</string>
+    <string name="probe_reset_sym">Sym 键恢复默认</string>
+    <string name="probe_sym_current">当前 Sym 键：%1$d（%2$s）</string>
+    <string name="probe_sym_set">已把键 %1$d 设为 Sym 键</string>
+
+    <!-- 通用提示 -->
+    <string name="done_saved">已保存</string>
+    <string name="done_reset">已恢复默认</string>
+    <string name="import_result">导入成功 %1$d 条，失败 %2$d 条</string>
+    <string name="import_no_file">没有选择文件</string>
+    <string name="dict_stats_builtin">内置词条：%1$d</string>
+    <string name="dict_stats_user_entries">用户导入词条：%1$d</string>
+    <string name="dict_stats_user_freq">使用频次记录：%1$d</string>
+    <string name="dict_stats_loading">内置词库尚未载入（输入法未启动过）</string>
+    <string name="select_keys_summary">Ctrl(Fn) + Q/W/E/R/T（默认，暂不可改）</string>
+    <string name="about_body">全键盘拼音输入法 v%1$s\n为 Unihertz Titan 2 全键盘设计的硬件键盘拼音输入。\n词库来源：fxsjy/jieba (MIT)。</string>
 </resources>

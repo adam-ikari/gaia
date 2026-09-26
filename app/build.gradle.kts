@@ -5,7 +5,8 @@ plugins {
 
 android {
     namespace = "dev.hwkbd.ime"
-    compileSdk = 34
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "dev.hwkbd.ime"

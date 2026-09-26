@@ -1,0 +1,12 @@
+{
+  "name": "hwkbd-dictgen",
+  "private": true,
+  "type": "module",
+  "description": "生成 hwkbd_ime 内置拼音词库 app/src/main/assets/dict.txt.gz",
+  "scripts": {
+    "gen": "node gen_dict.mjs"
+  },
+  "dependencies": {
+    "pinyin-pro": "^3.26.0"
+  }
+}
