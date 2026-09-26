@@ -41,6 +41,8 @@ class ImeController(
 
     private var symDown = false
     private var symProducedKey = false
+    private var ctrlDownAlone = false
+    private var ctrlUsedCombo = false
 
     // ------------------------------------------------------------------ 键事件
 
@@ -53,21 +55,52 @@ class ImeController(
             return true
         }
         if (altKeycodes.contains(code)) {
-            if (!repeat) onAltTap()
+            if (!repeat) {
+                // 组词中 Alt 直接选候选 5(显示位 4);空闲时进 L2
+                if (state.hasComposition) selectCandidate(4) else onAltTap()
+            }
             return true
+        }
+        if (code == KeyEvent.KEYCODE_SHIFT_LEFT || code == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+            // 组词中 Shift 直接选候选 4(显示位 0);空闲透传给系统(双击 Caps 等)
+            if (state.hasComposition && !repeat) selectCandidate(0)
+            return state.hasComposition
+        }
+        if (code == KeyEvent.KEYCODE_CTRL_LEFT || code == KeyEvent.KEYCODE_CTRL_RIGHT) {
+            if (state.hasComposition) {
+                if (!repeat) {
+                    ctrlDownAlone = true
+                    ctrlUsedCombo = false
+                }
+                return true
+            }
+            return false
         }
         if (symDown && !repeat) {
             symProducedKey = true
             return handleCtrlKey(code, shift)
         }
-        if (ctrl) return handleCtrlKey(code, shift)
+        if (ctrl) {
+            ctrlDownAlone = false
+            ctrlUsedCombo = true
+            return handleCtrlKey(code, shift)
+        }
         return handleNormalKey(code, shift, caps)
     }
 
     fun onKeyUp(code: Int): Boolean {
         if (code == symKeycode && symDown) {
             symDown = false
-            if (!symProducedKey) onSymTap()
+            if (!symProducedKey) {
+                // 组词中 Sym 直接选候选 2(显示位 1);空闲时切 L3
+                if (state.hasComposition) selectCandidate(1) else onSymTap()
+            }
+            return true
+        }
+        if ((code == KeyEvent.KEYCODE_CTRL_LEFT || code == KeyEvent.KEYCODE_CTRL_RIGHT) && ctrlDownAlone) {
+            ctrlDownAlone = false
+            // 独立 Ctrl 敲击(没组合任何键)组词中选候选 3(显示位 3)
+            if (!ctrlUsedCombo && state.hasComposition) selectCandidate(3)
             return true
         }
         return false
@@ -123,10 +156,15 @@ class ImeController(
 
     // ------------------------------------------------------------------ 候选与组词
 
-    fun selectCandidate(i: Int) {
-        val items = state.pageItems()
-        if (i !in items.indices) return
-        val c = items[i]
+    /**
+     * 选显示位 i 的候选上屏。显示位与物理键对应:
+     * 0=Shift(候选4) 1=Sym(候选2) 2=空格(候选1,首选) 3=Ctrl(候选3) 4=Alt(候选5)。
+     * 候选栏点选/上滑 5 区/五键选字/高亮确认都用显示位。
+     */
+    fun selectCandidate(displayIndex: Int) {
+        val logical = state.currentPageLogical()
+        val li = ImeState.DISPLAY_ORDER.getOrNull(displayIndex) ?: return
+        val c = logical.getOrNull(li) ?: return
         host.commitText(c.word)
         engine.onCommitted(c.word)
         clearComposition()
@@ -141,9 +179,14 @@ class ImeController(
     }
 
     fun moveHighlight(delta: Int) {
-        val items = state.pageItems()
-        if (items.isEmpty()) return
-        state.highlight = if (state.highlight < 0) 0 else (state.highlight + delta).coerceIn(0, items.size - 1)
+        val valid = state.validDisplays()
+        if (valid.isEmpty()) return
+        state.highlight = if (state.highlight < 0 || state.highlight !in valid) {
+            if (delta >= 0) valid.first() else valid.last()
+        } else {
+            val cur = valid.indexOf(state.highlight)
+            valid[(cur + delta).coerceIn(0, valid.size - 1)]
+        }
         host.render()
     }
 
@@ -184,11 +227,12 @@ class ImeController(
     // ------------------------------------------------------------------ 内部处理
 
     private fun handleCtrlKey(code: Int, shift: Boolean): Boolean {
+        // Ctrl+Q/W/E/R/T = 候选 1..5,对应显示位 [2,1,3,0,4](首选在中间)
         val idx = when (code) {
-            KeyEvent.KEYCODE_Q -> 0
+            KeyEvent.KEYCODE_Q -> 2
             KeyEvent.KEYCODE_W -> 1
-            KeyEvent.KEYCODE_E -> 2
-            KeyEvent.KEYCODE_R -> 3
+            KeyEvent.KEYCODE_E -> 3
+            KeyEvent.KEYCODE_R -> 0
             KeyEvent.KEYCODE_T -> 4
             else -> -1
         }
@@ -287,7 +331,7 @@ class ImeController(
         }
         if (state.hasComposition) {
             if (state.candidates.isNotEmpty()) {
-                selectCandidate(if (state.highlight >= 0) state.highlight else 0)
+                selectCandidate(if (state.highlight >= 0) state.highlight else TOP_DISPLAY)
             } else {
                 commitRaw()
             }
@@ -311,7 +355,7 @@ class ImeController(
     /** 组词被符号/功能键打断:先把当前首选上屏(可可同款体验)。 */
     private fun flushComposition() {
         if (!state.hasComposition) return
-        if (state.candidates.isNotEmpty()) selectCandidate(0) else commitRaw()
+        if (state.candidates.isNotEmpty()) selectCandidate(TOP_DISPLAY) else commitRaw()
     }
 
     private fun commitRaw() {
@@ -330,6 +374,9 @@ class ImeController(
 
     companion object {
         private const val CANDIDATE_LIMIT = 45
+
+        /** 首选(逻辑第 1 候选)的显示位 = 中间(空格键)。 */
+        const val TOP_DISPLAY = 2
 
         /** 中文态 L1 标点的全角形态。 */
         private val CN_PUNCT = mapOf(

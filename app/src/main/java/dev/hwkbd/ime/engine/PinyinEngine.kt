@@ -36,15 +36,15 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
         }
         for ((w, f) in user.exactEntries(raw)) add(w, raw, CandidateKind.EXACT, f.toLong())
 
-        // 2. 前缀命中:词的拼音比已输入的更长,拼音越接近输入长度越靠前
+        // 2. 前缀命中:词的拼音比已输入的更长,纯按词频排序(与主流输入法一致)
         for (i in dict.prefixIndices(raw, PREFIX_SCAN_CAP)) {
             val p = dict.pinyin(i)
             if (p.length > raw.length) {
-                add(dict.word(i), p, CandidateKind.PREFIX, dict.freq(i) - 1000L * (p.length - raw.length))
+                add(dict.word(i), p, CandidateKind.PREFIX, dict.freq(i).toLong())
             }
         }
         for ((w, f, p) in user.prefixEntries(raw)) {
-            if (p.length > raw.length) add(w, p, CandidateKind.PREFIX, f - 1000L * (p.length - raw.length))
+            if (p.length > raw.length) add(w, p, CandidateKind.PREFIX, f.toLong())
         }
 
         // 3. DP 分段组词:把整串拼音切成若干段,每段取词频最高的精确命中

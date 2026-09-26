@@ -32,6 +32,10 @@ class ImeControllerTest {
         "nihao\t你好\t300",
         "shijie\t世界\t250",
         "zhongguo\t中国\t600",
+        "nian\t年\t900",
+        "niang\t娘\t800",
+        "niao\t鸟\t100",
+        "nie\t捏\t50",
     )
 
     private class Rig(val c: ImeController, val h: RecHost) {
@@ -125,14 +129,57 @@ class ImeControllerTest {
 
     @Test
     fun `方向键翻页与高亮确认`() {
-        val r = rig(pageSize = 1)
-        r.type("ni") // 候选:你 / 你好(前缀) → pageSize=1 → 2 页
+        val r = rig()
+        r.type("ni") // 候选 6 个:你 年 娘 你好 鸟 捏 → 2 页
+        assertEquals(6, r.c.state.candidates.size)
         assertTrue(r.key(KeyEvent.KEYCODE_DPAD_RIGHT))
         assertEquals(1, r.c.state.page)
         assertTrue(r.key(KeyEvent.KEYCODE_DPAD_DOWN))
-        assertEquals(0, r.c.state.highlight)
+        assertEquals(2, r.c.state.highlight) // 第二页只有"捏",位于中间槽(空格位)
         assertTrue(r.key(KeyEvent.KEYCODE_DPAD_UP))
-        assertEquals(listOf("你好"), r.h.commits)
+        assertEquals(listOf("捏"), r.h.commits)
+    }
+
+    @Test
+    fun `首候选固定显示在中间`() {
+        val r = rig()
+        r.type("ni")
+        val items = r.c.state.pageItems()
+        assertEquals(5, items.size)
+        assertEquals("你", items[2].word) // 中间 = 首选 = 空格键位
+        // 显示序 = [Shift位, Sym位, 空格位, Ctrl位, Alt位] = [候选4,候选2,候选1,候选3,候选5]
+        assertEquals(listOf("你好", "年", "你", "娘", "鸟"), items.map { it.word })
+    }
+
+    @Test
+    fun `组词中五修饰键独立敲击选字`() {
+        val r = rig()
+        r.type("ni")
+        r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(listOf("你好"), r.h.commits) // Shift = 显示位 0 = 候选 4
+
+        // 刚选过"你好",用户词频把它顶到逻辑第 2 → Sym(显示位 1)现在选它
+        r.type("ni")
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        assertEquals(listOf("你好", "你好"), r.h.commits)
+
+        r.type("ni")
+        r.key(KeyEvent.KEYCODE_CTRL_LEFT)
+        r.c.onKeyUp(KeyEvent.KEYCODE_CTRL_LEFT)
+        assertEquals(listOf("你好", "你好", "年"), r.h.commits) // Ctrl = 显示位 3 = 候选 3
+
+        r.type("ni")
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(listOf("你好", "你好", "年", "鸟"), r.h.commits) // Alt = 显示位 4 = 候选 5
+    }
+
+    @Test
+    fun `空格选中间首选`() {
+        val r = rig()
+        r.type("ni")
+        r.key(KeyEvent.KEYCODE_SPACE)
+        assertEquals(listOf("你"), r.h.commits)
     }
 
     @Test
@@ -145,14 +192,14 @@ class ImeControllerTest {
 
     @Test
     fun `ctrl 加 qwe rt 五键选字`() {
-        val r = rig(pageSize = 5)
+        val r = rig()
         r.type("ni")
         assertTrue(r.key(kc('q'), ctrl = true))
         assertEquals(listOf("你"), r.h.commits)
 
         r.type("ni")
         r.key(kc('w'), ctrl = true)
-        assertEquals(listOf("你", "你好"), r.h.commits)
+        assertEquals(listOf("你", "年"), r.h.commits)
     }
 
     @Test
@@ -164,7 +211,7 @@ class ImeControllerTest {
 
     @Test
     fun `翻页方向反转`() {
-        val r = rig(pageSize = 1)
+        val r = rig()
         r.c.pageReverse = true
         r.type("ni")
         r.key(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -346,9 +393,8 @@ class ImeControllerTest {
     @Test
     fun `切换输入框丢弃组词但保留模式与层`() {
         val r = rig()
-        r.type("ni")
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT) // 无组词时双击 Alt 锁 L2
         r.c.resetForNewInput()
         assertEquals("", r.c.state.raw)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)

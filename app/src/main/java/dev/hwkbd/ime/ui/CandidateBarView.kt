@@ -25,7 +25,8 @@ class CandidateBarView @JvmOverloads constructor(
     var swipeSelectEnabled = true
     var swipePageEnabled = true
 
-    private var items: List<dev.hwkbd.ime.engine.Candidate> = emptyList()
+    /** 固定 5 显示槽(首选在中间,槽位即物理键位);空槽为 null。 */
+    private var slots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var highlight = -1
     private var page = 0
     private var totalPages = 0
@@ -53,7 +54,7 @@ class CandidateBarView @JvmOverloads constructor(
     private var downCell = -1
 
     fun setState(state: ImeState) {
-        items = state.pageItems()
+        slots = state.pageSlots()
         highlight = state.highlight
         page = state.page
         totalPages = state.totalPages
@@ -62,12 +63,13 @@ class CandidateBarView @JvmOverloads constructor(
 
     private val cellsLeft: Float get() = arrowWidth
     private val cellsRight: Float get() = width - arrowWidth
-    private val cellWidth: Float get() = if (items.isEmpty()) 0f else (cellsRight - cellsLeft) / items.size
+    private val cellWidth: Float get() = (cellsRight - cellsLeft) / 5f
 
     private fun cellIndexAt(x: Float): Int {
-        if (items.isEmpty()) return -1
+        if (slots.all { it == null }) return -1
         if (x < cellsLeft || x >= cellsRight) return -1
-        return (((x - cellsLeft) / cellWidth).toInt()).coerceIn(0, items.size - 1)
+        val idx = (((x - cellsLeft) / cellWidth).toInt()).coerceIn(0, 4)
+        return if (slots.getOrNull(idx) != null) idx else -1
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -105,7 +107,7 @@ class CandidateBarView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        if (items.isEmpty()) return
+        if (slots.all { it == null }) return
 
         // 翻页箭头(到边界置暗)
         val dim = arrowPaint.alpha
@@ -115,20 +117,22 @@ class CandidateBarView @JvmOverloads constructor(
         canvas.drawText("▶", width - arrowWidth / 2f - arrowPaint.measureText("▶") / 2f, height / 2f + dip(5), arrowPaint)
         arrowPaint.alpha = dim
 
-        for (i in items.indices) {
+        // 固定 5 槽渲染,槽位即物理键位(Shift Sym 空格 Ctrl Alt)
+        for (i in 0 until 5) {
             val left = cellsLeft + i * cellWidth
-            if (i == highlight) {
-                canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
-            }
-            val w = wordPaint.measureText(items[i].word)
-            val x = left + (cellWidth - w) / 2f
-            val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
-            wordPaint.textSize *= if (items[i].word.length > 6) 0.7f else 1f
-            canvas.drawText(items[i].word, x, y, wordPaint)
-            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
             if (i > 0) {
                 canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
             }
+            val c = slots.getOrNull(i) ?: continue
+            if (i == highlight) {
+                canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
+            }
+            val w = wordPaint.measureText(c.word)
+            val x = left + (cellWidth - w) / 2f
+            val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
+            wordPaint.textSize *= if (c.word.length > 6) 0.7f else 1f
+            canvas.drawText(c.word, x, y, wordPaint)
+            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
         }
     }
 
