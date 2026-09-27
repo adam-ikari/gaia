@@ -6,7 +6,7 @@ package dev.hwkbd.ime.keymap
  */
 class TapTracker(
     private val now: () -> Long = System::currentTimeMillis,
-    private val windowMs: Long = 400L,
+    private val windowMs: Long = 200L,
 ) {
     private var last = 0L
     private var count = 0

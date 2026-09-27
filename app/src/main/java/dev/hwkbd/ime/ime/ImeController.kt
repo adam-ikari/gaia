@@ -401,6 +401,6 @@ class ImeController(
         const val TOP_DISPLAY = 2
 
         /** 层敲击双击判定窗口(TapTracker 一致)。 */
-        const val DOUBLE_TAP_WINDOW = 400L
+        const val DOUBLE_TAP_WINDOW = 200L
     }
 }
