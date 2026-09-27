@@ -20,22 +20,22 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Decode signing keystore (if configured)
-        if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
+      # 有签名 Secret 时解码 keystore;没有则跳过(release 包未签名)
+      - name: Decode signing keystore
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
-        run: echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+            echo "keystore decoded"
+          else
+            echo "no signing keystore configured, release APK will be unsigned"
+          fi
 
       - name: Unit tests
-        if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
-        env:
-          SIGNING_KEYSTORE: ${{ runner.temp }}/keystore.jks
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:testDebugUnitTest
 
-      - name: Assemble release APK (signed if secrets configured)
+      - name: Assemble release APK (signed if keystore present)
         env:
           SIGNING_KEYSTORE: ${{ runner.temp }}/keystore.jks
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
