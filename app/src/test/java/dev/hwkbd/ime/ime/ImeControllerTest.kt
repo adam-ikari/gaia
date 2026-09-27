@@ -24,6 +24,10 @@ class ImeControllerTest {
         }
 
         override fun render() {}
+
+        override fun postDelayed(action: Runnable, delayMs: Long) {
+            action.run()
+        }
     }
 
     private val dictLines = listOf(

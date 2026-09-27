@@ -44,6 +44,10 @@ class ImeController(
     private var ctrlDownAlone = false
     private var ctrlUsedCombo = false
 
+    /** 最近一次层修饰键敲击时间(渲染层判断一次性芯片是否仍在双击窗口内)。 */
+    var lastLayerTapAt: Long = 0
+        private set
+
     // ------------------------------------------------------------------ 键事件
 
     fun onKeyDown(code: Int, ctrl: Boolean, shift: Boolean, caps: Boolean = false, repeat: Boolean = false): Boolean {
@@ -134,6 +138,7 @@ class ImeController(
     }
 
     private fun layerKeyTap(mod: Layer, tracker: TapTracker) {
+        lastLayerTapAt = System.currentTimeMillis()
         val n = tracker.tap()
         when {
             state.lock != null -> { // 锁定态:同层键解锁回 L1,异层键切换锁定层
@@ -153,7 +158,10 @@ class ImeController(
                 }
                 state.oneShot = null
             }
-            else -> state.oneShot = mod // 单击一次性
+            else -> { // 单击 = 一次性层;芯片延迟到双击窗口过期后显示(区分锁定/取消)
+                state.oneShot = mod
+                host.postDelayed({ host.render() }, DOUBLE_TAP_WINDOW + 20)
+            }
         }
     }
 
@@ -391,5 +399,8 @@ class ImeController(
 
         /** 首选(逻辑第 1 候选)的显示位 = 中间(空格键)。 */
         const val TOP_DISPLAY = 2
+
+        /** 层敲击双击判定窗口(TapTracker 一致)。 */
+        const val DOUBLE_TAP_WINDOW = 400L
     }
 }

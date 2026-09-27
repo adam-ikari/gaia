@@ -80,6 +80,10 @@ class ImeService : InputMethodService() {
         override fun render() {
             updateUi()
         }
+
+        override fun postDelayed(action: Runnable, delayMs: Long) {
+            mainHandler.postDelayed(action, delayMs)
+        }
     }
 
     // ------------------------------------------------------------------ 生命周期
@@ -377,6 +381,11 @@ class ImeService : InputMethodService() {
             Layer.L2 -> renderLayerChip("符", t.chipL2, s.lock != null)
             Layer.L3 -> renderLayerChip("SYM", t.chipL3, s.lock != null)
         }
+        // 双击窗口期内暂不显示一次性层芯片(区分单击取消/双击锁定);
+        // 窗口过期后由 postDelayed 的 render 补显描边芯片
+        val inDoubleTapWindow = s.oneShot != null &&
+            System.currentTimeMillis() - controller.lastLayerTapAt <= ImeController.DOUBLE_TAP_WINDOW
+        if (s.oneShot != null && inDoubleTapWindow) chipLayer?.visibility = View.GONE
     }
 
     private fun renderLayerChip(label: String, color: Int, locked: Boolean) {

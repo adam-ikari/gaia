@@ -12,4 +12,7 @@ interface ImeHost {
 
     /** 状态有变,刷新 UI 与组词区。 */
     fun render()
+
+    /** 主线程延迟执行(层芯片的窗口期延迟显示用)。 */
+    fun postDelayed(action: Runnable, delayMs: Long)
 }
