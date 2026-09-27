@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string-array name="theme_entries">
+        <item>曜石黑(默认)</item>
+        <item>墨金</item>
+        <item>珊瑚红</item>
+        <item>黛蓝</item>
+        <item>薰衣草</item>
+        <item>苔绿</item>
+    </string-array>
+    <string-array name="theme_values">
+        <item>obsidian</item>
+        <item>gold</item>
+        <item>coral</item>
+        <item>azure</item>
+        <item>lavender</item>
+        <item>moss</item>
+    </string-array>
     <string-array name="fly_threshold_entries">
         <item>灵敏(轻滑即触发)</item>
         <item>标准(默认)</item>

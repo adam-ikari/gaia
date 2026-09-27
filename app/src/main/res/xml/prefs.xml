@@ -2,6 +2,13 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
     <PreferenceCategory android:title="@string/pref_category_general">
+        <ListPreference
+            android:key="theme"
+            android:defaultValue="obsidian"
+            android:title="@string/pref_theme"
+            android:entries="@array/theme_entries"
+            android:entryValues="@array/theme_values"
+            android:summary="%s" />
         <SwitchPreferenceCompat
             android:key="fullwidth_symbols_in_cn"
             android:defaultValue="true"

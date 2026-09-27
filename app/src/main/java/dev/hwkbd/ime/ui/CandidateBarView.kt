@@ -51,6 +51,16 @@ class CandidateBarView @JvmOverloads constructor(
         textSize = 11f * resources.displayMetrics.scaledDensity
     }
 
+    /** 应用主题:即时刷新全部界面色。 */
+    fun setTheme(t: dev.hwkbd.ime.ui.ImeTheme) {
+        bgPaint.color = t.barBg
+        pressedPaint.color = t.pressed
+        dividerPaint.color = t.divider
+        wordPaint.color = t.fg
+        arrowPaint.color = t.hint
+        invalidate()
+    }
+
     private var downX = 0f
     private var downY = 0f
     private var downCell = -1

@@ -48,6 +48,7 @@ class ImeService : InputMethodService() {
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
     private var lastComposingForInsets = false
+    private var theme = dev.hwkbd.ime.ui.ImeTheme.DEFAULT
 
     /** 当前组词区内容(render 与 onUpdateSelection 对账用)。 */
     private var composing = ""
@@ -347,6 +348,10 @@ class ImeService : InputMethodService() {
         candidateBar?.swipeSelectEnabled = p.getBoolean(PREF_SWIPE_SELECT, true)
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
         flyDetector.threshold = p.getString(PREF_FLY_THRESHOLD, "25")?.toFloatOrNull() ?: 25f
+        theme = dev.hwkbd.ime.ui.ImeTheme.byId(p.getString(PREF_THEME, "obsidian"))
+        candidateBar?.setTheme(theme)
+        statusRow?.setBackgroundColor(theme.barBg)
+        candidateRow?.setBackgroundColor(theme.barBg)
         updateUi()
     }
 
@@ -356,29 +361,23 @@ class ImeService : InputMethodService() {
 
     /** 状态徽标:颜色+背景表达模式与层,不堆文字。层芯片 锁=实心底 / 一次性=描边。 */
     private fun renderChips(s: ImeState) {
+        val t = theme
         val cn = s.mode == ImeMode.CN
         chipMode?.apply {
             text = if (cn) getString(R.string.mode_cn) else getString(R.string.mode_en)
-            setTextColor(
-                ContextCompat.getColor(
-                    this@ImeService,
-                    if (cn) R.color.status_active else R.color.status_fg,
-                )
-            )
+            setTextColor(if (cn) t.accent else t.fg)
             background = null
         }
-        val ctx = this@ImeService
         when (s.effectiveLayer) {
             Layer.L1 -> chipLayer?.visibility = View.GONE
-            Layer.L2 -> renderLayerChip(ctx, "符", R.color.chip_l2, s.lock != null)
-            Layer.L3 -> renderLayerChip(ctx, "SYM", R.color.chip_l3, s.lock != null)
+            Layer.L2 -> renderLayerChip("符", t.chipL2, s.lock != null)
+            Layer.L3 -> renderLayerChip("SYM", t.chipL3, s.lock != null)
         }
     }
 
-    private fun renderLayerChip(ctx: android.content.Context, label: String, colorRes: Int, locked: Boolean) {
+    private fun renderLayerChip(label: String, color: Int, locked: Boolean) {
         val chip = chipLayer ?: return
-        val color = ContextCompat.getColor(ctx, colorRes)
-        val density = ctx.resources.displayMetrics.density
+        val density = resources.displayMetrics.density
         chip.text = label
         chip.visibility = View.VISIBLE
         if (locked) {
@@ -454,6 +453,7 @@ class ImeService : InputMethodService() {
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
+        const val PREF_THEME = "theme"
         const val PREF_SYM_KEYCODE = "sym_keycode"
         const val PREF_ALT_KEYCODE = "alt_keycode"
     }
