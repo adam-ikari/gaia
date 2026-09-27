@@ -264,11 +264,11 @@ class ImeService : InputMethodService() {
                     val adx = kotlin.math.abs(dx)
                     val dt = System.currentTimeMillis() - downAt
                     android.util.Log.i(TAG, "fly judge: dy=${dy.toInt()} dx=${dx.toInt()} dt=$dt")
-                    if (dt > 1200) return null
+                    if (dt > 1500) return null
                     // 横向主位移 → 翻页:左滑=下一页(内容拖拽隐喻,与候选栏手势一致)
                     if (adx > 60f && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
-                    // 纵向主位移(向上)→ 飞字
-                    if (dy > 40f && dy > adx) return zoneOf(downX)
+                    // 纵向主位移(向上)→ 飞字(阈值放宽:25 单位即触发)
+                    if (dy > 25f && dy > adx) return zoneOf(downX)
                 }
             }
             return null
