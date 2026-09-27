@@ -1,3 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string-array name="fly_threshold_entries">
+        <item>灵敏(轻滑即触发)</item>
+        <item>标准(默认)</item>
+        <item>保守(需明显上滑)</item>
+    </string-array>
+    <string-array name="fly_threshold_values">
+        <item>15</item>
+        <item>25</item>
+        <item>40</item>
+    </string-array>
 </resources>

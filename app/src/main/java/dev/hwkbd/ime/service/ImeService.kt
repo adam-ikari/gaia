@@ -245,6 +245,9 @@ class ImeService : InputMethodService() {
         private var downAt = 0L
         private var tracking = false
 
+        /** 飞字触发上滑距离(屏幕坐标单位),设置页可调,默认 25。 */
+        var threshold = 25f
+
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
         fun onMotion(action: Int, x: Float, y: Int): Int? {
             android.util.Log.i(TAG, "fly: act=$action x=${x.toInt()} y=$y tracking=$tracking")
@@ -263,12 +266,12 @@ class ImeService : InputMethodService() {
                     val dx = x - downX
                     val adx = kotlin.math.abs(dx)
                     val dt = System.currentTimeMillis() - downAt
-                    android.util.Log.i(TAG, "fly judge: dy=${dy.toInt()} dx=${dx.toInt()} dt=$dt")
+                    android.util.Log.i(TAG, "fly judge: dy=${dy.toInt()} dx=${dx.toInt()} dt=$dt thr=${threshold.toInt()}")
                     if (dt > 1500) return null
                     // 横向主位移 → 翻页:左滑=下一页(内容拖拽隐喻,与候选栏手势一致)
                     if (adx > 60f && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
-                    // 纵向主位移(向上)→ 飞字(阈值放宽:25 单位即触发)
-                    if (dy > 25f && dy > adx) return zoneOf(downX)
+                    // 纵向主位移(向上)→ 飞字(距离阈值设置页可调)
+                    if (dy > threshold && dy > adx) return zoneOf(downX)
                 }
             }
             return null
@@ -343,6 +346,7 @@ class ImeService : InputMethodService() {
 
         candidateBar?.swipeSelectEnabled = p.getBoolean(PREF_SWIPE_SELECT, true)
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
+        flyDetector.threshold = p.getString(PREF_FLY_THRESHOLD, "25")?.toFloatOrNull() ?: 25f
         updateUi()
     }
 
@@ -449,6 +453,7 @@ class ImeService : InputMethodService() {
         const val PREF_PAGE_REVERSE = "page_reverse"
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
+        const val PREF_FLY_THRESHOLD = "fly_threshold"
         const val PREF_SYM_KEYCODE = "sym_keycode"
         const val PREF_ALT_KEYCODE = "alt_keycode"
     }

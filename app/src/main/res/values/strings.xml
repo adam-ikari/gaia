@@ -28,6 +28,7 @@
     <string name="pref_swipe_select">候选栏上滑选字</string>
     <string name="pref_swipe_page">候选栏左右滑翻页</string>
     <string name="pref_keyboard_swipe">屏幕键盘上滑选字 / 左右滑翻页</string>
+    <string name="pref_fly_threshold">飞字触发滑动距离</string>
     <string name="pref_page_reverse">翻页方向反转</string>
     <string name="pref_fullwidth">中文态符号层输出全角</string>
 
