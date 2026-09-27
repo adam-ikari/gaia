@@ -34,8 +34,8 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            val ci = signingConfigs.findByName("ci")
-            if (ci != null) signingConfig = ci
+            // CI 注入的正式签名优先;本地/无 Secret 时回退 debug 签名,保证 release 包可直接安装
+            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("debug")
         }
     }
 
