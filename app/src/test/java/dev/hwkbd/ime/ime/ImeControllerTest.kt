@@ -368,13 +368,29 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `Sym 三击循环层`() {
+    fun `Sym 连击三击为武装锁定解除`() {
         val r = rig()
         repeat(3) {
             r.key(KeyEvent.KEYCODE_SYM)
             r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         }
-        // tap1 一次性 L3,tap2 锁定 L3,tap3 循环 → 解除锁定回 L1
+        // tap1 一次性 L3,tap2 锁定 L3,tap3 解锁回 L1
+        assertEquals(null, r.c.state.lock)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+    }
+
+    @Test
+    fun `Sym 锁定后再次双击应保持解除`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 第一击:解锁
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 第二击:连击被吸收,不重新武装
         assertEquals(null, r.c.state.lock)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }

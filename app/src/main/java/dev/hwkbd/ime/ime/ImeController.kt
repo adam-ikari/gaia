@@ -48,6 +48,10 @@ class ImeController(
     var lastLayerTapAt: Long = 0
         private set
 
+    /** 解锁/取消后吸收同键连击(双击解除应保持解除)。 */
+    private var suppressNextTap: Layer? = null
+    private var suppressUntil = 0L
+
     // ------------------------------------------------------------------ 键事件
 
     fun onKeyDown(code: Int, ctrl: Boolean, shift: Boolean, caps: Boolean = false, repeat: Boolean = false): Boolean {
@@ -138,25 +142,40 @@ class ImeController(
     }
 
     private fun layerKeyTap(mod: Layer, tracker: TapTracker) {
-        lastLayerTapAt = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        // 解锁/取消后的短窗内吸收同键连击(双击解除应保持解除,不重新武装)
+        if (suppressNextTap == mod && now < suppressUntil) {
+            suppressNextTap = null
+            tracker.reset()
+            return
+        }
+        suppressNextTap = null
+        lastLayerTapAt = now
         val n = tracker.tap()
         when {
-            state.lock != null -> { // 锁定态:同层键解锁回 L1,异层键切换锁定层
-                state.lock = if (state.lock == mod) null else mod
+            state.lock != null -> { // 锁定态:同层键解锁回 L1(并吸收连击),异层键切换锁定层
+                val same = state.lock == mod
+                state.lock = if (same) null else mod
                 state.oneShot = null
+                if (same) {
+                    tracker.reset()
+                    suppressNextTap = mod
+                    suppressUntil = now + 250
+                }
             }
-            state.oneShot == mod && n == 1 -> state.oneShot = null // 一次性激活后,窗口外的再次独立敲击 = 取消
+            state.oneShot == mod && n == 1 -> { // 一次性激活后,窗口外的再次独立敲击 = 取消
+                state.oneShot = null
+                tracker.reset()
+                suppressNextTap = mod
+                suppressUntil = now + 250
+            }
             n == 2 -> { // 双击窗口内第二次敲击 = 锁定该层
                 state.lock = mod
                 state.oneShot = null
             }
-            n >= 3 -> { // 三击循环 L1→L2→L3
-                state.lock = when (state.effectiveLayer) {
-                    Layer.L1 -> Layer.L2
-                    Layer.L2 -> Layer.L3
-                    Layer.L3 -> null
-                }
-                state.oneShot = null
+            n >= 3 -> { // 连击:从当前一次性层切换到下一层(L1↔L2/L3)
+                state.oneShot = if (state.oneShot == Layer.L2) Layer.L3 else Layer.L2
+                host.postDelayed({ host.render() }, DOUBLE_TAP_WINDOW + 20)
             }
             else -> { // 单击 = 一次性层;芯片延迟到双击窗口过期后显示(区分锁定/取消)
                 state.oneShot = mod

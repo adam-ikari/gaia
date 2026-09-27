@@ -19,6 +19,12 @@ class TapTracker(
         return count
     }
 
+    /** 清空计数(解锁等状态跃迁后,吸收紧随的连击用)。 */
+    fun reset() {
+        count = 0
+        last = 0
+    }
+
     /** 当前窗口内已积累的次数(不记录新敲击)。 */
     fun peek(): Int = count
 }
