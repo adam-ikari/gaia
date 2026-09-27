@@ -294,6 +294,7 @@ class ImeService : InputMethodService() {
                     val word = controller.state.currentPageLogical().getOrNull(li)?.word ?: ""
                     controller.selectCandidate(zone)
                     candidateBar?.startFlyAnim(zone, word) // 词从槽位上飞入文本
+                    mainHandler.postDelayed({ updateUi() }, 260) // 动画结束后两态归位
                 }
             }
             zone == PAGE_NEXT -> {
@@ -405,7 +406,8 @@ class ImeService : InputMethodService() {
         candidateBar?.setState(s)
 
         // 单行两态:组词中整行给候选,空闲时整行给状态
-        val composingNow = s.hasComposition
+        // 飞字动画期间保持候选行可见(否则动画没画布),结束后再切回状态行
+        val composingNow = s.hasComposition || (candidateBar?.isFlyAnimating() == true)
         statusRow?.visibility = if (composingNow) View.GONE else View.VISIBLE
         candidateRow?.visibility = if (composingNow) View.VISIBLE else View.GONE
         if (composingNow != lastComposingForInsets) {

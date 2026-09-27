@@ -55,10 +55,11 @@ class CandidateBarView @JvmOverloads constructor(
     private var downY = 0f
     private var downCell = -1
 
-    // ---- 翻页动画:整排候选从翻页方向滑入并淡入
+    // ---- 翻页动画:旧页滑出 + 新页从翻页方向滑入(轮播过渡)
     private var pageAnim: ValueAnimator? = null
-    private var pageAnimOffset = 0f
-    private var pageAnimAlpha = 1f
+    private var pageAnimT = 1f            // 0→1
+    private var pageAnimDir = 1f          // 下一页=+1(旧页左出新页右入),上一页=-1
+    private var prevSlots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var lastPage = 0
 
     // ---- 飞字动画:选中的词从槽位向上飞起并淡出
@@ -67,10 +68,13 @@ class CandidateBarView @JvmOverloads constructor(
     private var flyProgress = -1f
     private var flyWord = ""
 
+    /** 飞字动画进行中(两态 UI 需保持候选行可见)。 */
+    fun isFlyAnimating(): Boolean = flyProgress in 0f..1f
+
     fun setState(state: ImeState) {
         val newSlots = state.pageSlots()
         if (state.page != lastPage && slots.isNotEmpty() && newSlots.isNotEmpty()) {
-            startPageAnim(if (state.page > lastPage) -1f else 1f)
+            startPageAnim(if (state.page > lastPage) 1f else -1f)
         }
         lastPage = state.page
         slots = newSlots
@@ -82,18 +86,19 @@ class CandidateBarView @JvmOverloads constructor(
 
     private fun startPageAnim(dir: Float) {
         pageAnim?.cancel()
-        pageAnim = ValueAnimator.ofFloat(1f, 0f).apply {
-            duration = 160
+        prevSlots = slots
+        pageAnimDir = dir
+        pageAnimT = 0f
+        pageAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 150
             addUpdateListener { a ->
-                val t = a.animatedValue as Float
-                pageAnimOffset = dir * t * width * 0.6f
-                pageAnimAlpha = 1f - t * 0.65f
+                pageAnimT = a.animatedValue as Float
                 invalidate()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    pageAnimOffset = 0f
-                    pageAnimAlpha = 1f
+                    pageAnimT = 1f
+                    prevSlots = emptyList()
                     invalidate()
                 }
             })
@@ -197,43 +202,30 @@ class CandidateBarView @JvmOverloads constructor(
         canvas.drawText("▶", width - arrowWidth / 2f - arrowPaint.measureText("▶") / 2f, height / 2f + dip(5), arrowPaint)
         arrowPaint.alpha = dim
 
-        // 飞字动画:词从槽位上浮淡出(画在最后,盖在刷新后的空栏上)
-        val showFly = flyProgress in 0f..1f
-
-        // 翻页动画:整排候选平移淡入
-        val animating = pageAnimOffset != 0f
+        // 翻页动画:旧页向翻页方向滑出淡去,新页反方向滑入(轮播)
+        val showPageAnim = pageAnimT < 1f && prevSlots.isNotEmpty()
         val wordAlpha = wordPaint.alpha
-        if (animating) {
-            wordPaint.alpha = (255 * pageAnimAlpha).toInt().coerceIn(0, 255)
+        if (showPageAnim) {
+            val t = pageAnimT
+            // 旧页:向翻页方向滑出
+            wordPaint.alpha = ((1f - t) * 255).toInt()
             canvas.save()
-            canvas.translate(pageAnimOffset, 0f)
-        }
-
-        // 固定 5 槽渲染,槽位即物理键位(Shift Sym 空格 Ctrl Alt)
-        for (i in 0 until 5) {
-            val left = cellsLeft + i * cellWidth
-            if (i > 0 && !animating) {
-                canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
-            }
-            val c = slots.getOrNull(i) ?: continue
-            if (i == highlight) {
-                canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
-            }
-            val w = wordPaint.measureText(c.word)
-            val x = left + (cellWidth - w) / 2f
-            val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
-            wordPaint.textSize *= if (c.word.length > 6) 0.7f else 1f
-            canvas.drawText(c.word, x, y, wordPaint)
-            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
-        }
-
-        if (animating) {
+            canvas.translate(-pageAnimDir * t * width * 0.55f, 0f)
+            drawSlots(canvas, prevSlots, highlightOf = -1, dividers = false)
+            canvas.restore()
+            // 新页:从翻页反方向滑入
+            wordPaint.alpha = (t * 255).toInt()
+            canvas.save()
+            canvas.translate(pageAnimDir * (1f - t) * width * 0.55f, 0f)
+            drawSlots(canvas, slots, highlight, dividers = false)
             canvas.restore()
             wordPaint.alpha = wordAlpha
+        } else {
+            drawSlots(canvas, slots, highlight, dividers = true)
         }
 
-        // 飞字词:放大、上浮、淡出
-        if (showFly) {
+        // 飞字动画:词放大、上浮、淡出
+        if (flyProgress in 0f..1f) {
             val t = flyProgress
             val size = 17f * resources.displayMetrics.scaledDensity * (1f + 0.2f * t)
             wordPaint.textSize = size
@@ -244,6 +236,25 @@ class CandidateBarView @JvmOverloads constructor(
             canvas.drawText(flyWord, x, y, wordPaint)
             wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
             wordPaint.alpha = 255
+        }
+    }
+
+    private fun drawSlots(canvas: Canvas, list: List<dev.hwkbd.ime.engine.Candidate?>, highlightOf: Int, dividers: Boolean) {
+        for (i in 0 until 5) {
+            val left = cellsLeft + i * cellWidth
+            if (i > 0 && dividers) {
+                canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
+            }
+            val c = list.getOrNull(i) ?: continue
+            if (i == highlightOf) {
+                canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
+            }
+            val w = wordPaint.measureText(c.word)
+            val x = left + (cellWidth - w) / 2f
+            val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
+            wordPaint.textSize *= if (c.word.length > 6) 0.7f else 1f
+            canvas.drawText(c.word, x, y, wordPaint)
+            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
         }
     }
 
