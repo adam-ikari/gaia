@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 组词拼音悬浮条背景:浮在候选条上方(不参与 insets,直接盖在应用内容上)。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/candidate_bg" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/candidate_divider" />
+    <corners android:radius="6dp" />
+</shape>

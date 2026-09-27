@@ -27,6 +27,12 @@ class CandidateBarView @JvmOverloads constructor(
     var swipeSelectEnabled = true
     var swipePageEnabled = true
 
+    /**
+     * 飞字触发上滑距离(px):由 service 按设置注入,与全屏飞字手势(FlyDetector)
+     * 用同一个阈值——在候选行上起手的上滑不再走独立的 24dp 判据。
+     */
+    var flyThresholdPx: Float = 80f
+
     /** 固定 5 显示槽(首选在中间,槽位即物理键位);空槽为 null。 */
     private var slots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var highlight = -1
@@ -51,6 +57,9 @@ class CandidateBarView @JvmOverloads constructor(
         textSize = 11f * resources.displayMetrics.scaledDensity
     }
 
+    /** 主题主色:第一候选的强调色。 */
+    private var accentColor = dev.hwkbd.ime.ui.ImeTheme.DEFAULT.accent
+
     /** 应用主题:即时刷新全部界面色。 */
     fun setTheme(t: dev.hwkbd.ime.ui.ImeTheme) {
         bgPaint.color = t.barBg
@@ -58,6 +67,7 @@ class CandidateBarView @JvmOverloads constructor(
         dividerPaint.color = t.divider
         wordPaint.color = t.fg
         arrowPaint.color = t.hint
+        accentColor = t.accent
         invalidate()
     }
 
@@ -72,14 +82,23 @@ class CandidateBarView @JvmOverloads constructor(
     private var prevSlots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var lastPage = 0
 
-    // ---- 飞字动画:选中的词从槽位向上飞起并淡出
+    // ---- 飞字动画:选中的词随手指上移,越过阈值后飞完;其他候选随上划渐隐
+    //
+    // 进度 flyP 用一根数轴表达两段:
+    //   [0,1]  拖动段——跟着手指走(上移到 26dp、其余候选淡到 0.4)
+    //   (1,2]  完成段——越过阈值后由动画接管,加速飞到 64dp、其余候选加速淡完
     private var flyAnim: ValueAnimator? = null
+    private var flyP = -1f
+    private var flyZone = -1
     private var flyX = 0f
-    private var flyProgress = -1f
     private var flyWord = ""
+    private var flyOutSlots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
 
-    /** 飞字动画进行中(两态 UI 需保持候选行可见)。 */
-    fun isFlyAnimating(): Boolean = flyProgress in 0f..1f
+    /** true = 正在播完成段(已上屏),不接受新的拖动打断;false = 拖动中/淡回中。 */
+    private var flyCompleting = false
+
+    /** 飞字进行中(拖动或完成动画):两态 UI 需保持候选行可见。 */
+    fun isFlyAnimating(): Boolean = flyP >= 0f
 
     fun setState(state: ImeState) {
         val newSlots = state.pageSlots()
@@ -116,22 +135,88 @@ class CandidateBarView @JvmOverloads constructor(
         }
     }
 
-    /** 飞字动画:词从显示槽 [displayIndex] 的位置向上飞起淡出(选字已上屏后调用)。 */
-    fun startFlyAnim(displayIndex: Int, word: String) {
-        if (word.isEmpty()) return
-        flyX = cellsLeft + (displayIndex + 0.5f) * cellWidth
-        flyWord = word
-        flyAnim?.cancel()
-        flyAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 220
+    /** 飞字拖动开始:冻结当前候选,后续 [setFlyDrag] 按手指进度实时驱动。可重入(拖回又拖上来时接管淡回)。 */
+    fun beginFlyDrag(zone: Int) {
+        if (flyCompleting) return
+        if (flyP >= 0f && flyZone == zone && flyAnim == null) return
+        cancelFlyDragNow()
+        flyZone = zone
+        flyX = cellsLeft + (zone + 0.5f) * cellWidth
+        flyWord = slots.getOrNull(zone)?.word ?: ""
+        flyOutSlots = slots
+        flyP = 0f
+        invalidate()
+    }
+
+    /** 飞字拖动进度(0..1):词随手指上移,其余候选按比例渐隐。 */
+    fun setFlyDrag(progress: Float) {
+        if (flyP < 0f || flyAnim != null) return
+        flyP = progress.coerceIn(0f, 1f)
+        invalidate()
+    }
+
+    /** 拖动被放弃(松手未过阈值/转为横滑/取消):整组淡回原位。 */
+    fun cancelFlyDrag() {
+        if (flyP < 0f || flyAnim != null) return
+        flyAnim = ValueAnimator.ofFloat(flyP, 0f).apply {
+            duration = 110
             addUpdateListener { a ->
-                flyProgress = a.animatedValue as Float
+                flyP = a.animatedValue as Float
                 invalidate()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    flyProgress = -1f
-                    invalidate()
+                    flyAnim = null
+                    resetFly()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun cancelFlyDragNow() {
+        flyAnim?.cancel()
+        flyAnim = null
+        resetFly()
+    }
+
+    private fun resetFly() {
+        flyP = -1f
+        flyZone = -1
+        flyWord = ""
+        flyOutSlots = emptyList()
+        flyCompleting = false
+        invalidate()
+    }
+
+    /**
+     * 飞字完成段:从当前拖动进度(没拖过则从 0)飞到 flyP=2。
+     * 越过阈值即调用,所以拖到 1 时只剩完成段动画;词起飞后再由调用方选字上屏。
+     */
+    fun startFlyAnim(displayIndex: Int, word: String) {
+        // 先把要继续的拖动状态抓出来:下面 cancel() 会走 resetFly 把它们清掉
+        val from = flyP.coerceAtLeast(0f)
+        val zone = if (flyZone >= 0) flyZone else displayIndex
+        val x = if (flyZone >= 0) flyX else cellsLeft + (displayIndex + 0.5f) * cellWidth
+        val w = if (flyWord.isNotEmpty()) flyWord else word
+        val out = if (flyOutSlots.isNotEmpty()) flyOutSlots else slots
+        flyAnim?.cancel()
+        flyZone = zone
+        flyX = x
+        flyWord = w
+        flyOutSlots = out
+        flyP = from
+        flyCompleting = true
+        flyAnim = ValueAnimator.ofFloat(from, 2f).apply {
+            duration = ((2f - from) * 110).toLong().coerceAtLeast(60)
+            addUpdateListener { a ->
+                flyP = a.animatedValue as Float
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    flyAnim = null
+                    resetFly()
                 }
             })
             start()
@@ -168,13 +253,46 @@ class CandidateBarView @JvmOverloads constructor(
                 performClick()
             }
             MotionEvent.ACTION_MOVE -> {
-                // 移动出按下槽位则取消长按
-                if (!longPressFired && cellIndexAt(event.x) != downCell) {
+                // 移动出按下槽位 / 移动超过触摸容差则取消长按(上滑拖动中绝不能误触发长按删除)
+                if (!longPressFired && (
+                    cellIndexAt(event.x) != downCell ||
+                        kotlin.math.abs(event.x - downX) > touchSlop ||
+                        kotlin.math.abs(event.y - downY) > touchSlop
+                    )
+                ) {
                     removeCallbacks(longPressRunnable)
+                }
+                // 上滑选字改成"拖动即反馈":词随手指起升、其余候选渐隐(拖回来又拖上去时重新接管)
+                if (swipeSelectEnabled && downCell >= 0) {
+                    val dx = event.x - downX
+                    val dy = downY - event.y
+                    if (dy > touchSlop && dy > kotlin.math.abs(dx)) {
+                        beginFlyDrag(downCell) // 自带防重入
+                        setFlyDrag(dy / flyThresholdPx)
+                    } else if (flyP >= 0f && flyAnim == null) {
+                        cancelFlyDrag()
+                    }
                 }
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPressRunnable)
+                // 拖动过阈值 → 在此提交(松手即飞完);没过 → 淡回原位;正在淡回则忽略本次抬手
+                if (flyP >= 0f) {
+                    if (flyAnim == null) {
+                        val dx = event.x - downX
+                        val dy = downY - event.y
+                        if (dy > 0f && dy > kotlin.math.abs(dx)) setFlyDrag(dy / flyThresholdPx)
+                        if (flyP >= 1f) {
+                            val zone = flyZone
+                            val word = flyWord
+                            startFlyAnim(zone, word)
+                            onSelect?.invoke(zone)
+                        } else {
+                            cancelFlyDrag()
+                        }
+                    }
+                    return true
+                }
                 val dx = event.x - downX
                 val dy = event.y - downY
                 when {
@@ -188,7 +306,10 @@ class CandidateBarView @JvmOverloads constructor(
                         onPage?.invoke(if (dx < 0) 1 else -1)
                 }
             }
-            MotionEvent.ACTION_CANCEL -> removeCallbacks(longPressRunnable)
+            MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(longPressRunnable)
+                cancelFlyDrag()
+            }
         }
         return true
     }
@@ -213,9 +334,11 @@ class CandidateBarView @JvmOverloads constructor(
         arrowPaint.alpha = dim
 
         // 翻页动画:旧页向翻页方向滑出淡去,新页反方向滑入(轮播)
-        val showPageAnim = pageAnimT < 1f && prevSlots.isNotEmpty()
+        val showPageAnim = flyP < 0f && pageAnimT < 1f && prevSlots.isNotEmpty()
         val wordAlpha = wordPaint.alpha
-        if (showPageAnim) {
+        if (flyP >= 0f) {
+            drawFly(canvas) // 飞字拖动/完成段:词起升,其余候选渐隐
+        } else if (showPageAnim) {
             val t = pageAnimT
             // 旧页:向翻页方向滑出
             wordPaint.alpha = ((1f - t) * 255).toInt()
@@ -233,24 +356,56 @@ class CandidateBarView @JvmOverloads constructor(
         } else {
             drawSlots(canvas, slots, highlight, dividers = true)
         }
-
-        // 飞字动画:词放大、上浮、淡出
-        if (flyProgress in 0f..1f) {
-            val t = flyProgress
-            val size = 17f * resources.displayMetrics.scaledDensity * (1f + 0.2f * t)
-            wordPaint.textSize = size
-            wordPaint.alpha = ((1f - t) * 255).toInt()
-            val w = wordPaint.measureText(flyWord)
-            val x = (flyX - w / 2f).coerceIn(dip(8), width - w - dip(8))
-            val y = height / 2f - t * dip(56)
-            canvas.drawText(flyWord, x, y, wordPaint)
-            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
-            wordPaint.alpha = 255
-        }
     }
 
-    private fun drawSlots(canvas: Canvas, list: List<dev.hwkbd.ime.engine.Candidate?>, highlightOf: Int, dividers: Boolean) {
+    /**
+     * 飞字绘制。flyP 一根数轴两段:
+     * 拖动段 [0,1] 跟手指——词缓慢上移(0→26dp)、其余候选线性渐隐(→0.4);
+     * 完成段 (1,2] 越过阈值后接管——词加速飞到 64dp 并淡出,其余候选加速淡完。
+     */
+    private fun drawFly(canvas: Canvas) {
+        val p = flyP
+        val drag = if (p < 1f) p else 1f
+        val s = if (p > 1f) p - 1f else 0f
+        val others = if (s <= 0f) 1f - 0.6f * drag else 0.4f * (1f - s * s)
+        val out = if (flyOutSlots.isNotEmpty()) flyOutSlots else slots
+        drawSlots(canvas, out, highlightOf = -1, dividers = others > 0.02f, alpha = others, skip = flyZone)
+
+        if (flyWord.isEmpty()) return
+        val base = 17f * resources.displayMetrics.scaledDensity
+        // 飞的是第一候选时,把行内的强调(主色+略大)原样带上,飞行前后观感一致
+        val first = flyZone == 0
+        wordPaint.textSize = base *
+            (if (flyWord.length > 6) 0.7f else 1f) *
+            (if (first) FIRST_BOOST else 1f) *
+            (1f + 0.2f * (p / 2f))
+        wordPaint.alpha = ((if (s <= 0f) 1f else 1f - s) * 255).toInt()
+        val savedColor = wordPaint.color
+        wordPaint.color = if (first) accentColor else savedColor
+        val lift = drag * dip(26) + (if (s <= 0f) 0f else (dip(64) - dip(26)) * s * s)
+        val w = wordPaint.measureText(flyWord)
+        val x = (flyX - w / 2f).coerceIn(dip(8), width - w - dip(8))
+        val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f - lift
+        canvas.drawText(flyWord, x, y, wordPaint)
+        wordPaint.color = savedColor
+        wordPaint.textSize = base
+        wordPaint.alpha = 255
+    }
+
+    private fun drawSlots(
+        canvas: Canvas,
+        list: List<dev.hwkbd.ime.engine.Candidate?>,
+        highlightOf: Int,
+        dividers: Boolean,
+        alpha: Float = 1f,
+        skip: Int = -1,
+    ) {
+        val savedAlpha = wordPaint.alpha
+        val savedColor = wordPaint.color
+        if (alpha < 1f) wordPaint.alpha = (alpha * 255).toInt()
+        val base = 17f * resources.displayMetrics.scaledDensity
         for (i in 0 until 5) {
+            if (i == skip) continue
             val left = cellsLeft + i * cellWidth
             if (i > 0 && dividers) {
                 canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
@@ -259,14 +414,26 @@ class CandidateBarView @JvmOverloads constructor(
             if (i == highlightOf) {
                 canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
             }
+            // 第一候选轻度强调:主色 + 略大一号。先定尺寸再测量,免得居中跑偏
+            val first = i == 0
+            wordPaint.textSize = base *
+                (if (c.word.length > 6) 0.7f else 1f) *
+                (if (first) FIRST_BOOST else 1f)
             val w = wordPaint.measureText(c.word)
             val x = left + (cellWidth - w) / 2f
             val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
-            wordPaint.textSize *= if (c.word.length > 6) 0.7f else 1f
+            wordPaint.color = if (first) accentColor else savedColor
             canvas.drawText(c.word, x, y, wordPaint)
-            wordPaint.textSize = 17f * resources.displayMetrics.scaledDensity
+            wordPaint.textSize = base
         }
+        wordPaint.color = savedColor
+        wordPaint.alpha = savedAlpha
     }
 
     private fun dip(v: Int): Float = v * density
+
+    private companion object {
+        /** 第一候选的强调幅度(尺寸)。 */
+        const val FIRST_BOOST = 1.1f
+    }
 }

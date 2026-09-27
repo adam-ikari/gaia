@@ -7,6 +7,7 @@
         <item>黛蓝</item>
         <item>薰衣草</item>
         <item>苔绿</item>
+        <item>橙色</item>
     </string-array>
     <string-array name="theme_values">
         <item>obsidian</item>
@@ -15,6 +16,7 @@
         <item>azure</item>
         <item>lavender</item>
         <item>moss</item>
+        <item>orange</item>
     </string-array>
     <string-array name="fly_threshold_entries">
         <item>灵敏(轻滑即触发)</item>
@@ -22,8 +24,8 @@
         <item>保守(需明显上滑)</item>
     </string-array>
     <string-array name="fly_threshold_values">
-        <item>15</item>
-        <item>25</item>
-        <item>40</item>
+        <item>50</item>
+        <item>80</item>
+        <item>120</item>
     </string-array>
 </resources>

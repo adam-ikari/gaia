@@ -2,12 +2,14 @@
 slug: background
 title: Project background
 role: project background
-updated: "2026-09-23T04:27:03"
+updated: "2026-09-27T22:45:07"
 ---
 
 # Project background
 
 为 Unihertz Titan 2 这类**物理全键盘 Android 手机**做一款以硬件键盘为第一公民的输入法，交互模型模仿「可可拼音输入法」（CocoIME），但针对 Titan 2 的系统限制重新设计可行的替代通道。
+
+**产品名：盖亚输入法**（`app_name` / 设置页标题 / 关于页，2026-09-27 由「全键盘拼音输入法」改名；包名与工程名 `hwkbd_ime` 不变）。
 
 ## 目标
 

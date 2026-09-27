@@ -14,14 +14,20 @@ class ImeState {
     var mode = ImeMode.CN
     var shift = ShiftState.OFF
 
+    /** 物理 Shift 正被按住(长按大写:松手即取消),用于状态行大写芯片提示。 */
+    var shiftHeld = false
+
     /** 锁定层(双击 Alt/Sym 进入),null 表示未锁定。 */
     var lock: Layer? = null
 
     /** 一次性层(单击 Alt/Sym),下一个键输出后自动回 L1。 */
     var oneShot: Layer? = null
 
+    /** 长按 Alt/Sym 激活的临时层:按住期间生效,松开立即取消(优先级最高)。 */
+    var hold: Layer? = null
+
     val effectiveLayer: Layer
-        get() = lock ?: oneShot ?: Layer.L1
+        get() = hold ?: lock ?: oneShot ?: Layer.L1
 
     /** 拼音缓冲(中文态),也是编辑框里的组词区内容。 */
     var raw = ""

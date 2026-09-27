@@ -49,6 +49,13 @@ class ImeControllerTest {
 
         fun key(code: Int, ctrl: Boolean = false, shift: Boolean = false, caps: Boolean = false): Boolean =
             c.onKeyDown(code, ctrl, shift, caps)
+
+        /** 完整敲击(按下 + 快速松开):修饰键的敲击/长按语义要到 keyUp 才定型。 */
+        fun tap(code: Int): Boolean {
+            val down = c.onKeyDown(code, false, false)
+            c.onKeyUp(code)
+            return down
+        }
     }
 
     private fun rig(pageSize: Int = 5): Rig {
@@ -274,6 +281,8 @@ class ImeControllerTest {
         val r = rig()
         r.c.state.mode = ImeMode.EN
         assertTrue(r.key(KeyEvent.KEYCODE_ALT_LEFT))
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer) // 按下即进层(长按也从这里开始)
+        r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT) // 快速松开 = 敲击,一次性层保留
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
         r.key(kc('w'))
         assertEquals(listOf("1"), r.h.commits) // Alt 层 W=1(九宫格)
@@ -281,28 +290,54 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `Alt 双击锁定 L2 连续输出单击解锁`() {
+    fun `长按 Alt 期间可连续输出 L2 松开取消`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.key(KeyEvent.KEYCODE_ALT_LEFT) // 按住不放
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
+        r.key(kc('w'))
+        r.key(kc('e'))
+        r.key(kc('r'))
+        assertEquals(listOf("1", "2", "3"), r.h.commits) // 一次性被消费后长按层继续兜着
+        Thread.sleep(350)
+        r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT) // 长按松开 = 取消
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+    }
+
+    @Test
+    fun `长按 Alt 不按任何键松开也取消`() {
         val r = rig()
         r.c.state.mode = ImeMode.EN
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        Thread.sleep(350)
+        r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+        assertEquals(emptyList<String>(), r.h.commits)
+    }
+
+    @Test
+    fun `Alt 双击锁定 L2 连续输出单击解锁`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         r.key(kc('w'))
         r.key(kc('e'))
         assertEquals(listOf("1", "2"), r.h.commits)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
         // 真实节奏:锁定后先输入符号,再次敲 Alt 时早已超出双击窗口 → 单击解锁
         Thread.sleep(450)
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
 
     @Test
     fun `一次性层激活后再次独立按同键取消`() {
         val r = rig()
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
         Thread.sleep(450) // 窗口外独立敲击
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 取消
         assertFalse(r.c.state.hasComposition)
     }
@@ -322,11 +357,10 @@ class ImeControllerTest {
     @Test
     fun `锁定态下 Alt Sym 互切层`() {
         val r = rig()
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
-        r.key(KeyEvent.KEYCODE_SYM)
-        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.tap(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock) // 锁定态下异层键一次切换
     }
 
@@ -396,12 +430,12 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `Sym 单击 keyUp 才生效进 L3 一次性`() {
+    fun `Sym 单击进 L3 一次性 敲击语义在 keyUp 定型`() {
         val r = rig()
         r.c.state.mode = ImeMode.EN
         assertTrue(r.key(KeyEvent.KEYCODE_SYM))
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
-        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer) // 按住即进 L3(长按语义)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 快速松开 = 敲击,一次性 L3 保留
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
         r.key(kc('q'))
         assertEquals(emptyList<String>(), r.h.commits) // L3 Q=Esc:功能键转发,不上屏文本
@@ -410,16 +444,27 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `按住 Sym 加键等于 Ctrl 组合松开不切层`() {
+    fun `长按 Sym 期间按键走 L3 松开取消`() {
         val r = rig()
-        r.type("ni")
-        r.key(KeyEvent.KEYCODE_SYM) // 按住
-        assertTrue(r.key(kc('q'))) // Sym+q = Ctrl 槽选字(槽0)
-        assertEquals(listOf("年"), r.h.commits)
-        assertTrue(r.key(kc('c'))) // Sym+c = 透传 Ctrl+C
-        assertEquals(listOf("${kc('c')}/true/false"), r.h.keys)
+        r.c.state.mode = ImeMode.EN
+        r.key(KeyEvent.KEYCODE_SYM) // 按住不放
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        r.key(kc('x')) // L3 X=&
+        assertEquals(listOf("&"), r.h.commits)
+        Thread.sleep(350)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 长按松开 = 取消,不再算敲击
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+        assertEquals(null, r.c.state.lock)
+    }
+
+    @Test
+    fun `长按 Sym 不按任何键松开也取消`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_SYM)
+        Thread.sleep(350)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 松开不切层
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+        assertEquals(null, r.c.state.oneShot)
     }
 
     @Test
@@ -444,6 +489,83 @@ class ImeControllerTest {
         assertEquals(listOf("A", "B"), r.h.commits)
         r.key(kc('c')) // Caps 持续
         assertEquals(listOf("A", "B", "C"), r.h.commits)
+    }
+
+    @Test
+    fun `物理 Shift 单击大写一次 双击 Caps 再单击关掉`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 单击
+        assertEquals(ShiftState.ONCE, r.c.state.shift)
+        assertFalse(r.c.state.shiftHeld) // 松手后大写提示熄灭
+        r.key(kc('a'))
+        assertEquals(listOf("A"), r.h.commits)
+        assertEquals(ShiftState.OFF, r.c.state.shift) // 输入一个字母就取消
+
+        Thread.sleep(250) // 出双击窗口,重新起算
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 双击第一击:大写一次
+        assertEquals(ShiftState.ONCE, r.c.state.shift)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 第二击:Caps 锁定
+        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        r.key(kc('b'))
+        r.key(kc('c'))
+        assertEquals(listOf("A", "B", "C"), r.h.commits)
+
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 已在 Caps:单击 = 关掉锁定
+        assertEquals(ShiftState.OFF, r.c.state.shift)
+    }
+
+    @Test
+    fun `物理 Shift 长按只在按住期间提示 松手不留下状态`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertTrue(r.c.state.shiftHeld) // 按住期间状态行亮大写芯片
+        Thread.sleep(350)
+        r.key(kc('a'), shift = true) // 长按大写由物理修饰键承担
+        assertEquals(listOf("A"), r.h.commits)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertFalse(r.c.state.shiftHeld)
+        assertEquals(ShiftState.OFF, r.c.state.shift) // 松手取消,不残留一次性/锁定
+        r.key(kc('b'))
+        assertEquals(listOf("A", "b"), r.h.commits)
+    }
+
+    @Test
+    fun `Shift 当修饰键用过就不算敲击`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
+        r.key(kc('a'), shift = true) // 按住期间按了别的键
+        r.c.onKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(ShiftState.OFF, r.c.state.shift) // 不武装大写一次
+        r.key(kc('b'))
+        assertEquals(listOf("A", "b"), r.h.commits) // 按住期间大写来自物理 shift,松开后回小写
+    }
+
+    @Test
+    fun `拼音态忽略 Shift 敲击 不产生大小写锁定`() {
+        val r = rig()
+        assertEquals(ImeMode.CN, r.c.state.mode)
+        r.c.onShiftTap()
+        r.c.onShiftTap() // 双击也不给锁定:拼音不需要大小写
+        assertEquals(ShiftState.OFF, r.c.state.shift)
+        r.key(kc('n'))
+        r.key(kc('i'))
+        assertTrue(r.c.state.hasComposition)
+        assertEquals("ni", r.c.state.raw) // 组词照常,不受大写状态影响
+    }
+
+    @Test
+    fun `切进拼音态清掉英文态的大小写锁定`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.c.onShiftTap()
+        r.c.onShiftTap()
+        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        r.c.toggleMode()
+        assertEquals(ImeMode.CN, r.c.state.mode)
+        assertEquals(ShiftState.OFF, r.c.state.shift)
     }
 
     // ---------------------------------------------------------------- 透传

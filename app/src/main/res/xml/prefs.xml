@@ -23,7 +23,7 @@
             android:title="@string/pref_swipe_page" />
         <ListPreference
             android:key="fly_threshold"
-            android:defaultValue="25"
+            android:defaultValue="40"
             android:title="@string/pref_fly_threshold"
             android:entries="@array/fly_threshold_entries"
             android:entryValues="@array/fly_threshold_values"

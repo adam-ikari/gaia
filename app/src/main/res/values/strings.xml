@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">全键盘拼音输入法</string>
-    <string name="settings_title">全键盘输入法 设置</string>
+    <string name="app_name">盖亚输入法</string>
+
     <string name="layer_map_title">三层键位映射</string>
     <string name="probe_title">按键探测</string>
     <string name="playground_title">实验场</string>
@@ -74,5 +74,5 @@
     <string name="dict_stats_user_freq">使用频次记录：%1$d</string>
     <string name="dict_stats_loading">内置词库尚未载入（输入法未启动过）</string>
     <string name="select_keys_summary">Ctrl(Fn) + Q/W/E/R/T（默认，暂不可改）</string>
-    <string name="about_body">全键盘拼音输入法 v%1$s\n为 Unihertz Titan 2 全键盘设计的硬件键盘拼音输入。\n词库来源：fxsjy/jieba (MIT)。</string>
+    <string name="about_body">盖亚输入法 v%1$s\n为 Unihertz Titan 2 全键盘设计的硬件键盘拼音输入。\n词库来源：fxsjy/jieba (MIT)。</string>
 </resources>

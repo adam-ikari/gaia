@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   输入法根视图:36dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
-  - 组词中:候选行(整行候选)——飞字/选字目标尽量大
+  - 组词中:候选行(整行候选)——飞字/选字目标尽量大;上方浮一条拼音(部分 App
+    自己不渲染 composing 区),拼音条不占 insets,直接盖在应用内容上
   - 空闲时:状态行(模式徽标 + 屏幕键盘开关 + 收起)
   屏幕键盘(可选,默认隐藏)追加在下方。组词中 touchable 区扩到全屏接飞字。
 -->
@@ -12,7 +13,33 @@
     android:gravity="bottom"
     android:orientation="vertical">
 
+    <!--
+      组词拼音(悬浮):只在 App 自己不渲染 composing 区时显示(Termux 这类),
+      能就地显示拼音的 App(EditText 类)直接藏起来;浮在候选条正上方,
+      不占 contentTopInsets(应用不 resize)。宽度随文字(至多 300dp),
+      不再拉满整屏,像一颗贴底的小气泡。
+    -->
+    <TextView
+        android:id="@+id/preedit_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:layout_marginStart="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/preedit_bg"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:maxWidth="300dp"
+        android:paddingStart="8dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp"
+        android:textColor="@color/candidate_fg"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <FrameLayout
+        android:id="@+id/bar_container"
         android:layout_width="match_parent"
         android:layout_height="36dp">
 
@@ -61,6 +88,21 @@
                     android:textSize="11sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
+
+                <!-- 大写状态芯片(Shift):锁定=实心,一次性/按住=描边 -->
+                <TextView
+                    android:id="@+id/chip_shift"
+                    android:layout_width="wrap_content"
+                    android:layout_height="20dp"
+                    android:layout_marginStart="3dp"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:minWidth="20dp"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <Space
@@ -73,19 +115,24 @@
                 android:layout_width="34dp"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
-                android:contentDescription="@string/settings_title"
+                android:contentDescription="@string/app_name"
                 android:paddingEnd="3dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_settings"
                 android:tint="@color/status_fg" />
 
+            <!--
+              收起按钮:宽 26dp(触摸目标),paddingLeft 10dp 把 16dp 宽的三角推到右缘,
+              使右侧视觉边距 = marginEnd(6dp),与左侧模式芯片的 6dp 对齐。
+            -->
             <ImageButton
                 android:id="@+id/btn_hide_ime"
-                android:layout_width="34dp"
+                android:layout_width="26dp"
                 android:layout_height="match_parent"
                 android:layout_marginEnd="6dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/btn_hide"
+                android:paddingLeft="10dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_hide"
                 android:tint="@color/status_fg" />

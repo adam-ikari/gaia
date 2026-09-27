@@ -39,6 +39,7 @@ data class ImeTheme(
             ImeTheme("azure", "黛蓝", 0xFF101622.toInt(), 0xFFE2EAF5.toInt(), 0xFF6FA8DC.toInt(), 0xFF7488A3.toInt(), 0xFF1F2A3D.toInt(), 0xFF243248.toInt(), 0xFF5B9BD5.toInt(), 0xFF6FC3A0.toInt()),
             ImeTheme("lavender", "薰衣草", 0xFF191322.toInt(), 0xFFEFE8F5.toInt(), 0xFFB39DDB.toInt(), 0xFF8F819E.toInt(), 0xFF2A2238.toInt(), 0xFF322A42.toInt(), 0xFF9D8CD8.toInt(), 0xFF7FB09A.toInt()),
             ImeTheme("moss", "苔绿", 0xFF101812.toInt(), 0xFFE4F0E4.toInt(), 0xFF8FBC6F.toInt(), 0xFF7A8F7A.toInt(), 0xFF1E2A20.toInt(), 0xFF243428.toInt(), 0xFF6FA8DC.toInt(), 0xFFB5C96F.toInt()),
+            ImeTheme("orange", "橙色", 0xFF1A130A.toInt(), 0xFFFDF1E4.toInt(), 0xFFFF9A3D.toInt(), 0xFF9C8B76.toInt(), 0xFF33260F.toInt(), 0xFF3A2A14.toInt(), 0xFFFFB25C.toInt(), 0xFF6FC3A0.toInt()),
         )
 
         fun labels(): Array<String> = ALL.map { it.label }.toTypedArray()

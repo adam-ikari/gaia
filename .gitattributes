@@ -1,0 +1,7 @@
+# .gitattributes 自身保 LF(否则被 core.autocrlf 转成 CRLF 后,行尾 \r 会让下面的模式匹配失效)
+.gitattributes text eol=lf
+
+# brain/ 必须保 LF:brain CLI 解析 frontmatter 是按行正则 `^key:\s*.*$`,
+# 而 JS 的 `.` 不匹配 \r、`$` 只锚在输入末尾 —— 一旦行尾变成 \r,
+# title/category/status 会整片解析失败,list-pages 就显示成 (untitled)/?。
+brain/** text eol=lf

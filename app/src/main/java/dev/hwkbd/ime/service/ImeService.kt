@@ -22,6 +22,7 @@ import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
 import dev.hwkbd.ime.ime.ImeMode
 import dev.hwkbd.ime.ime.ImeState
+import dev.hwkbd.ime.ime.ShiftState
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyLayoutStore
 import dev.hwkbd.ime.keymap.Layer
@@ -45,6 +46,8 @@ class ImeService : InputMethodService() {
     private var candidateRow: View? = null
     private var chipMode: TextView? = null
     private var chipLayer: TextView? = null
+    private var chipShift: TextView? = null
+    private var preeditRow: TextView? = null
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
     private var lastComposingForInsets = false
@@ -52,6 +55,23 @@ class ImeService : InputMethodService() {
 
     /** 当前组词区内容(render 与 onUpdateSelection 对账用)。 */
     private var composing = ""
+
+    /**
+     * 拼音悬浮条的显示条件:App 自己渲染 composing 区(EditText 类会在
+     * onUpdateSelection 里回报组词区)就藏起来,只给 Termux 这类不回报的显示。
+     * 组词开始后 [PREEDIT_PROBE_MS] 内没等到回报 → 判定 App 不渲染,本会话放行。
+     */
+    private var appRendersComposing = false
+    private var bubbleAllowed = false
+    private var preeditProbeArmed = false
+
+    private val preeditProbe = Runnable {
+        preeditProbeArmed = false
+        if (!appRendersComposing && controller.state.hasComposition) {
+            bubbleAllowed = true
+            updateUi()
+        }
+    }
 
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "dict-loader").apply { isDaemon = true } }
 
@@ -90,6 +110,9 @@ class ImeService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        // 窗口背景必须透明:组词态窗口拉到全屏,若 Theme.InputMethod 的 windowBackground
+        // 不透明,会把背后 App 整片盖住(Termux 表现为"界面空白")。
+        window?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
         ImeRuntime.init(this)
         val dict = PinyinDict()
         engine = PinyinEngine(dict, ImeRuntime.userDict)
@@ -146,6 +169,8 @@ class ImeService : InputMethodService() {
         candidateRow = root.findViewById(R.id.candidate_row)
         chipMode = root.findViewById(R.id.chip_mode)
         chipLayer = root.findViewById(R.id.chip_layer)
+        chipShift = root.findViewById(R.id.chip_shift)
+        preeditRow = root.findViewById(R.id.preedit_row)
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
@@ -171,6 +196,11 @@ class ImeService : InputMethodService() {
         // 层映射可能被设置页改过,每次开始输入重新加载(开销可忽略)
         controller.layout = KeyLayoutStore.load(this)
         composing = ""
+        // 每次开始输入都重新判定:换一个输入框,App 是否就地渲染组词区可能不同
+        mainHandler.removeCallbacks(preeditProbe)
+        preeditProbeArmed = false
+        appRendersComposing = false
+        bubbleAllowed = false
         controller.resetForNewInput()
         // 密码框强制英文态,避免拼音组词混入密码显示
         if (isPasswordField(attribute) && controller.state.mode == ImeMode.CN) {
@@ -211,6 +241,16 @@ class ImeService : InputMethodService() {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        android.util.Log.i(
+            TAG,
+            "updateSelection sel=$newSelStart..$newSelEnd comp=$candidatesStart..$candidatesEnd raw=$composing",
+        )
+        // App 回报了与我们一致的组词区 → 它自己会把拼音显示在输入框里,悬浮条让位
+        if (composing.isNotEmpty() && candidatesStart >= 0 && candidatesEnd == candidatesStart + composing.length) {
+            appRendersComposing = true
+            mainHandler.removeCallbacks(preeditProbe)
+            preeditProbeArmed = false
+        }
         if (controller.state.hasComposition && composing.isNotEmpty()) {
             val expected = candidatesStart + composing.length
             if (candidatesEnd != expected) {
@@ -224,9 +264,22 @@ class ImeService : InputMethodService() {
      * 飞字窗口策略:键盘表面被固件映射为屏幕触摸,落点遍布屏幕,
      * 只有窗口全屏才能收到。组词中窗口临时全屏(透明、内容贴底),
      * 条上方区域全部转飞字手势;非组词恢复 36dp 细条,不挡应用。
+     *
+     * 注意:窗口全屏 ≠ 内容全屏。默认实现把 contentTopInsets 取成根视图顶(=0),
+     * 背后 App 会认为输入法内容占满全屏,把自己的内容区压成 0——
+     * Termux 在此状态下终端整片空白,并主动 hideSoftInput(状态条/候选条一起消失)。
+     * 所以这里显式只上报 36dp 条自身:组词态与空闲态的 contentTopInsets 恒等,
+     * App 侧既不 resize 也不 pan;而触摸范围仍用整个窗口框架,飞字手势不受影响。
      */
     override fun onComputeInsets(outInsets: Insets?) {
         super.onComputeInsets(outInsets)
+        if (outInsets == null) return
+        val row = (if (candidateRow?.visibility == View.VISIBLE) candidateRow else statusRow) ?: return
+        val loc = IntArray(2)
+        row.getLocationInWindow(loc)
+        outInsets.contentTopInsets = loc[1]
+        outInsets.visibleTopInsets = loc[1]
+        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_FRAME
     }
 
     private fun applyWindowMode(composing: Boolean) {
@@ -242,30 +295,73 @@ class ImeService : InputMethodService() {
     /**
      * 飞字:键盘表面(TOUCHPAD)滑动选字。
      * 事件经全屏 touchable 区送达输入法窗口,坐标空间约 1440x720。
-     * 手势 = DOWN 起点向上位移超过阈值 → 按起点横坐标落在 5 区的哪一区选候选。
+     *
+     * 手势分两段:一上滑就进入拖动(词随手指缓慢起升、其余候选渐隐),
+     * 位移越过阈值立刻提交,剩下的飞字动画由候选栏自己飞完;
+     * 松手还没过阈值就把拖出来的效果淡回去。
      */
-    private class FlyDetector {
+    private class FlyDetector(private val listener: Listener) {
+        interface Listener {
+            /** 拖动中:progress = 上移距离/阈值,0..1(词已开始起升)。 */
+            fun onFlyDrag(zone: Int, progress: Float)
+
+            /** 越过阈值:立即提交飞字(完成段动画 + 选字上屏)。 */
+            fun onFlyCommit(zone: Int)
+
+            /** 拖动放弃(松手未过阈值 / 转为横滑 / 事件取消)。 */
+            fun onFlyAbort()
+        }
+
         private var downX = 0f
         private var downY = 0f
         private var downAt = 0L
         private var tracking = false
+        private var zone = -1
+        private var dragging = false
+        private var committed = false
 
-        /** 飞字触发上滑距离(屏幕坐标单位),设置页可调,默认 25。 */
-        var threshold = 25f
+        /** 飞字触发上滑距离(屏幕坐标单位),设置页可调,默认 40 = 保守档。 */
+        var threshold = 40f
 
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
         fun onMotion(action: Int, x: Float, y: Int): Int? {
-            android.util.Log.i(TAG, "fly: act=$action x=${x.toInt()} y=$y tracking=$tracking")
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = x
                     downY = y.toFloat()
                     downAt = System.currentTimeMillis()
                     tracking = true
+                    zone = -1
+                    dragging = false
+                    committed = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!tracking || committed) return null
+                    val dy = downY - y
+                    val dx = x - downX
+                    // 回拖或横向为主:放弃飞字(翻页在 UP 判定)
+                    if (dy <= 0f || kotlin.math.abs(dx) >= dy) {
+                        abortDrag()
+                        return null
+                    }
+                    if (zone < 0) zone = zoneOf(downX)
+                    dragging = true
+                    val progress = dy / threshold
+                    listener.onFlyDrag(zone, progress.coerceAtMost(1f))
+                    if (progress >= 1f) {
+                        // 过阈值即提交:抬手不再重复判定,完成段动画交给候选栏
+                        committed = true
+                        dragging = false
+                        listener.onFlyCommit(zone)
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     val wasTracking = tracking
                     tracking = false
+                    if (committed) return null
+                    val wasDragging = dragging
+                    dragging = false
+                    if (wasDragging) listener.onFlyAbort()
                     if (!wasTracking || action == MotionEvent.ACTION_CANCEL) return null
                     val dy = downY - y
                     val dx = x - downX
@@ -275,11 +371,18 @@ class ImeService : InputMethodService() {
                     if (dt > 1500) return null
                     // 横向主位移 → 翻页:左滑=下一页(内容拖拽隐喻,与候选栏手势一致)
                     if (adx > 60f && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
-                    // 纵向主位移(向上)→ 飞字(距离阈值设置页可调)
+                    // 纵向主位移(向上):兜底(拖动过程的 MOVE 丢失时仍能提交)
                     if (dy > threshold && dy > adx) return zoneOf(downX)
                 }
             }
             return null
+        }
+
+        private fun abortDrag() {
+            if (dragging) {
+                dragging = false
+                listener.onFlyAbort()
+            }
         }
 
         /** 全宽平分 5 区,返回 downX 落在哪一区。 */
@@ -294,17 +397,7 @@ class ImeService : InputMethodService() {
         val zone = flyDetector.onMotion(ev.actionMasked, ev.rawX, ev.rawY.toInt())
         if (zone == null) return true
         when {
-            zone >= 0 -> {
-                val has = controller.state.hasComposition
-                android.util.Log.i(TAG, "fly select: zone=$zone hasComposition=$has")
-                if (has) {
-                    val word = controller.state.pageSlots().getOrNull(zone)?.word ?: ""
-                    // 先启动动画(flyProgress 置位后 render 才会保持候选行可见),再选字上屏
-                    candidateBar?.startFlyAnim(zone, word)
-                    controller.selectCandidate(zone)
-                    mainHandler.postDelayed({ updateUi() }, 260) // 动画结束后两态归位
-                }
-            }
+            zone >= 0 -> commitFly(zone) // 兜底提交路径
             zone == PAGE_NEXT -> {
                 android.util.Log.i(TAG, "fly page: next")
                 controller.pageStep(1)
@@ -317,7 +410,33 @@ class ImeService : InputMethodService() {
         return true
     }
 
-    private val flyDetector = FlyDetector()
+    private val flyDetector = FlyDetector(object : FlyDetector.Listener {
+        override fun onFlyDrag(zone: Int, progress: Float) {
+            if (!controller.state.hasComposition) return
+            candidateBar?.beginFlyDrag(zone)
+            candidateBar?.setFlyDrag(progress)
+        }
+
+        override fun onFlyCommit(zone: Int) = commitFly(zone)
+
+        override fun onFlyAbort() {
+            candidateBar?.cancelFlyDrag()
+        }
+    })
+
+    /** 越过阈值:先把完成段动画挂上(flyP 置位后 render 才会保持候选行可见),再选字上屏。 */
+    private fun commitFly(zone: Int) {
+        val has = controller.state.hasComposition
+        android.util.Log.i(TAG, "fly select: zone=$zone hasComposition=$has")
+        if (!has) {
+            candidateBar?.cancelFlyDrag()
+            return
+        }
+        val word = controller.state.pageSlots().getOrNull(zone)?.word ?: ""
+        candidateBar?.startFlyAnim(zone, word)
+        controller.selectCandidate(zone)
+        mainHandler.postDelayed({ updateUi() }, 260) // 动画结束后两态归位
+    }
 
     // ------------------------------------------------------------------ 窗口策略
 
@@ -351,12 +470,43 @@ class ImeService : InputMethodService() {
 
         candidateBar?.swipeSelectEnabled = p.getBoolean(PREF_SWIPE_SELECT, true)
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
-        flyDetector.threshold = p.getString(PREF_FLY_THRESHOLD, "25")?.toFloatOrNull() ?: 25f
+        migrateFlyThreshold(p)
+        val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
+            ?: FLY_THRESHOLD_DEFAULT.toFloat()
+        flyDetector.threshold = flyThreshold
+        candidateBar?.flyThresholdPx = flyThreshold // 候选行内起手的上滑用同一阈值
         theme = dev.hwkbd.ime.ui.ImeTheme.byId(p.getString(PREF_THEME, "obsidian"))
         candidateBar?.setTheme(theme)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
         updateUi()
+    }
+
+    /**
+     * 飞字阈值整体上调(触发距离更大):v2 15/25/40 → 25/40/60,v3 再翻倍 → 50/80/120。
+     * 各为一次性迁移(带标记),否则已在新档位上的值会被反复上调。
+     */
+    private fun migrateFlyThreshold(p: SharedPreferences) {
+        if (!p.getBoolean(PREF_FLY_THRESHOLD_V2, false)) {
+            val mapped = when (p.getString(PREF_FLY_THRESHOLD, null)) {
+                "15" -> "25"
+                "25" -> "40"
+                "40" -> "60"
+                null -> "40"
+                else -> p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)
+            }
+            p.edit().putString(PREF_FLY_THRESHOLD, mapped).putBoolean(PREF_FLY_THRESHOLD_V2, true).apply()
+        }
+        if (!p.getBoolean(PREF_FLY_THRESHOLD_V3, false)) {
+            val mapped = when (p.getString(PREF_FLY_THRESHOLD, null)) {
+                "25" -> "50"
+                "40" -> "80"
+                "60" -> "120"
+                null -> FLY_THRESHOLD_DEFAULT
+                else -> p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)
+            }
+            p.edit().putString(PREF_FLY_THRESHOLD, mapped).putBoolean(PREF_FLY_THRESHOLD_V3, true).apply()
+        }
     }
 
     // ------------------------------------------------------------------ 渲染
@@ -378,22 +528,32 @@ class ImeService : InputMethodService() {
         }
         when (s.effectiveLayer) {
             Layer.L1 -> chipLayer?.visibility = View.GONE
-            Layer.L2 -> renderLayerChip("符", t.chipL2, s.lock != null)
-            Layer.L3 -> renderLayerChip("SYM", t.chipL3, s.lock != null)
+            Layer.L2 -> renderChip(chipLayer, "符", t.chipL2, s.lock != null)
+            Layer.L3 -> renderChip(chipLayer, "SYM", t.chipL3, s.lock != null)
         }
         // 双击窗口期内暂不显示一次性层芯片(区分单击取消/双击锁定);
-        // 窗口过期后由 postDelayed 的 render 补显描边芯片
+        // 窗口过期后由 postDelayed 的 render 补显描边芯片(长按层芯片不受此影响)
         val inDoubleTapWindow = s.oneShot != null &&
             System.currentTimeMillis() - controller.lastLayerTapAt <= ImeController.DOUBLE_TAP_WINDOW
-        if (s.oneShot != null && inDoubleTapWindow) chipLayer?.visibility = View.GONE
+        if (s.hold == null && s.oneShot != null && inDoubleTapWindow) chipLayer?.visibility = View.GONE
+
+        // 大写状态:拼音态一律不显示(拼音不需要大小写);
+        // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定
+        when {
+            cn -> chipShift?.visibility = View.GONE
+            s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.accent, solid = true)
+            s.shift == ShiftState.ONCE || s.shiftHeld -> renderChip(chipShift, "Ab", t.accent, solid = false)
+            else -> renderChip(chipShift, "ab", t.fg, solid = false)
+        }
     }
 
-    private fun renderLayerChip(label: String, color: Int, locked: Boolean) {
-        val chip = chipLayer ?: return
+    /** 芯片渲染:实心 = 锁定/持续状态,描边 = 一次性/临时状态。 */
+    private fun renderChip(chip: TextView?, label: String, color: Int, solid: Boolean) {
         val density = resources.displayMetrics.density
+        chip ?: return
         chip.text = label
         chip.visibility = View.VISIBLE
-        if (locked) {
+        if (solid) {
             chip.setTextColor(0xFF16181D.toInt())
             chip.background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
@@ -420,6 +580,22 @@ class ImeService : InputMethodService() {
         val s: ImeState = controller.state
         renderChips(s)
         candidateBar?.setState(s)
+
+        // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
+        // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行
+        if (s.raw.isNotEmpty() && !appRendersComposing && !bubbleAllowed && !preeditProbeArmed) {
+            preeditProbeArmed = true
+            mainHandler.postDelayed(preeditProbe, PREEDIT_PROBE_MS)
+        }
+        preeditRow?.apply {
+            val raw = s.raw
+            if (raw.isEmpty() || !bubbleAllowed || appRendersComposing) {
+                if (visibility != View.GONE) visibility = View.GONE
+            } else {
+                if (visibility != View.VISIBLE) visibility = View.VISIBLE
+                if (text.toString() != raw) text = raw
+            }
+        }
 
         // 单行两态:组词中整行给候选,空闲时整行给状态
         // 飞字动画期间保持候选行可见(否则动画没画布),结束后再切回状态行
@@ -466,6 +642,16 @@ class ImeService : InputMethodService() {
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
+
+        /** 飞字阈值默认档(更保守:需明显上滑才触发)。 */
+        const val FLY_THRESHOLD_DEFAULT = "80"
+
+        /** 组词开始后等 App 回报组词区的时限:没等到 = App 不渲染组词区,悬浮拼音上场。 */
+        private const val PREEDIT_PROBE_MS = 100L
+
+        /** 飞字阈值档位上调的一次性迁移标记(v3 = 再翻倍一档)。 */
+        const val PREF_FLY_THRESHOLD_V2 = "fly_threshold_v2"
+        const val PREF_FLY_THRESHOLD_V3 = "fly_threshold_v3"
         const val PREF_THEME = "theme"
         const val PREF_SYM_KEYCODE = "sym_keycode"
         const val PREF_ALT_KEYCODE = "alt_keycode"
