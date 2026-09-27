@@ -47,8 +47,12 @@ export class Device {
   text(t) { this.shell(`input text '${t}'`) }
 
   wake() {
+    this.shell('cmd statusbar collapse') // 收起通知栏(会抢手势)
+    this.shell('input keyevent KEYCODE_POWER') // 点亮主屏(副屏常亮,主屏会灭)
     this.shell('input keyevent KEYCODE_WAKEUP')
+    this.shell('input swipe 700 1350 700 300 200') // 上滑过锁屏
     this.shell('wm dismiss-keyguard')
+    this.shell('svc power stayon true') // USB 供电期间保持常亮,防 10s 熄屏
   }
 
   ime() { return this.shell('ime set dev.hwkbd.ime/.service.ImeService && echo OK').includes('OK') }
@@ -138,23 +142,24 @@ async function main() {
   const report = { startedAt: '', device: device.serial ?? 'default', scenarios: [] }
 
   // 前置检查:解锁 + 实验场到前台 + 编辑框聚焦,失败立刻终止(避免整场假失败)
-  device.wake()
-  device.shell('input keyevent 82') // 上滑解锁手势
-  await sleep(1500)
-  device.ime()
-  device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
-  await sleep(2500)
-  device.tap(700, 400)
-  await sleep(2500)
-  const fg = device.foreground()
-  if (!fg.includes('PlaygroundActivity') || !device.imeShown()) {
-    console.error(`✗ 设备未就绪:前台=${fg},输入法显示=${device.imeShown()}`)
-    console.error('  多半是锁屏(安全锁需手动解锁)或用户正在使用手机。解锁后重跑。')
+  const preflight = async () => {
+    device.wake()
+    device.ime()
+    device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
+    await sleep(2500)
+    device.tap(700, 400)
+    await sleep(2500)
+    const fg = device.foreground()
+    return { fg, shown: device.imeShown() }
+  }
+  let pf = await preflight()
+  if (!pf.fg.includes('PlaygroundActivity') || !pf.shown) pf = await preflight() // 失败重试一次
+  if (!pf.fg.includes('PlaygroundActivity') || !pf.shown) {
+    console.error(`✗ 设备未就绪:前台=${pf.fg},输入法显示=${pf.shown}`)
+    console.error('  可能:安全锁屏(需手动解锁)、主屏熄灭或用户正在使用手机。处理后重跑。')
     process.exitCode = 2
     return
   }
-  report.preflight = { foreground: fg, imeShown: true }
-  report.startedAt = new Date().toISOString()
 
   for (const name of selected) {
     const dir = join(runDir, name)
