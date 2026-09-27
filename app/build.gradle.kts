@@ -16,10 +16,26 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // CI/CD:环境变量注入签名(Release 工作流);本地无变量时保持未签名
+        val ksPath = System.getenv("SIGNING_KEYSTORE")
+        val storePass = System.getenv("SIGNING_STORE_PASSWORD")
+        if (!ksPath.isNullOrEmpty() && !storePass.isNullOrEmpty() && file(ksPath).exists()) {
+            create("ci") {
+                storeFile = file(ksPath)
+                storePassword = storePass
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: storePass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            val ci = signingConfigs.findByName("ci")
+            if (ci != null) signingConfig = ci
         }
     }
 
