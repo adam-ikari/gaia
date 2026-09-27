@@ -356,6 +356,19 @@ class ImeController(
         refreshQuery()
     }
 
+    /**
+     * L4 虚拟按键输出:组词中先上屏首选再输出;文本原样上屏(配置即所见),
+     * 功能键转发给目标应用。
+     */
+    fun commitL4Key(out: KeyOut) {
+        flushComposition()
+        when (out) {
+            is KeyOut.Text -> host.commitText(out.text)
+            is KeyOut.Special -> KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
+        }
+        host.render()
+    }
+
     /** 词的用户使用频次(测试/调试用)。 */
     fun userCountOf(word: String): Int = engine.user.count(word)
 

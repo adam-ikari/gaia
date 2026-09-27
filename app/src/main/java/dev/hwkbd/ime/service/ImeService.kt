@@ -48,6 +48,8 @@ class ImeService : InputMethodService() {
     private var chipLayer: TextView? = null
     private var chipShift: TextView? = null
     private var preeditRow: TextView? = null
+    private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
+    private var showL4Panel = false
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
     private var lastComposingForInsets = false
@@ -171,10 +173,20 @@ class ImeService : InputMethodService() {
         chipLayer = root.findViewById(R.id.chip_layer)
         chipShift = root.findViewById(R.id.chip_shift)
         preeditRow = root.findViewById(R.id.preedit_row)
+        l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
+            onL4Key = { controller.commitL4Key(it) }
+        }
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
+        }
+        root.findViewById<ImageButton>(R.id.btn_l4).apply {
+            setOnClickListener {
+                showL4Panel = !showL4Panel
+                ImeRuntime.prefs.edit().putBoolean(PREF_SHOW_L4, showL4Panel).apply()
+                l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.GONE
+            }
         }
         root.findViewById<ImageButton>(R.id.btn_settings).apply {
             setOnClickListener {
@@ -195,6 +207,7 @@ class ImeService : InputMethodService() {
         super.onStartInput(attribute, restarting)
         // 层映射可能被设置页改过,每次开始输入重新加载(开销可忽略)
         controller.layout = KeyLayoutStore.load(this)
+        l4Panel?.refresh(controller.layout, theme)
         composing = ""
         // 每次开始输入都重新判定:换一个输入框,App 是否就地渲染组词区可能不同
         mainHandler.removeCallbacks(preeditProbe)
@@ -479,6 +492,9 @@ class ImeService : InputMethodService() {
         candidateBar?.setTheme(theme)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
+        showL4Panel = p.getBoolean(PREF_SHOW_L4, false)
+        l4Panel?.refresh(controller.layout, theme)
+        l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.GONE
         updateUi()
     }
 
@@ -642,6 +658,7 @@ class ImeService : InputMethodService() {
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
+        const val PREF_SHOW_L4 = "show_l4_panel"
 
         /** 飞字阈值默认档(更保守:需明显上滑才触发)。 */
         const val FLY_THRESHOLD_DEFAULT = "80"

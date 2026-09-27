@@ -8,8 +8,12 @@ enum class Layer { L1, L2, L3 }
 /** 解析结果:全部行合法时 layout 非空,否则 errors 里带 1 起始行号。 */
 data class KeyLayoutParse(val layout: KeyLayout?, val errors: List<Int>)
 
+/** L4 虚拟按键:屏幕面板上的一个可配置键(标签 + 输出)。 */
+data class L4Key(val label: String, val out: KeyOut)
+
 /**
- * 三层键位表。文本格式(层映射编辑器与 filesDir/keymap.txt 共用):
+ * 键位表:L1/L2/L3 物理层 + L4 虚拟按键(屏幕面板,每个键 = 自由标签 + 文本/功能键输出)。
+ * 文本格式(层映射编辑器与 filesDir/keymap.txt 共用):
  *
  * ```
  * # 注释
@@ -19,13 +23,17 @@ data class KeyLayoutParse(val layout: KeyLayout?, val errors: List<Int>)
  * q=1
  * [L3]
  * q={
- * space=->
- * esc=key:esc
+ * [L4]
+ * Tab=key:tab
+ * ->=->        ← 标签「->」输出「->」(按第一个 = 分割)
  * ```
  *
  * L2/L3 中未出现的键回落到 L1(字母在任意层都可输入),与"Alt = 键帽上档符号"的直觉一致。
  */
-class KeyLayout(private val maps: Map<Layer, Map<Int, KeyOut>>) {
+class KeyLayout(
+    private val maps: Map<Layer, Map<Int, KeyOut>>,
+    val l4: List<L4Key> = emptyList(),
+) {
 
     fun mapFor(layer: Layer): Map<Int, KeyOut> = maps[layer] ?: emptyMap()
 
@@ -43,42 +51,60 @@ class KeyLayout(private val maps: Map<Layer, Map<Int, KeyOut>>) {
                     append(name).append('=').append(out.format()).append('\n')
                 }
         }
+        if (l4.isNotEmpty()) {
+            append("[L4]\n")
+            l4.forEach { append(it.label).append('=').append(it.out.format()).append('\n') }
+        }
     }
 
     companion object {
 
         fun parseText(text: String): KeyLayoutParse {
             val maps = mutableMapOf<Layer, MutableMap<Int, KeyOut>>()
+            val l4 = mutableListOf<L4Key>()
             val errors = mutableListOf<Int>()
-            var layer = Layer.L1
+            var section = "L1"
+            var inL4 = false
             text.lineSequence().forEachIndexed { idx, rawLine ->
                 val lineNo = idx + 1
                 val line = rawLine.trim()
                 if (line.isEmpty() || line.startsWith("#")) return@forEachIndexed
-                when (line) {
-                    "[L1]", "[L2]", "[L3]" -> {
-                        layer = Layer.valueOf(line.removeSurrounding("[", "]"))
-                        maps.getOrPut(layer) { mutableMapOf() }
-                        return@forEachIndexed
+                if (line.startsWith("[") && line.endsWith("]")) {
+                    section = line.removeSurrounding("[", "]")
+                    inL4 = section == "L4"
+                    if (!inL4) {
+                        val l = runCatching { Layer.valueOf(section) }.getOrNull()
+                        if (l == null) {
+                            errors += lineNo
+                        } else {
+                            maps.getOrPut(l) { mutableMapOf() }
+                        }
                     }
+                    return@forEachIndexed
                 }
                 val eq = line.indexOf('=')
                 if (eq <= 0) {
                     errors += lineNo
                     return@forEachIndexed
                 }
-                val code = KeyNames.NAME_TO_CODE[line.substring(0, eq)]
                 val out = KeyOut.parse(line.substring(eq + 1))
-                if (code == null || out == null) {
+                if (out == null) {
                     errors += lineNo
+                    return@forEachIndexed
+                }
+                if (inL4) {
+                    val label = line.substring(0, eq).trim()
+                    if (label.isEmpty()) errors += lineNo else l4 += L4Key(label, out)
                 } else {
-                    maps.getOrPut(layer) { mutableMapOf() }[code] = out
+                    val code = KeyNames.NAME_TO_CODE[line.substring(0, eq)]
+                    if (code == null) errors += lineNo
+                    else maps.getOrPut(Layer.valueOf(section)) { mutableMapOf() }[code] = out
                 }
             }
             return if (errors.isEmpty()) {
                 // 缺 [L1] 段时补默认字母层(自定义布局通常只改 L2/L3)
                 maps.getOrPut(Layer.L1) { default().mapFor(Layer.L1).toMutableMap() }
-                KeyLayoutParse(KeyLayout(maps), emptyList())
+                KeyLayoutParse(KeyLayout(maps, l4), emptyList())
             } else KeyLayoutParse(null, errors)
         }
 
@@ -111,12 +137,41 @@ class KeyLayout(private val maps: Map<Layer, Map<Int, KeyOut>>) {
                 "n" to "=", "m" to "key:insert",
             )) l3[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.parse(s)!!
 
+            // L4 虚拟按键预置:物理键盘缺失的开发常用键与高频组合符(面板上点击输出)
+            val l4 = listOf(
+                "Tab", "Esc", "Home", "End", "PU", "PD", "Ins",
+                "↑", "↓", "←", "→",
+            ).map { label ->
+                val out = when (label) {
+                    "Tab" -> KeyOut.Special("tab")
+                    "Esc" -> KeyOut.Special("esc")
+                    "Home" -> KeyOut.Special("move_home")
+                    "End" -> KeyOut.Special("move_end")
+                    "PU" -> KeyOut.Special("pgup")
+                    "PD" -> KeyOut.Special("pgdn")
+                    "Ins" -> KeyOut.Special("insert")
+                    "↑" -> KeyOut.Special("up")
+                    "↓" -> KeyOut.Special("down")
+                    "←" -> KeyOut.Special("left")
+                    else -> KeyOut.Special("right")
+                }
+                L4Key(label, out)
+            } + listOf(
+                L4Key("->", KeyOut.Text("->")),
+                L4Key("＝>", KeyOut.Text("=>")),
+                L4Key("!=", KeyOut.Text("!=")),
+                L4Key("＝＝", KeyOut.Text("==")),
+                L4Key("；", KeyOut.Text(";")),
+                L4Key("$", KeyOut.Text("\$")),
+            )
+
             return KeyLayout(
                 mapOf(
                     Layer.L1 to l1.toMap(),
                     Layer.L2 to l2.toMap(),
                     Layer.L3 to l3.toMap(),
-                )
+                ),
+                l4,
             )
         }
     }

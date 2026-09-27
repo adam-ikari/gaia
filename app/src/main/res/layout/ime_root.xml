@@ -111,6 +111,17 @@
                 android:layout_weight="1" />
 
             <ImageButton
+                android:id="@+id/btn_l4"
+                android:layout_width="34dp"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/pref_l4_panel"
+                android:paddingEnd="3dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_l4"
+                android:tint="@color/status_fg" />
+
+            <ImageButton
                 android:id="@+id/btn_settings"
                 android:layout_width="34dp"
                 android:layout_height="match_parent"
@@ -155,4 +166,11 @@
                 android:layout_weight="1" />
         </LinearLayout>
     </FrameLayout>
+
+    <!-- L4 虚拟按键面板:单行可滚动键帽,键位编辑器 [L4] 段配置;默认隐藏,⌨ 按钮开关 -->
+    <dev.hwkbd.ime.ui.L4PanelView
+        android:id="@+id/l4_panel"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:visibility="gone" />
 </dev.hwkbd.ime.ui.ImeRootView>
