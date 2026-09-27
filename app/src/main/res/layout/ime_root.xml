@@ -29,6 +29,7 @@
                 android:id="@+id/chip_row"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
+                android:baselineAligned="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="4dp">
@@ -38,12 +39,13 @@
                     android:layout_width="wrap_content"
                     android:layout_height="20dp"
                     android:gravity="center"
+                    android:includeFontPadding="false"
                     android:minWidth="20dp"
                     android:paddingStart="4dp"
                     android:paddingEnd="4dp"
                     android:text="@string/mode_cn"
                     android:textColor="@color/status_active"
-                    android:textSize="12sp"
+                    android:textSize="11sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -52,10 +54,11 @@
                     android:layout_height="20dp"
                     android:layout_marginStart="3dp"
                     android:gravity="center"
+                    android:includeFontPadding="false"
                     android:minWidth="20dp"
                     android:paddingStart="3dp"
                     android:paddingEnd="3dp"
-                    android:textSize="10sp"
+                    android:textSize="11sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
             </LinearLayout>
