@@ -371,7 +371,7 @@ class ImeService : InputMethodService() {
         when (s.effectiveLayer) {
             Layer.L1 -> chipLayer?.visibility = View.GONE
             Layer.L2 -> renderLayerChip(ctx, "符", R.color.chip_l2, s.lock != null)
-            Layer.L3 -> renderLayerChip(ctx, "S", R.color.chip_l3, s.lock != null)
+            Layer.L3 -> renderLayerChip(ctx, "SYM", R.color.chip_l3, s.lock != null)
         }
     }
 
