@@ -121,6 +121,17 @@ class ImeControllerTest {
     // ---------------------------------------------------------------- 选字/翻页
 
     @Test
+    fun `候选不足时从中位紧凑补位`() {
+        val r = rig()
+        r.type("ni")
+        r.c.pageStep(1) // 第 2 页只剩「捏」
+        val slots = r.c.state.pageSlots()
+        assertEquals(listOf(null, null, "捏", null, null), slots.map { it?.word })
+        r.c.selectCandidate(2) // 中间槽选字
+        assertEquals(listOf("捏"), r.h.commits)
+    }
+
+    @Test
     fun `方向键翻页与高亮确认`() {
         val r = rig()
         r.type("ni") // 候选 6 个:你 年 娘 你好 鸟 捏 → 2 页

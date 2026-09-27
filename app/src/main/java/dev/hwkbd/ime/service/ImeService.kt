@@ -290,10 +290,10 @@ class ImeService : InputMethodService() {
                 val has = controller.state.hasComposition
                 android.util.Log.i(TAG, "fly select: zone=$zone hasComposition=$has")
                 if (has) {
-                    val li = dev.hwkbd.ime.ime.ImeState.DISPLAY_ORDER.getOrNull(zone) ?: -1
-                    val word = controller.state.currentPageLogical().getOrNull(li)?.word ?: ""
+                    val word = controller.state.pageSlots().getOrNull(zone)?.word ?: ""
+                    // 先启动动画(flyProgress 置位后 render 才会保持候选行可见),再选字上屏
+                    candidateBar?.startFlyAnim(zone, word)
                     controller.selectCandidate(zone)
-                    candidateBar?.startFlyAnim(zone, word) // 词从槽位上飞入文本
                     mainHandler.postDelayed({ updateUi() }, 260) // 动画结束后两态归位
                 }
             }

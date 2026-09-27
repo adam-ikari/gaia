@@ -163,7 +163,7 @@ class ImeController(
      */
     fun selectCandidate(displayIndex: Int) {
         val logical = state.currentPageLogical()
-        val li = ImeState.DISPLAY_ORDER.getOrNull(displayIndex) ?: return
+        val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
         host.commitText(c.word)
         engine.onCommitted(c.word)
@@ -174,7 +174,7 @@ class ImeController(
     /** 长按候选(显示位):删除该词的用户频次/词条(可可同款),刷新当前候选。 */
     fun removeUserWord(displayIndex: Int) {
         val logical = state.currentPageLogical()
-        val li = ImeState.DISPLAY_ORDER.getOrNull(displayIndex) ?: return
+        val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
         engine.user.removeWord(c.word)
         refreshQuery()

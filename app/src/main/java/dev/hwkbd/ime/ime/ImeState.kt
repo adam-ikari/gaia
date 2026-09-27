@@ -52,14 +52,19 @@ class ImeState {
         return candidates.subList(from, to)
     }
 
-    /** 页内显示槽(固定 5 槽,首选在中间;空槽为 null)。 */
+    /** 页内显示槽(固定 5 槽;空槽为 null)。满 5 用可可排列,不足时从中位向两侧紧凑补位。 */
     fun pageSlots(): List<Candidate?> {
         val pageList = currentPageLogical()
         if (pageList.isEmpty()) return emptyList()
+        val order = displayOrder(pageList.size)
         return Array(pageSize) { d ->
-            pageList.getOrElse(DISPLAY_ORDER[d]) { null }
+            pageList.getOrElse(order[d]) { null }
         }.toList()
     }
+
+    /** 显示槽 → 逻辑序映射:满 5 用可可排列,不足时紧凑(中→右内→左内→右外→左外),避免空洞。 */
+    fun displayOrder(logicalSize: Int): IntArray =
+        if (logicalSize >= pageSize) DISPLAY_ORDER else COMPACT_ORDER
 
     /** 有效显示位(有候选的槽)。 */
     fun validDisplays(): List<Int> = pageSlots().mapIndexed { i, c -> if (c != null) i else -1 }.filter { it >= 0 }
@@ -68,6 +73,10 @@ class ImeState {
     fun pageItems(): List<Candidate> = pageSlots().filterNotNull()
 
     companion object {
+        /** 满 5 候选:可可实测排列(槽=Shift/Sym/空格/Ctrl/Alt → 候选2/5/1/4/3)。 */
         val DISPLAY_ORDER = intArrayOf(1, 4, 0, 3, 2)
+
+        /** 不足 5 候选:从中位向两侧紧凑补位(槽2=首选,槽3=候选2,槽1=候选3…)。 */
+        val COMPACT_ORDER = intArrayOf(4, 2, 0, 1, 3)
     }
 }

@@ -48,7 +48,9 @@ export class Device {
 
   wake() {
     this.shell('cmd statusbar collapse') // 收起通知栏(会抢手势)
-    this.shell('input keyevent KEYCODE_POWER') // 点亮主屏(副屏常亮,主屏会灭)
+    // 主屏会单独熄灭;POWER 是开关切换,先查状态,灭才按亮
+    const st = this.shell('dumpsys window policy 2>/dev/null')
+    if (st.includes('SCREEN_STATE_OFF')) this.shell('input keyevent KEYCODE_POWER')
     this.shell('input keyevent KEYCODE_WAKEUP')
     this.shell('input swipe 700 1350 700 300 200') // 上滑过锁屏
     this.shell('wm dismiss-keyguard')
