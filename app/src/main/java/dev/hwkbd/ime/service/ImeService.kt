@@ -289,7 +289,12 @@ class ImeService : InputMethodService() {
             zone >= 0 -> {
                 val has = controller.state.hasComposition
                 android.util.Log.i(TAG, "fly select: zone=$zone hasComposition=$has")
-                if (has) controller.selectCandidate(zone)
+                if (has) {
+                    val li = dev.hwkbd.ime.ime.ImeState.DISPLAY_ORDER.getOrNull(zone) ?: -1
+                    val word = controller.state.currentPageLogical().getOrNull(li)?.word ?: ""
+                    controller.selectCandidate(zone)
+                    candidateBar?.startFlyAnim(zone, word) // 词从槽位上飞入文本
+                }
             }
             zone == PAGE_NEXT -> {
                 android.util.Log.i(TAG, "fly page: next")
