@@ -43,6 +43,18 @@ class SettingsActivity : AppCompatActivity() {
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.prefs, rootKey)
 
+            // Titan 2 首次打开设置:弹窗说明 Fn 键需设为 Ctrl(五键选字与 Ctrl 组合依赖它)
+            if (android.os.Build.MODEL.contains("Titan", ignoreCase = true) &&
+                !ImeRuntime.prefs.getBoolean("titan2_fn_hint_shown", false)
+            ) {
+                ImeRuntime.prefs.edit().putBoolean("titan2_fn_hint_shown", true).apply()
+                AlertDialog.Builder(requireContext())
+                    .setTitle(R.string.titan2_fn_hint_title)
+                    .setMessage(R.string.titan2_fn_hint_body)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+
             findPreference<Preference>("layer_map")?.setOnPreferenceClickListener {
                 startActivity(Intent(requireContext(), LayerMapActivity::class.java)); true
             }

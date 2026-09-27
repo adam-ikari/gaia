@@ -5,7 +5,7 @@
     <string name="layer_map_title">三层键位映射</string>
     <string name="probe_title">按键探测</string>
     <string name="playground_title">实验场</string>
-    <string name="playground_hint">在输入框里试:拼音组词 / 空格选字 / Ctrl(Fn)+QWERT 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
+    <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。\n在输入框里试：拼音组词 / 空格选字 / Ctrl(Fn)+QWERT 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
     <string name="playground_hint2">在这里输入…</string>
     <string name="playground_show_log">查看输入法日志</string>
 
@@ -30,6 +30,8 @@
     <string name="pref_keyboard_swipe">屏幕键盘上滑选字 / 左右滑翻页</string>
     <string name="pref_theme">界面主题</string>
     <string name="pref_fly_threshold">飞字触发滑动距离</string>
+    <string name="titan2_fn_hint_title">Titan 2 用户必读：Fn 键需设为 Ctrl</string>
+    <string name="titan2_fn_hint_body">五键选字（Ctrl+Q/W/E/R/T）与 Ctrl 组合依赖 Fn 键。\n\n请先在系统设置中把 Fn 键指派为 Ctrl：\n设置 → 快捷键与手势（或键盘设置）→ Fn 键 → 选「Ctrl」。\n\nAlt / Sym / Shift 无需设置，直接可用。</string>
     <string name="pref_page_reverse">翻页方向反转</string>
     <string name="pref_fullwidth">中文态符号层输出全角</string>
 

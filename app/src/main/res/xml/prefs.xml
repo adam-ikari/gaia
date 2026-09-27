@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <PreferenceCategory android:title="@string/titan2_fn_hint_title">
+        <Preference
+            android:key="titan2_fn_hint"
+            android:enabled="false"
+            android:shouldDisableView="false"
+            android:summary="@string/titan2_fn_hint_body" />
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/pref_category_general">
         <ListPreference
             android:key="theme"
