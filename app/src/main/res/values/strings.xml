@@ -11,7 +11,7 @@
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>
-    <string name="mode_cn">中</string>
+    <string name="mode_cn">拼</string>
     <string name="mode_en">En</string>
     <string name="mode_alt">符</string>
     <string name="mode_sym">sym</string>

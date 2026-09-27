@@ -359,14 +359,18 @@ class ImeService : InputMethodService() {
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    /** 状态徽标:颜色+背景表达模式与层,不堆文字。层芯片 锁=实心底 / 一次性=描边。 */
+    /** 状态徽标:全部标签化。模式标签 拼=主色实心 / En=灰实心;层芯片 锁=实心 / 一次性=描边。 */
     private fun renderChips(s: ImeState) {
         val t = theme
         val cn = s.mode == ImeMode.CN
         chipMode?.apply {
             text = if (cn) getString(R.string.mode_cn) else getString(R.string.mode_en)
-            setTextColor(if (cn) t.accent else t.fg)
-            background = null
+            setTextColor(0xFF16181D.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 4f * resources.displayMetrics.density
+                setColor(if (cn) t.accent else t.fg)
+            }
         }
         when (s.effectiveLayer) {
             Layer.L1 -> chipLayer?.visibility = View.GONE
