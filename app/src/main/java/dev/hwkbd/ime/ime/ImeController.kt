@@ -136,14 +136,16 @@ class ImeController(
     private fun layerKeyTap(mod: Layer, tracker: TapTracker) {
         val n = tracker.tap()
         when {
-            state.lock == mod && n == 1 -> state.lock = null // 已锁定该层:单击解锁回 L1
-            state.lock != null && state.lock != mod && n == 1 -> state.lock = mod // 锁定态下互切
-            n == 1 -> state.oneShot = mod // 单击一次性
-            n == 2 -> {
+            state.lock != null -> { // 锁定态:同层键解锁回 L1,异层键切换锁定层
+                state.lock = if (state.lock == mod) null else mod
+                state.oneShot = null
+            }
+            state.oneShot == mod && n == 1 -> state.oneShot = null // 一次性激活后,窗口外的再次独立敲击 = 取消
+            n == 2 -> { // 双击窗口内第二次敲击 = 锁定该层
                 state.lock = mod
                 state.oneShot = null
             }
-            else -> { // 三击循环 L1→L2→L3
+            n >= 3 -> { // 三击循环 L1→L2→L3
                 state.lock = when (state.effectiveLayer) {
                     Layer.L1 -> Layer.L2
                     Layer.L2 -> Layer.L3
@@ -151,6 +153,7 @@ class ImeController(
                 }
                 state.oneShot = null
             }
+            else -> state.oneShot = mod // 单击一次性
         }
     }
 

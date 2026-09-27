@@ -293,6 +293,29 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `一次性层激活后再次独立按同键取消`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
+        Thread.sleep(450) // 窗口外独立敲击
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 取消
+        assertFalse(r.c.state.hasComposition)
+    }
+
+    @Test
+    fun `Sym 一次性层激活后再次独立按取消`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        Thread.sleep(450)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 取消
+    }
+
+    @Test
     fun `锁定态下 Alt Sym 互切层`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
@@ -300,9 +323,7 @@ class ImeControllerTest {
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
-        r.key(KeyEvent.KEYCODE_SYM)
-        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock) // 锁定态下异层键一次切换
     }
 
     @Test
