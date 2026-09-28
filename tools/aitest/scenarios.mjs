@@ -148,13 +148,13 @@ export const scenarios = [
         c.shot('locked-l2')
         c.device.key(58) // 解锁
         await sleep(400)
-        c.device.key(59, 62) // Shift+Space 切英文
+        c.device.combo(59, 62) // Shift+Space 切英文:必须 keycombination(一次组合),分两次 keyevent 是"Shift 敲击+空格敲击",切不动
         await sleep(700)
         c.shot('en-mode') // 英文空闲:ab/ALT/SYM 三颗全灰(ab 不常亮)
         c.device.key(59) // 单击 Shift → 大写一次:只亮 ab,ALT/SYM 压灰
         await sleep(500)
         c.shot('en-caps')
-        c.device.key(59, 62) // 切回中文(切 CN 会把 shift 清掉)
+        c.device.combo(59, 62) // 切回中文(切 CN 会把 shift 清掉)
         await sleep(400)
       },
     ],
@@ -165,13 +165,17 @@ export const scenarios = [
     desc: '英文态字母直出',
     steps: [
       async (c) => {
-        c.device.key(59, 62) // 切 EN
+        c.device.combo(59, 62) // 切 EN(必须 keycombination,分两次 keyevent 切不动)
         await sleep(500)
         c.device.text('ab')
         await sleep(700)
         const t = c.device.editText()
-        c.expect(t.endsWith('ab'), `英文态应直接上屏 ab,实际="${t}"`)
-        c.device.key(59, 62) // 切回中文
+        // 空格是模式判据:英文态 'ab' 已上屏 → "ab ";拼音态是组词 'ab' → 空格走选字,不会留下尾随空格
+        c.device.key(62)
+        await sleep(500)
+        const t2 = c.device.editText()
+        c.expect(t2.endsWith('ab '), `英文态应上屏 ab 并吃下空格,实际="${t2}"(输入时="${t}")`)
+        c.device.combo(59, 62) // 切回中文
         c.device.key(K.del, K.del)
         await sleep(300)
       },
@@ -191,6 +195,18 @@ export const scenarios = [
         await sleep(2000)
         c.expect(c.device.foreground().includes('SettingsActivity'), `应打开设置页,实际前台=${c.device.foreground()}`)
         c.device.key(4) // 返回
+        await sleep(600)
+        // 返回后前台可能被别的窗口顶掉(实测残留 documentsui 选择器):先把实验场弄回前台再聚焦输入框,
+        // 否则后续场景的注入键全落空,表现为 editText=""
+        for (let i = 0; i < 2 && !c.device.foreground().includes('PlaygroundActivity'); i++) {
+          c.device.key(4)
+          await sleep(600)
+        }
+        if (!c.device.foreground().includes('PlaygroundActivity')) {
+          c.device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
+          await sleep(1500)
+        }
+        c.device.tap(700, 400)
         await sleep(600)
       },
     ],

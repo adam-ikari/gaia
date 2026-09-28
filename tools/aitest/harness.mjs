@@ -58,7 +58,11 @@ export class Device {
   }
 
   ime() { return this.shell('ime set dev.hwkbd.ime/.service.ImeService && echo OK').includes('OK') }
-  foreground() { return (this.shell('dumpsys window') .match(/mCurrentFocus=Window\{[^ ]+ ([^}]+)\}/) ?? [])[1] ?? '' }
+  /** 前台窗口名。双屏设备(主屏 + subdisplay)每屏各有一个 mCurrentFocus,全取再拼接——只取第一个会永远命中副屏 launcher。 */
+  foreground() {
+    const all = [...this.shell('dumpsys window').matchAll(/mCurrentFocus=Window\{[^ ]+ ([^}]+)\}/g)].map((m) => m[1])
+    return all.join(' | ')
+  }
   imeShown() { return this.shell('dumpsys input_method').includes('mInputShown=true') }
   crashCount() { return Number(this.shell('logcat -d -b crash 2>/dev/null | grep -c FATAL || true').trim() || '0') }
 
