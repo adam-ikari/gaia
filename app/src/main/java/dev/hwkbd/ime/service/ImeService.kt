@@ -20,12 +20,14 @@ import dev.hwkbd.ime.engine.PinyinDict
 import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
-import dev.hwkbd.ime.ime.ImeMode
 import dev.hwkbd.ime.ime.ImeState
 import dev.hwkbd.ime.ime.ShiftState
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyLayoutStore
 import dev.hwkbd.ime.keymap.Layer
+import dev.hwkbd.ime.strategy.FieldKind
+import dev.hwkbd.ime.strategy.ImeRegistry
+import dev.hwkbd.ime.strategy.PinyinInputMethod
 import dev.hwkbd.ime.ui.CandidateBarView
 import dev.hwkbd.ime.ui.ImeRootView
 import java.io.BufferedReader
@@ -40,7 +42,6 @@ import java.util.zip.GZIPInputStream
 class ImeService : InputMethodService() {
 
     private lateinit var controller: ImeController
-    private lateinit var engine: PinyinEngine
 
     private var statusRow: View? = null
     private var candidateRow: View? = null
@@ -51,6 +52,9 @@ class ImeService : InputMethodService() {
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
     private var showL4Panel = false
+
+    /** L4 面板当前键帽对应的签名([ImeController.l4Signature]);变了才重建键帽。 */
+    private var l4PanelSig: String? = null
 
     /**
      * 三颗互斥芯片(大写 ab / ALT / SYM):**同一时刻只亮一颗**,后亮起来的把先前那颗压灰。
@@ -125,8 +129,10 @@ class ImeService : InputMethodService() {
         window?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
         ImeRuntime.init(this)
         val dict = PinyinDict()
-        engine = PinyinEngine(dict, ImeRuntime.userDict)
-        controller = ImeController(host, KeyLayoutStore.load(this), engine)
+        val engine = PinyinEngine(dict, ImeRuntime.userDict)
+        // 策略注册表:出厂语言/输入框表现 + 本进程的拼音输入法(加语言/输入法只需注册)
+        val registry = ImeRegistry.builtin().registerMethod(PinyinInputMethod(engine))
+        controller = ImeController(host, KeyLayoutStore.load(this), registry)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
         executor.execute {
@@ -199,8 +205,8 @@ class ImeService : InputMethodService() {
             }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
-        // 状态栏触摸切换:模式芯片 = 循环 中↔En;层芯片 ALT/SYM 单击=单次切换 / 长按=锁定切换;大写芯片 = Caps 开关
-        chipMode?.setOnClickListener { controller.toggleMode() }
+        // 状态栏触摸切换:模式芯片 = 循环语言(注册表序);层芯片 ALT/SYM 单击=单次切换 / 长按=锁定切换;大写芯片 = Caps 开关
+        chipMode?.setOnClickListener { controller.cycleLanguage() }
         chipAlt?.setOnClickListener { controller.tapLayerChip(Layer.L2) }
         chipAlt?.setOnLongClickListener {
             controller.longPressLayerChip(Layer.L2)
@@ -221,7 +227,9 @@ class ImeService : InputMethodService() {
         super.onStartInput(attribute, restarting)
         // 层映射可能被设置页改过,每次开始输入重新加载(开销可忽略)
         controller.layout = KeyLayoutStore.load(this)
-        l4Panel?.refresh(controller.layout, theme)
+        // **输入类型决定上下文**:网址框换 L4 键位套、数字框把 Alt 芯片显示成 0-9
+        controller.state.fieldKind = FieldKind.from(attribute?.inputType ?: InputType.TYPE_NULL)
+        l4PanelSig = null // 键位套变了,下次渲染重建 L4 面板
         composing = ""
         // 每次开始输入都重新判定:换一个输入框,App 是否就地渲染组词区可能不同
         mainHandler.removeCallbacks(preeditProbe)
@@ -230,8 +238,10 @@ class ImeService : InputMethodService() {
         bubbleAllowed = false
         controller.resetForNewInput()
         // 密码框强制英文态,避免拼音组词混入密码显示
-        if (isPasswordField(attribute) && controller.state.mode == ImeMode.CN) {
-            controller.toggleMode()
+        if (isPasswordField(attribute) &&
+            controller.state.languageId != controller.registry.secureLanguageId
+        ) {
+            controller.setLanguage(controller.registry.secureLanguageId)
         }
     }
 
@@ -507,7 +517,7 @@ class ImeService : InputMethodService() {
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
         showL4Panel = p.getBoolean(PREF_SHOW_L4, true)
-        l4Panel?.refresh(controller.layout, theme)
+        l4PanelSig = null // 主题可能变了,下次渲染重建键帽
         // INVISIBLE 占位:中区留着,右侧按钮位置不跳
         l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.INVISIBLE
         updateUi()
@@ -544,17 +554,17 @@ class ImeService : InputMethodService() {
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    /** 状态徽标:全部标签化。模式标签 拼=主色实心 / En=灰实心;层芯片 锁=实心 / 一次性=描边。 */
+    /** 状态徽标:全部标签化。语言芯片=注册表策略(首个注册语言主色实心);层芯片 锁=实心 / 一次性=描边。 */
     private fun renderChips(s: ImeState) {
         val t = theme
-        val cn = s.mode == ImeMode.CN
+        val lang = controller.registry.language(s.languageId)
         chipMode?.apply {
-            text = if (cn) getString(R.string.mode_cn) else getString(R.string.mode_en)
+            text = lang.chipLabel
             setTextColor(0xFF16181D.toInt())
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = 4f * resources.displayMetrics.density
-                setColor(if (cn) t.accent else t.fg)
+                setColor(if (s.languageId == controller.registry.primaryLanguageId) t.accent else t.fg)
             }
         }
         // 层芯片 ALT/SYM **常显**(打普通字母时没有"当前层"图标,只是两颗灰芯片):
@@ -580,16 +590,17 @@ class ImeService : InputMethodService() {
         litCapsPrev = capsNow
 
         // 轮到它亮才上色(锁定=实心 / 单次=描边);没轮到就整颗灰描边(哪怕该层正生效)。
-        renderLayerChip(chipAlt, Layer.L2, "ALT", t.chipL2, s, t, litChip == LitChip.ALT)
+        // Alt 芯片文字随**输入类型**变:数字框显示 0-9(alt 锁定的数字变种,只改这颗芯片的显示)。
+        val altLabel = controller.registry.fieldProfile(s.fieldKind).altChipLabel
+        renderLayerChip(chipAlt, Layer.L2, altLabel, t.chipL2, s, t, litChip == LitChip.ALT)
         renderLayerChip(chipSym, Layer.L3, "SYM", t.chipL3, s, t, litChip == LitChip.SYM)
 
-        // 大写状态:拼音态一律不显示(拼音不需要大小写);
+        // 大写状态:语言策略说不显示就 GONE(拼音不需要大小写,「拼」右边的 ALT/SYM 紧贴过来);
         // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)。
-        // 拼音态用 **GONE**:**「拼」右边的 ALT/SYM 紧贴过来**,不留 34dp 空档;
         // 中英切换时中区(L4)不挪,靠的是 chip_row 那个**权重定宽的盒子**(不再是这颗芯片占位)。
         // 没轮到它亮(含大写根本没生效)= 灰描边——ab **不再常亮**。
         when {
-            cn -> chipShift?.visibility = View.GONE
+            !lang.showShiftChip -> chipShift?.visibility = View.GONE
             litChip == LitChip.CAPS && s.shift == ShiftState.CAPS ->
                 renderChip(chipShift, "AB", t.accent, solid = true)
             litChip == LitChip.CAPS ->
@@ -647,6 +658,13 @@ class ImeService : InputMethodService() {
         val s: ImeState = controller.state
         renderChips(s)
         candidateBar?.setState(s)
+
+        // L4 中区随输入类型/语言变化:签名没变不重建键帽(每变一次就是整排视图重建)
+        val l4Sig = controller.l4Signature()
+        if (l4Sig != l4PanelSig) {
+            l4PanelSig = l4Sig
+            l4Panel?.refresh(controller.l4Keys(), theme)
+        }
 
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
         // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行

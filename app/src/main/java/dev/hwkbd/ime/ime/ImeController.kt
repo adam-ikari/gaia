@@ -1,15 +1,21 @@
 package dev.hwkbd.ime.ime
 
 import android.view.KeyEvent
-import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
+import dev.hwkbd.ime.keymap.L4Key
 import dev.hwkbd.ime.keymap.Layer
 import dev.hwkbd.ime.keymap.TapTracker
+import dev.hwkbd.ime.strategy.ImeRegistry
+import dev.hwkbd.ime.strategy.InputMethod
+import dev.hwkbd.ime.strategy.Language
 
 /**
- * 纯逻辑输入法状态机:中英模式、三层键位、Alt/Sym 单双击锁定与长按临时层、Shift 单双击 Caps 与长按大写、
- * 拼音组词、候选分页与选字。只通过 [ImeHost] 回调与外界通信。
+ * 纯逻辑输入法状态机:语言(策略注册表)、三层键位、Alt/Sym 单双击锁定与长按临时层、Shift 单双击 Caps 与长按大写、
+ * 组词、候选分页与选字。只通过 [ImeHost] 回调与外界通信。
+ *
+ * 语言与输入法都是**策略**:状态机按 [ImeState.languageId] 到 [ImeRegistry] 取 [Language]/[InputMethod],
+ * 加语言/加输入法只注册不改这里;状态行 L4 中区同理按输入框类型选键位套(见 [l4Keys])。
  *
  * 键事件入口约定:
  * - Alt 在 keyDown 进层并计数(单击一次性 / 双击锁定 / 长按临时层),keyUp 判定是否取消;
@@ -21,13 +27,20 @@ import dev.hwkbd.ime.keymap.TapTracker
 class ImeController(
     private val host: ImeHost,
     var layout: KeyLayout,
-    private val engine: PinyinEngine,
+    /** 策略注册表:语言 / 输入法 / 输入框表现都从这里取。 */
+    val registry: ImeRegistry = ImeRegistry.builtin(),
 ) {
     val state = ImeState()
 
     private val altTracker = TapTracker()
     private val symTracker = TapTracker()
     private val shiftTracker = TapTracker()
+
+    /** 当前语言策略(状态机只跟接口打交道)。 */
+    private fun language(): Language = registry.language(state.languageId)
+
+    /** 当前语言绑定的输入法策略。 */
+    private fun inputMethod(): InputMethod = registry.method(language().methodId)
 
     /** Sym 键 keycode。Titan 2 实测:AGUI_SYM → KEYCODE_SYM(63),可用探测页改。 */
     var symKeycode: Int = KeyEvent.KEYCODE_SYM
@@ -251,7 +264,7 @@ class ImeController(
      * 拼音态直接忽略——拼音不需要大小写锁定(状态芯片也只在英文态显示)。
      */
     private fun applyShiftTap() {
-        if (state.mode == ImeMode.CN) return
+        if (!language().shiftTapsEnabled) return
         val n = shiftTracker.tap()
         state.shift = when {
             n == 1 -> if (state.shift == ShiftState.OFF) ShiftState.ONCE else ShiftState.OFF
@@ -304,16 +317,24 @@ class ImeController(
 
     /** 状态栏大写芯片触摸(英文态):小写 ⇄ Caps 锁定。 */
     fun tapShiftChip() {
-        if (state.mode == ImeMode.CN) return
+        if (!language().shiftTapsEnabled) return
         state.shift = if (state.shift == ShiftState.CAPS) ShiftState.OFF else ShiftState.CAPS
         host.render()
     }
 
-    fun toggleMode() {
+    /** 状态行语言芯片 / Shift+空格:循环到注册表里的下一个语言。 */
+    fun cycleLanguage() = setLanguage(registry.nextLanguage(state.languageId))
+
+    /**
+     * 切到指定语言(密码框强制英文等场景)。先把挂着的组词上屏,切入收尾交给语言策略
+     * ([dev.hwkbd.ime.strategy.ChineseLanguage.onEnter] 清掉英文态的大小写锁定)。
+     */
+    fun setLanguage(id: String) {
+        val lang = registry.language(id)
+        if (state.languageId == lang.id) return
         flushComposition()
-        state.mode = if (state.mode == ImeMode.CN) ImeMode.EN else ImeMode.CN
-        // 拼音态没有大小写一说,切进来就把英文态可能挂着的锁定/一次性清掉
-        if (state.mode == ImeMode.CN) state.shift = ShiftState.OFF
+        state.languageId = lang.id
+        lang.onEnter(state)
         host.render()
     }
 
@@ -369,7 +390,7 @@ class ImeController(
         val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
         host.commitText(c.word)
-        engine.onCommitted(c.word)
+        inputMethod().onCommitted(c.word)
         clearComposition()
         host.render()
     }
@@ -379,25 +400,44 @@ class ImeController(
         val logical = state.currentPageLogical()
         val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
-        engine.user.removeWord(c.word)
+        inputMethod().removeUserWord(c.word)
         refreshQuery()
     }
 
     /**
-     * L4 虚拟按键输出:组词中先上屏首选再输出;文本原样上屏(配置即所见),
-     * 功能键转发给目标应用。
+     * L4 虚拟按键输出。文本键**原样上屏**(配置即所见);语言策略判定为组词字符的键跟着组词
+     * (拼音分隔符 `'`:组词中追加分节、不打断组词),功能键转发给目标应用。
      */
     fun commitL4Key(out: KeyOut) {
-        flushComposition()
         when (out) {
-            is KeyOut.Text -> host.commitText(out.text)
-            is KeyOut.Special -> KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
+            is KeyOut.Text ->
+                if (language().composes(out.text, state)) {
+                    state.raw += out.text
+                    refreshQuery()
+                } else {
+                    flushComposition()
+                    host.commitText(out.text)
+                }
+            is KeyOut.Special -> {
+                flushComposition()
+                KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
+            }
         }
         host.render()
     }
 
+    /**
+     * 状态行 L4 中区的键序 = **输入类型选的键位套**(网址框 → http:// 等)
+     * **并上当前语言的补差键**(拼音 → 分隔符 `'`)。UI 按 [l4Signature] 变化才重建面板。
+     */
+    fun l4Keys(): List<L4Key> = registry.l4Keys(layout, state.fieldKind, state.languageId)
+
+    /** [l4Keys] 的变化签名(键位套 id|语言 id):没变就不重建面板。 */
+    fun l4Signature(): String =
+        "${registry.fieldProfile(state.fieldKind).l4ProfileId}|${state.languageId}"
+
     /** 词的用户使用频次(测试/调试用)。 */
-    fun userCountOf(word: String): Int = engine.user.count(word)
+    fun userCountOf(word: String): Int = inputMethod().userCount(word)
 
     fun pageStep(delta: Int) {
         if (state.totalPages == 0) return
@@ -421,7 +461,7 @@ class ImeController(
     /** 词库异步载入完成后主动刷新当前查询。 */
     fun refreshQuery() {
         if (state.raw.isNotEmpty()) {
-            state.candidates = engine.query(state.raw, CANDIDATE_LIMIT)
+            state.candidates = inputMethod().query(state.raw, CANDIDATE_LIMIT)
             state.page = 0
             state.highlight = -1
         } else {
@@ -466,12 +506,12 @@ class ImeController(
 
         // Shift+Space = 中英切换(可可语义)
         if (shift && code == KeyEvent.KEYCODE_SPACE && layer == Layer.L1) {
-            toggleMode()
+            cycleLanguage()
             return true
         }
 
         when (code) {
-            KeyEvent.KEYCODE_SPACE -> return handleSpace(layer)
+            KeyEvent.KEYCODE_SPACE -> return handleSpace()
             KeyEvent.KEYCODE_ENTER -> {
                 if (state.hasComposition) commitRaw() else host.sendKey(KeyEvent.KEYCODE_ENTER)
                 consumeShiftOnce()
@@ -504,21 +544,16 @@ class ImeController(
 
         when (out) {
             is KeyOut.Text -> {
-                var text = out.text
-                val isLetter = text.length == 1 && text[0] in 'a'..'z'
-                when (state.mode) {
-                    ImeMode.CN ->
-                        if (isLetter) {
-                            state.raw += text
-                            refreshQuery()
-                        } else {
-                            emitSymbol(text, layer)
-                        }
-                    ImeMode.EN -> {
-                        val upper = shift || caps || state.shift != ShiftState.OFF
-                        if (upper) text = text.uppercase()
-                        host.commitText(text)
-                    }
+                val lang = language()
+                if (lang.composes(out.text, state)) {
+                    // 进组词缓冲(拼音字母;分隔符只在组词中被接纳)
+                    state.raw += out.text
+                    refreshQuery()
+                } else {
+                    // 语言策略决定上屏形态:英文跟大写、中文按开关全角
+                    flushComposition()
+                    val upper = shift || caps || state.shift != ShiftState.OFF
+                    host.commitText(lang.commitText(out.text, layer, upper, fullWidthSymbolsInCn))
                 }
                 consumeShiftOnce()
                 consumeOneShot()
@@ -536,7 +571,7 @@ class ImeController(
         }
     }
 
-    private fun handleSpace(layer: Layer): Boolean {
+    private fun handleSpace(): Boolean {
         if (state.hasComposition) {
             if (state.candidates.isNotEmpty()) {
                 selectCandidate(if (state.highlight >= 0) state.highlight else TOP_DISPLAY)
@@ -548,24 +583,6 @@ class ImeController(
         host.commitText(" ")
         host.render()
         return true
-    }
-
-    private fun emitSymbol(text: String, layer: Layer) {
-        flushComposition()
-        var out = text
-        if (state.mode == ImeMode.CN && fullWidthSymbolsInCn && layer == Layer.L2) {
-            // 中文标点特判(.→。),其余 ASCII 标点全角(,→，?→？…);
-            // 数字保持半角(Alt 层九宫格 0-9 常用于输号码)
-            out = out.map { c ->
-                when {
-                    c == '.' -> '。'
-                    c.code in 0x21..0x2F || c.code in 0x3A..0x40 ||
-                        c.code in 0x5B..0x60 || c.code in 0x7B..0x7E -> (c.code + 0xFEE0).toChar()
-                    else -> c
-                }
-            }.joinToString("")
-        }
-        host.commitText(out)
     }
 
     /** 组词被符号/功能键打断:先把当前首选上屏(可可同款体验)。 */

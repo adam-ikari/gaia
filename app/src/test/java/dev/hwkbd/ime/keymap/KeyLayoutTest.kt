@@ -126,18 +126,51 @@ class KeyLayoutTest {
     }
 
     @Test
-    fun `L4 只该显示 L1-L3 敲不出的键`() {
-        val p = d.producible()
-        // L1/L2/L3 各有代表:字母、L2 的 !、L3 的功能键
-        assertTrue(p.contains("a"))
-        assertTrue(p.contains("!"))
-        assertTrue(p.contains("key:esc"))
-        // 固定核心键全部落在 L1-L3 之外(否则中区就该被筛掉)
-        for (k in KeyLayout.L4_CORE) {
-            assertTrue("core ${k.label}", !p.contains(k.out.format()))
-        }
-        // 自定义键若是 L1-L3 已有的取值,会被筛掉
-        assertTrue(p.contains(KeyOut.Text("!").format()))
+    fun `L4 上下文键位套按字面显示 不并核心键也不筛`() {
+        // 出厂网址套:输入框是网址时显示([FieldKind.URL] 选用)
+        assertEquals(
+            listOf("http://", "https://", ".com", "/"),
+            d.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label },
+        )
+        // 编辑器写了 [L4 url] 段 → 整段按字面(配置什么显示什么,程序不筛选)
+        val parsed = KeyLayout.parseText(
+            """
+            [L2]
+            q=1
+            [L4]
+            foo=foo
+            [L4 url]
+            http://=http://
+            """.trimIndent(),
+        )
+        assertTrue(parsed.errors.isEmpty())
+        assertEquals(
+            listOf("http://"),
+            parsed.layout!!.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label },
+        )
+        // 默认套不受上下文套影响(核心键 + 自定义键)
+        assertEquals(
+            KeyLayout.L4_CORE.map { it.label } + "foo",
+            parsed.layout!!.l4Combined().map { it.label },
+        )
+    }
+
+    @Test
+    fun `格式文本往返带上下文键位套 缺段回落出厂预置`() {
+        val text = d.formatText()
+        assertTrue(text.contains("[L4 ${KeyLayout.L4_PROFILE_URL}]"))
+        val parsed = KeyLayout.parseText(text)
+        assertTrue(parsed.errors.isEmpty())
+        assertEquals(
+            d.l4Combined(KeyLayout.L4_PROFILE_URL),
+            parsed.layout!!.l4Combined(KeyLayout.L4_PROFILE_URL),
+        )
+        // 老 keymap.txt 没有 [L4 url] 段 → 回落出厂预置,网址键照样拿得到
+        val legacy = KeyLayout.parseText("[L2]\nq=1")
+        assertEquals(
+            KeyLayout.default().l4Combined(KeyLayout.L4_PROFILE_URL),
+            legacy.layout!!.l4Combined(KeyLayout.L4_PROFILE_URL),
+        )
     }
 
     @Test

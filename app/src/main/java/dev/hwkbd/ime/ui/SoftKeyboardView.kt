@@ -9,7 +9,6 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.R
-import dev.hwkbd.ime.ime.ImeMode
 import dev.hwkbd.ime.ime.ImeState
 import dev.hwkbd.ime.ime.ShiftState
 import dev.hwkbd.ime.keymap.KeyLayout
@@ -41,7 +40,6 @@ class SoftKeyboardView @JvmOverloads constructor(
 
     private var layer = Layer.L1
     private var lock: Layer? = null
-    private var mode = ImeMode.CN
     private var shift = ShiftState.OFF
 
     private val density = resources.displayMetrics.density
@@ -76,7 +74,6 @@ class SoftKeyboardView @JvmOverloads constructor(
     fun setState(state: ImeState) {
         layer = state.effectiveLayer
         lock = state.lock
-        mode = state.mode
         shift = state.shift
         invalidate()
     }

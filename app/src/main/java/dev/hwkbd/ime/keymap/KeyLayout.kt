@@ -26,13 +26,18 @@ data class L4Key(val label: String, val out: KeyOut)
  * [L4]
  * Tab=key:tab
  * ->=->        ← 标签「->」输出「->」(按第一个 = 分割)
+ * [L4 url]     ← 上下文键位套(输入框是网址时显示,id = url)
+ * http://=http://
  * ```
  *
  * L2/L3 中未出现的键回落到 L1(字母在任意层都可输入),与"Alt = 键帽上档符号"的直觉一致。
  */
 class KeyLayout(
     private val maps: Map<Layer, Map<Int, KeyOut>>,
+    /** 默认键位套([L4] 段)。 */
     val l4: List<L4Key> = emptyList(),
+    /** 上下文键位套(`[L4 xxx]` 段 → id `xxx`),缺段时 [l4Combined] 回落出厂预置。 */
+    val l4Profiles: Map<String, List<L4Key>> = emptyMap(),
 ) {
 
     fun mapFor(layer: Layer): Map<Int, KeyOut> = maps[layer] ?: emptyMap()
@@ -41,21 +46,21 @@ class KeyLayout(
         maps[layer]?.get(code) ?: if (layer != Layer.L1) maps[Layer.L1]?.get(code) else null
 
     /**
-     * L1/L2/L3 三层**已经能敲出来**的取值(文本与功能键都算,去掉重复)。
-     * 状态行中区(L4)只保留这些之外的键——L1-L3 敲得出的就不占中区了。
+     * 状态行中区(L4)实际显示的键序,按键位套 [profile] 取:
+     *
+     * - **默认套**([L4_DEFAULT]):固定核心键([L4_CORE],L1-L3 敲不出的那几个)在前,
+     *   键位编辑器 [L4] 段的自定义键在后,重复(标签+输出相同)的只留一个。核心键删不掉;
+     * - **上下文套**(如 [L4_PROFILE_URL]):编辑器 [L4 xxx] 段的字面键,配置什么显示什么;
+     *   文件里没写这段时回落出厂预置(老 keymap.txt 也拿得到网址键)。
      */
-    fun producible(): Set<String> = Layer.values().flatMap { layer ->
-        maps[layer]?.values?.map { it.format() } ?: emptyList()
-    }.toSet()
-
-    /**
-     * 状态行中区(L4)实际显示的键序:**固定核心键([L4_CORE],L1-L3 敲不出的那几个)在前,
-     * 键位编辑器 [L4] 段的自定义键在后,重复(标签+输出相同)的只留一个**。
-     * 核心键不随编辑器增删消失——这是"固定显示"的语义;自定义键可自由增删。
-     */
-    fun l4Combined(): List<L4Key> {
+    fun l4Combined(profile: String = L4_DEFAULT): List<L4Key> {
+        val list = if (profile == L4_DEFAULT) {
+            L4_CORE + l4
+        } else {
+            l4Profiles[profile] ?: builtinProfile(profile)
+        }
         val keys = LinkedHashMap<String, L4Key>()
-        for (k in L4_CORE + l4) {
+        for (k in list) {
             keys.putIfAbsent("${k.label} ${k.out.format()}", k)
         }
         return keys.values.toList()
@@ -73,17 +78,30 @@ class KeyLayout(
                 }
         }
         if (l4.isNotEmpty()) {
-            append("[L4]\n")
-            // 标签要转义:标签里有 '=' 时(如 `!=`),不转义会被 parseText 当成分界符切成两半
-            l4.forEach { append(escapeLabel(it.label)).append('=').append(it.out.format()).append('\n') }
+            appendL4Section(L4_DEFAULT, l4)
         }
+        for ((id, keys) in l4Profiles) {
+            if (keys.isNotEmpty()) appendL4Section(id, keys)
+        }
+    }
+
+    private fun StringBuilder.appendL4Section(id: String, keys: List<L4Key>) {
+        if (id == L4_DEFAULT) append("[L4]\n") else append("[L4 ").append(id).append("]\n")
+        // 标签要转义:标签里有 '=' 时(如 `!=`),不转义会被 parseText 当成分界符切成两半
+        keys.forEach { append(escapeLabel(it.label)).append('=').append(it.out.format()).append('\n') }
     }
 
     companion object {
 
+        /** 默认键位套 id(编辑器 `[L4]` 段)。 */
+        const val L4_DEFAULT = "default"
+
+        /** 网址键位套 id(编辑器 `[L4 url]` 段,[dev.hwkbd.ime.strategy.FieldKind.URL] 选用)。 */
+        const val L4_PROFILE_URL = "url"
+
         /**
          * L4 **固定核心键**:L1/L2/L3 三层敲不出的**单个字符**。
-         * 状态行中区永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来);
+         * 默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来);
          * Tab/Esc/Home/End/PU/PD/Ins/方向键 L3 全有,不重复占用中区。
          *
          * **不放组合按键**——`-> => != ==` 这类多字符串键已按用户要求移除(2026-09-28):
@@ -93,6 +111,23 @@ class KeyLayout(
             L4Key("；", KeyOut.Text(";")),
             L4Key("$", KeyOut.Text("\$")),
         )
+
+        /**
+         * 出厂网址键位套:输入框是网址时的一键短语。量过状态行中区约 264dp、键宽下限 36dp,
+         * 这里只放最常用的四把(再加就该压键宽了),`[L4 url]` 段可整段改写。
+         */
+        val L4_PROFILE_URL_KEYS: List<L4Key> = listOf(
+            L4Key("http://", KeyOut.Text("http://")),
+            L4Key("https://", KeyOut.Text("https://")),
+            L4Key(".com", KeyOut.Text(".com")),
+            L4Key("/", KeyOut.Text("/")),
+        )
+
+        /** 上下文键位套的出厂预置(编辑器里没写该段时用它)。 */
+        private fun builtinProfile(id: String): List<L4Key> = when (id) {
+            L4_PROFILE_URL -> L4_PROFILE_URL_KEYS
+            else -> emptyList()
+        }
 
         /** 标签里的 `\` 与 `=` 转义(层映射的键名不含这两个字符,转义只对 L4 标签有意义)。 */
         private fun escapeLabel(s: String): String = s.replace("\\", "\\\\").replace("=", "\\=")
@@ -131,18 +166,25 @@ class KeyLayout(
         fun parseText(text: String): KeyLayoutParse {
             val maps = mutableMapOf<Layer, MutableMap<Int, KeyOut>>()
             val l4 = mutableListOf<L4Key>()
+            val profiles = mutableMapOf<String, MutableList<L4Key>>()
             val errors = mutableListOf<Int>()
             var section = "L1"
-            var inL4 = false
+            var l4Id: String? = null
             text.lineSequence().forEachIndexed { idx, rawLine ->
                 val lineNo = idx + 1
                 val line = rawLine.trim()
                 if (line.isEmpty() || line.startsWith("#")) return@forEachIndexed
                 if (line.startsWith("[") && line.endsWith("]")) {
-                    section = line.removeSurrounding("[", "]")
-                    inL4 = section == "L4"
-                    if (!inL4) {
-                        val l = runCatching { Layer.valueOf(section) }.getOrNull()
+                    val name = line.removeSurrounding("[", "]")
+                    section = name
+                    // L4 段:`[L4]` = 默认套,`[L4 url]` = 上下文套 id=url
+                    l4Id = when {
+                        name == "L4" -> L4_DEFAULT
+                        name.startsWith("L4 ") -> name.substring(3).trim().ifEmpty { L4_DEFAULT }
+                        else -> null
+                    }
+                    if (l4Id == null) {
+                        val l = runCatching { Layer.valueOf(name) }.getOrNull()
                         if (l == null) {
                             errors += lineNo
                         } else {
@@ -161,9 +203,16 @@ class KeyLayout(
                     errors += lineNo
                     return@forEachIndexed
                 }
-                if (inL4) {
+                val id = l4Id
+                if (id != null) {
                     val label = unescapeLabel(line.substring(0, eq)).trim()
-                    if (label.isEmpty()) errors += lineNo else l4 += L4Key(label, out)
+                    if (label.isEmpty()) {
+                        errors += lineNo
+                    } else if (id == L4_DEFAULT) {
+                        l4 += L4Key(label, out)
+                    } else {
+                        profiles.getOrPut(id) { mutableListOf() } += L4Key(label, out)
+                    }
                 } else {
                     val code = KeyNames.NAME_TO_CODE[unescapeLabel(line.substring(0, eq))]
                     if (code == null) errors += lineNo
@@ -173,7 +222,7 @@ class KeyLayout(
             return if (errors.isEmpty()) {
                 // 缺 [L1] 段时补默认字母层(自定义布局通常只改 L2/L3)
                 maps.getOrPut(Layer.L1) { default().mapFor(Layer.L1).toMutableMap() }
-                KeyLayoutParse(KeyLayout(maps, l4), emptyList())
+                KeyLayoutParse(KeyLayout(maps, l4, profiles), emptyList())
             } else KeyLayoutParse(null, errors)
         }
 
@@ -216,6 +265,8 @@ class KeyLayout(
                     Layer.L3 to l3.toMap(),
                 ),
                 l4,
+                // 上下文键位套出厂预置:网址框的 http:// 等([L4 url] 段可整段改写)
+                l4Profiles = mapOf(L4_PROFILE_URL to L4_PROFILE_URL_KEYS),
             )
         }
     }

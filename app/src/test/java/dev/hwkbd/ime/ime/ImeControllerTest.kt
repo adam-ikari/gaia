@@ -4,6 +4,8 @@ import android.view.KeyEvent
 import dev.hwkbd.ime.engine.PinyinDict
 import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.keymap.KeyLayout
+import dev.hwkbd.ime.strategy.ImeRegistry
+import dev.hwkbd.ime.strategy.PinyinInputMethod
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,7 +60,10 @@ class ImeControllerTest {
         val dict = PinyinDict()
         dict.load(dictLines)
         val h = RecHost()
-        val c = ImeController(h, KeyLayout.default(), PinyinEngine(dict, dev.hwkbd.ime.engine.UserDict()))
+        // 注册表 = 出厂语言/表现 + 拼音输入法(加语言/输入法走注册,不改状态机)
+        val registry = ImeRegistry.builtin()
+            .registerMethod(PinyinInputMethod(PinyinEngine(dict, dev.hwkbd.ime.engine.UserDict())))
+        val c = ImeController(h, KeyLayout.default(), registry)
         c.state.pageSize = pageSize
         return Rig(c, h)
     }
@@ -250,9 +255,9 @@ class ImeControllerTest {
     fun `shift 加空格切换中英`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
-        assertEquals(ImeMode.EN, r.c.state.mode)
+        assertEquals("en", r.c.state.languageId)
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
-        assertEquals(ImeMode.CN, r.c.state.mode)
+        assertEquals("zh", r.c.state.languageId)
     }
 
     @Test
@@ -270,7 +275,7 @@ class ImeControllerTest {
         r.type("nihao")
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
         assertEquals(listOf("你好"), r.h.commits)
-        assertEquals(ImeMode.EN, r.c.state.mode)
+        assertEquals("en", r.c.state.languageId)
     }
 
     // ---------------------------------------------------------------- 层与锁定
@@ -278,7 +283,7 @@ class ImeControllerTest {
     @Test
     fun `Alt 单击一次性进 L2 输出后自动回 L1`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         assertTrue(r.key(KeyEvent.KEYCODE_ALT_LEFT))
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer) // 按下即进层(长按也从这里开始)
         r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT) // 快速松开 = 敲击,一次性层保留
@@ -291,7 +296,7 @@ class ImeControllerTest {
     @Test
     fun `长按 Alt 期间可连续输出 L2 松开取消`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_ALT_LEFT) // 按住不放
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
         r.key(kc('w'))
@@ -306,7 +311,7 @@ class ImeControllerTest {
     @Test
     fun `长按 Alt 不按任何键松开也取消`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
         Thread.sleep(350)
         r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT)
@@ -317,7 +322,7 @@ class ImeControllerTest {
     @Test
     fun `Alt 双击锁定 L2 连续输出单击解锁`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         r.key(kc('w'))
@@ -431,7 +436,7 @@ class ImeControllerTest {
     @Test
     fun `Sym 单击进 L3 一次性 敲击语义在 keyUp 定型`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         assertTrue(r.key(KeyEvent.KEYCODE_SYM))
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer) // 按住即进 L3(长按语义)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 快速松开 = 敲击,一次性 L3 保留
@@ -445,7 +450,7 @@ class ImeControllerTest {
     @Test
     fun `长按 Sym 期间按键走 L3 松开取消`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_SYM) // 按住不放
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
         r.key(kc('x')) // L3 X=&
@@ -479,7 +484,7 @@ class ImeControllerTest {
     @Test
     fun `软键盘 Shift 单击下一键大写双击 Caps`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.c.onShiftTap() // 单击:下一键大写
         r.key(kc('a'))
         assertEquals(listOf("A"), r.h.commits)
@@ -493,7 +498,7 @@ class ImeControllerTest {
     @Test
     fun `物理 Shift 单击大写一次 双击 Caps 再单击关掉`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 单击
         assertEquals(ShiftState.ONCE, r.c.state.shift)
         assertFalse(r.c.state.shiftHeld) // 松手后大写提示熄灭
@@ -517,7 +522,7 @@ class ImeControllerTest {
     @Test
     fun `大写一次状态再单击 Shift 必然解除 不是死状态`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 单击:大写一次
         assertEquals(ShiftState.ONCE, r.c.state.shift)
 
@@ -537,7 +542,7 @@ class ImeControllerTest {
     @Test
     fun `物理 Shift 长按只在按住期间提示 松手不留下状态`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
         assertTrue(r.c.state.shiftHeld) // 按住期间状态行亮大写芯片
         Thread.sleep(350)
@@ -553,7 +558,7 @@ class ImeControllerTest {
     @Test
     fun `Shift 当修饰键用过就不算敲击`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
         r.key(kc('a'), shift = true) // 按住期间按了别的键
         r.c.onKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT)
@@ -565,7 +570,7 @@ class ImeControllerTest {
     @Test
     fun `拼音态忽略 Shift 敲击 不产生大小写锁定`() {
         val r = rig()
-        assertEquals(ImeMode.CN, r.c.state.mode)
+        assertEquals("zh", r.c.state.languageId)
         r.c.onShiftTap()
         r.c.onShiftTap() // 双击也不给锁定:拼音不需要大小写
         assertEquals(ShiftState.OFF, r.c.state.shift)
@@ -578,12 +583,12 @@ class ImeControllerTest {
     @Test
     fun `切进拼音态清掉英文态的大小写锁定`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.c.onShiftTap()
         r.c.onShiftTap()
         assertEquals(ShiftState.CAPS, r.c.state.shift)
-        r.c.toggleMode()
-        assertEquals(ImeMode.CN, r.c.state.mode)
+        r.c.cycleLanguage()
+        assertEquals("zh", r.c.state.languageId)
         assertEquals(ShiftState.OFF, r.c.state.shift)
     }
 
@@ -672,12 +677,12 @@ class ImeControllerTest {
     @Test
     fun `状态栏大写芯片在英文态开关 Caps 拼音态忽略`() {
         val r = rig()
-        r.c.state.mode = ImeMode.EN
+        r.c.state.languageId = "en"
         r.c.tapShiftChip()
         assertEquals(ShiftState.CAPS, r.c.state.shift)
         r.c.tapShiftChip()
         assertEquals(ShiftState.OFF, r.c.state.shift)
-        r.c.state.mode = ImeMode.CN
+        r.c.state.languageId = "zh"
         r.c.tapShiftChip()
         assertEquals(ShiftState.OFF, r.c.state.shift) // 拼音态不动大小写
     }

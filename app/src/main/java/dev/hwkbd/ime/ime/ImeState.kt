@@ -2,8 +2,8 @@ package dev.hwkbd.ime.ime
 
 import dev.hwkbd.ime.engine.Candidate
 import dev.hwkbd.ime.keymap.Layer
-
-enum class ImeMode { CN, EN }
+import dev.hwkbd.ime.strategy.ChineseLanguage
+import dev.hwkbd.ime.strategy.FieldKind
 
 enum class ShiftState { OFF, ONCE, CAPS }
 
@@ -11,7 +11,12 @@ enum class ShiftState { OFF, ONCE, CAPS }
  * 输入法全部可渲染状态。ImeController 持有并修改它,UI(service/视图)只读。
  */
 class ImeState {
-    var mode = ImeMode.CN
+    /** 当前语言 id:由 [dev.hwkbd.ime.strategy.ImeRegistry] 注册表解析成策略,枚举语言已退役。 */
+    var languageId: String = ChineseLanguage.id
+
+    /** 当前输入框类型:决定 L4 键位套与 Alt 芯片文字(输入类型决定)。 */
+    var fieldKind: FieldKind = FieldKind.TEXT
+
     var shift = ShiftState.OFF
 
     /** 物理 Shift 正被按住(长按大写:松手即取消),用于状态行大写芯片提示。 */
