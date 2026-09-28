@@ -427,8 +427,8 @@ class ImeController(
     }
 
     /**
-     * 状态行 L4 中区的键序 = **输入类型选的键位套**(网址框 → http:// 等)
-     * **并上当前语言的补差键**(拼音 → 分隔符 `'`)。UI 按 [l4Signature] 变化才重建面板。
+     * 状态行 L4 中区的键序 = **当前语言的补差键排最左**(拼音 → 分隔符 `'`)
+     * **接输入类型选的键位套**(网址框 → http:// 等)。UI 按 [l4Signature] 变化才重建面板。
      */
     fun l4Keys(): List<L4Key> = registry.l4Keys(layout, state.fieldKind, state.languageId)
 

@@ -102,14 +102,14 @@ class ImeRegistryTest {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
-            // 键位套的四把网址键 + 拼音语言的补差键(分节符在任何输入框都在,当前语言是拼音)
-            listOf("http://", "https://", ".com", "/", ChineseLanguage.SEPARATOR),
+            // 语言补差键**排最左**(输入法注册的键),其后才是输入类型选的键位套
+            listOf(ChineseLanguage.SEPARATOR, "http://", "https://", ".com", "/"),
             r.c.l4Keys().map { it.label },
         )
-        // 数字框没有自己的 L4 套(那是 Alt 芯片的活),默认核心键 + 拼音分隔符
+        // 数字框没有自己的 L4 套(那是 Alt 芯片的活):补差键 + 默认核心键
         r.c.state.fieldKind = FieldKind.NUMBER
         assertEquals(
-            KeyLayout.L4_CORE.map { it.label } + ChineseLanguage.SEPARATOR,
+            listOf(ChineseLanguage.SEPARATOR) + KeyLayout.L4_CORE.map { it.label },
             r.c.l4Keys().map { it.label },
         )
         // 键位套换了,面板签名必须跟着变(service 据此决定要不要重建键帽)

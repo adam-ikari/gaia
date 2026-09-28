@@ -64,12 +64,14 @@ class ImeRegistry {
     }
 
     /**
-     * 状态行 L4 中区的键序:输入类型选的键位套 + 当前语言的补差键,重复(标签+输出)去重。
-     * 默认键位套带固定核心键;其它键位套按编辑器字面显示——**配置什么显示什么,程序不做筛选**。
+     * 状态行 L4 中区的键序:**语言补差键排最左**(输入法注册的键,如拼音分节符 `'`,
+     * 语义上属于"这个输入法随时可能要用"),其后是输入类型选的键位套(默认套 = 固定核心键
+     * + 自定义键),重复(标签+输出)去重。默认键位套带固定核心键;其它键位套按编辑器字面
+     * 显示——**配置什么显示什么,程序不做筛选**。
      */
     fun l4Keys(layout: KeyLayout, kind: FieldKind, languageId: String): List<L4Key> {
         val keys = LinkedHashMap<String, L4Key>()
-        for (k in layout.l4Combined(fieldProfile(kind).l4ProfileId) + language(languageId).l4Extras) {
+        for (k in language(languageId).l4Extras + layout.l4Combined(fieldProfile(kind).l4ProfileId)) {
             keys.putIfAbsent("${k.label} ${k.out.format()}", k)
         }
         return keys.values.toList()
