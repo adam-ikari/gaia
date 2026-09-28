@@ -33,6 +33,9 @@ class CandidateBarView @JvmOverloads constructor(
      */
     var flyThresholdPx: Float = 160f
 
+    /** 上滑死区 = 阈值 1/4:位移更小视为抖动忽略(词不起升、其余候选不渐隐);过死区后进度从 0 重算。 */
+    private val flyDeadPx: Float get() = flyThresholdPx / 4f
+
     /** 固定 5 显示槽(首选在中间,槽位即物理键位);空槽为 null。 */
     private var slots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var highlight = -1
@@ -141,7 +144,7 @@ class CandidateBarView @JvmOverloads constructor(
         if (flyP >= 0f && flyZone == zone && flyAnim == null) return
         cancelFlyDragNow()
         flyZone = zone
-        flyX = cellsLeft + (zone + 0.5f) * cellWidth
+        flyX = (zone + 0.5f) * cellWidth
         flyWord = slots.getOrNull(zone)?.word ?: ""
         flyOutSlots = slots
         flyP = 0f
@@ -197,7 +200,7 @@ class CandidateBarView @JvmOverloads constructor(
         // 先把要继续的拖动状态抓出来:下面 cancel() 会走 resetFly 把它们清掉
         val from = flyP.coerceAtLeast(0f)
         val zone = if (flyZone >= 0) flyZone else displayIndex
-        val x = if (flyZone >= 0) flyX else cellsLeft + (displayIndex + 0.5f) * cellWidth
+        val x = if (flyZone >= 0) flyX else (displayIndex + 0.5f) * cellWidth
         val w = if (flyWord.isNotEmpty()) flyWord else word
         val out = if (flyOutSlots.isNotEmpty()) flyOutSlots else slots
         flyAnim?.cancel()
@@ -223,14 +226,17 @@ class CandidateBarView @JvmOverloads constructor(
         }
     }
 
-    private val cellsLeft: Float get() = arrowWidth
-    private val cellsRight: Float get() = width - arrowWidth
-    private val cellWidth: Float get() = (cellsRight - cellsLeft) / 5f
+    /**
+     * 每槽 = **全宽 / 5**——Titan 2 物理键盘正好 10 列,槽宽 = 2 个键列,
+     * 分隔线、词位、点按与上滑触发区都与物理键列对齐(2026-09-29 用户定案)。
+     * 两侧翻页箭头占的窄条只挡点按/起手入口([cellIndexAt]),不移动分区边界。
+     */
+    private val cellWidth: Float get() = width / 5f
 
     private fun cellIndexAt(x: Float): Int {
         if (slots.all { it == null }) return -1
-        if (x < cellsLeft || x >= cellsRight) return -1
-        val idx = (((x - cellsLeft) / cellWidth).toInt()).coerceIn(0, 4)
+        if (x < arrowWidth || x >= width - arrowWidth) return -1
+        val idx = ((x / cellWidth).toInt()).coerceIn(0, 4)
         return if (slots.getOrNull(idx) != null) idx else -1
     }
 
@@ -263,12 +269,13 @@ class CandidateBarView @JvmOverloads constructor(
                     removeCallbacks(longPressRunnable)
                 }
                 // 上滑选字改成"拖动即反馈":词随手指起升、其余候选渐隐(拖回来又拖上去时重新接管)
+                // 死区内(≤ 阈值 1/4)整体忽略:不启动拖动;过死区后进度从 0 重算
                 if (swipeSelectEnabled && downCell >= 0) {
                     val dx = event.x - downX
                     val dy = downY - event.y
-                    if (dy > touchSlop && dy > kotlin.math.abs(dx)) {
+                    if (dy > flyDeadPx && dy > kotlin.math.abs(dx)) {
                         beginFlyDrag(downCell) // 自带防重入
-                        setFlyDrag(dy / flyThresholdPx)
+                        setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx))
                     } else if (flyP >= 0f && flyAnim == null) {
                         cancelFlyDrag()
                     }
@@ -281,7 +288,9 @@ class CandidateBarView @JvmOverloads constructor(
                     if (flyAnim == null) {
                         val dx = event.x - downX
                         val dy = downY - event.y
-                        if (dy > 0f && dy > kotlin.math.abs(dx)) setFlyDrag(dy / flyThresholdPx)
+                        if (dy > 0f && dy > kotlin.math.abs(dx)) {
+                            setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx))
+                        }
                         if (flyP >= 1f) {
                             val zone = flyZone
                             val word = flyWord
@@ -411,7 +420,7 @@ class CandidateBarView @JvmOverloads constructor(
         val base = 17f * resources.displayMetrics.scaledDensity
         for (i in 0 until 5) {
             if (i == skip) continue
-            val left = cellsLeft + i * cellWidth
+            val left = i * cellWidth
             if (i > 0 && dividers) {
                 canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
             }

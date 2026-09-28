@@ -2,7 +2,6 @@
 <resources>
     <string name="app_name">盖亚输入法</string>
 
-    <string name="layer_map_title">三层键位映射</string>
     <string name="probe_title">按键探测</string>
     <string name="playground_title">实验场</string>
     <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。在输入框里试：拼音组词 / 五键选字 / 层切换 / 上滑飞字</string>
@@ -21,6 +20,7 @@
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>
+    <string name="btn_l5">L5 按键行(L4 放不下的键)</string>
     <string name="pref_l4_panel">状态栏显示 L4 虚拟按键</string>
     <string name="pref_l4_panel_summary">在状态栏中区显示一排 L4 键帽（只放 L1-L3 敲不出的键，可在键位编辑器 [L4] 段自定义）；关闭后中区留空</string>
     <string name="mode_cn">拼</string>
@@ -46,7 +46,6 @@
     <string name="pref_fullwidth">中文态符号层输出全角</string>
 
     <string name="pref_category_keys">按键与层</string>
-    <string name="pref_layer_map">编辑三层键位映射</string>
     <string name="pref_layer_reset">恢复默认键位映射</string>
     <string name="pref_select_keys">五键选字键位</string>
 

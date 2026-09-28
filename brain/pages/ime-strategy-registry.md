@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [策略, 注册表, L4, 扩展性]
 created: "2026-09-28T19:06:35"
-updated: "2026-09-28T20:58:48"
+updated: "2026-09-29T01:31:06"
 ---
 
 <!-- compiled_truth -->
@@ -73,4 +73,16 @@ updated: "2026-09-28T20:58:48"
   kind: evidence
   summary: "89 条单测全绿;真机四项:组词中 v 进缓冲显 ni' 且候选不变、空闲 L4=； \\$ \\ 无 '、空闲 v 上屏 '、网址框 L4=http:// https:// .com"
   source: "adb 真机验证"
+  affects: [ime-strategy-registry]
+
+- time: 2026-09-29T01:30:38
+  kind: decision
+  summary: "L4 核心键按输入框取合法子集(同一把尺'合法的留、非法的去'):网址框去反斜杠留 ； 、邮件框只留 $ (RFC 5322 atext 合法);API=FieldProfile.l4CoreKeys: List<L4Key>,KeyLayout.L4_CORE_URL/L4_CORE_EMAIL 从 L4_CORE 派生"
+  source: "用户决策 2026-09-29"
+  affects: [ime-strategy-registry]
+
+- time: 2026-09-29T01:31:06
+  kind: decision
+  summary: "接上条(上条被 shell 截断):网址框核心键去反斜杠、留全角分号和美元符(RFC 3986 sub-delim 合法);邮件框只留美元符(RFC 5322 atext 合法);API=FieldProfile.l4CoreKeys: List<L4Key>,KeyLayout.L4_CORE_URL 与 L4_CORE_EMAIL 从 L4_CORE 派生"
+  source: "用户决策 2026-09-29"
   affects: [ime-strategy-registry]

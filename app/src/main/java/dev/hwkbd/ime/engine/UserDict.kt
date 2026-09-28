@@ -56,17 +56,34 @@ class UserDict {
         return true
     }
 
-    fun exactEntries(pinyin: String): List<Pair<String, Int>> =
-        entries[pinyin]?.map { it.key to it.value } ?: emptyList()
+    /**
+     * 精确匹配的导入词条:去撇字母相等即中,**不带分节约束**——导入词条多为无分节的
+     * 转换产物(边界信息缺失,严格约束会把 `xi'an` 挡在 `nihao` 词条外),内置词库才管分节。
+     */
+    fun exactEntries(pinyin: String): List<Pair<String, Int>> {
+        val res = ArrayList<Pair<String, Int>>()
+        for ((p, ws) in entries) {
+            if (strippedCompare(p, pinyin) == 0) for ((w, f) in ws) res += w to f
+        }
+        return res
+    }
 
-    fun exactTop(pinyin: String): Pair<String, Int>? =
-        entries[pinyin]?.maxByOrNull { it.value }?.let { it.key to it.value }
+    /** 同 [exactEntries] 的去撇等价(分节不约束)取词频最高者。 */
+    fun exactTop(pinyin: String): Pair<String, Int>? {
+        var best: Pair<String, Int>? = null
+        for ((p, ws) in entries) {
+            if (strippedCompare(p, pinyin) != 0) continue
+            for ((w, f) in ws) if (best == null || f > best.second) best = w to f
+        }
+        return best
+    }
 
-    /** 返回 (词, 词频, 拼音) 三元组,拼音以 [prefix] 开头。 */
+    /** 返回 (词, 词频, 拼音) 三元组:去撇拼音以 [prefix] 开头且**严格更长**(与词库契约一致)。 */
     fun prefixEntries(prefix: String, cap: Int = 200): List<Triple<String, Int, String>> {
         val res = ArrayList<Triple<String, Int, String>>()
         for ((p, ws) in entries) {
-            if (!p.startsWith(prefix)) continue
+            if (lettersLen(p) <= lettersLen(prefix)) continue
+            if (!strippedStartsWith(p, prefix)) continue
             for ((w, f) in ws) {
                 res += Triple(w, f, p)
                 if (res.size >= cap) return res

@@ -5,6 +5,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -24,8 +25,9 @@ import dev.hwkbd.ime.keymap.L4Key
  *
  * **不做横向滚动**:状态行上的横滑要留给手势,滚动会和手势抢同一条事件流。
  * 内容不足中区宽度时**键间距保持基础 4dp 不变**,把富余宽度均摊成**键宽**来贴边填满
- * (间距不许被拉大——键会散开、看着像没排齐);超出时先压掉 36dp 键宽下限按文字自然宽重排,
- * 仍不够再等比压缩——**键一把不裁**(裁掉的那把是配置里写死的键)。
+ * (间距不许被拉大——键会散开、看着像没排齐)。**一行自然宽装不下的尾巴移到状态栏上方的
+ * L5 独立虚拟按键行**(齿轮左侧键盘图标切换其显隐,2026-09-29 用户定案):L4 不再被硬压到截字,
+ * L5 行内仍超宽才压下限→等比压缩——**键一把不裁**(两行合起来仍然一把不裁)。
  */
 class L4PanelView @JvmOverloads constructor(
     context: Context,
@@ -33,6 +35,24 @@ class L4PanelView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     var onL4Key: ((KeyOut) -> Unit)? = null
+
+    /**
+     * 溢出回调:(有无溢出, L4 装下的前缀长度=分页下标);service 据此控制齿轮左侧的
+     * 键盘图标显隐,并回填上方 L5 行的起始下标。
+     */
+    var onOverflowChange: ((hasL5: Boolean, cut: Int) -> Unit)? = null
+
+    /** true = L5 行(只显示 [tailFrom] 起的溢出尾巴);false = L4 行(显示装得下的前缀)。 */
+    var tailMode = false
+
+    /**
+     * L5 行的起始下标:由 L4 行的溢出回调回填——两行可用宽不同,各自算的 cut 对不上,
+     * 尾巴必须以 L4 的 cut 为准,否则夹在中间的键两行都不显示。
+     */
+    var tailFrom = 0
+
+    private var lastHasL5 = false
+    private var lastCut = -1
 
     private var bgColor = ContextCompat.getColor(context, R.color.key_bg)
     private var strokeColor = ContextCompat.getColor(context, R.color.candidate_divider)
@@ -79,25 +99,79 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     /**
-     * **填满**中区,但**间距不动**:基础间距固定 4dp,富余宽度均摊成每个键的宽度
-     * (首键贴左、末键贴右,右缘正好对齐)。间距曾被均摊拉大过——键会被甩得稀稀拉拉,
-     * 用户明确不要;要填满只能加宽键帽。
-     *
-     * 超宽三步:①按 36dp 键宽下限自然量;②放不下就压掉下限、按文字自然宽重排;
-     * ③仍不够按文字宽等比压到中区(可能截字,但**键一把不裁、绝不滚动**)。
+     * **L4 页只装自然宽(36dp 下限 + 4dp 间距)装得下的前缀,装不下的尾巴移到 L5 页**
+     * (齿轮左侧键盘图标翻页,2026-09-29 定案):
+     * ①全部键按 36dp 下限自然量,顺序累加求前缀(第一把无论如何留在 L4);
+     * ②L4 页前缀必然 ≤ 中区 → 富余均摊成键宽贴边填满;③L5 页(尾巴)仍超宽才压掉下限、
+     * 等比压缩——**键一把不裁、绝不滚动**。溢出规则取代旧的"L4 内硬压"。
      */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        if (childCount == 0) return
+        if (childCount == 0) {
+            if (lastHasL5) {
+                lastHasL5 = false
+                post { onOverflowChange?.invoke(false, 0) }
+            }
+            return
+        }
         val base = (4 * resources.displayMetrics.density).toInt()
         val avail = measuredWidth - paddingLeft - paddingRight
-        applyBaseMargins(base)
+        val hSpec = MeasureSpec.makeMeasureSpec(dip(36), MeasureSpec.EXACTLY)
 
+        // ①全量自然量(GONE 的也量——分页判断要全部键宽)
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            child.minimumWidth = dip(36)
+            child.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), hSpec)
+        }
+        var used = 0
+        var cut = 0
+        for (i in 0 until childCount) {
+            val cw = getChildAt(i).measuredWidth + if (i == 0) 0 else base
+            if (i > 0 && used + cw > avail) break // 第一把无论如何留在 L4(装不下才压缩)
+            used += cw
+            cut = i + 1
+        }
+        val hasL5 = cut < childCount
+        for (i in 0 until childCount) {
+            val visible = if (tailMode) i >= tailFrom else i < cut
+            getChildAt(i).visibility = if (visible) View.VISIBLE else View.GONE
+        }
+        applyBaseMargins(base)
+        layoutPage(base, avail)
+        if (!tailMode && (hasL5 != lastHasL5 || cut != lastCut)) {
+            lastHasL5 = hasL5
+            lastCut = cut
+            // post:测量期间不动别的视图(布局遍历中 requestLayout 会告警)
+            post { onOverflowChange?.invoke(hasL5, cut) }
+        }
+    }
+
+    /** 间距只有基础值,不再放大;首个**可见**键无左距(L5 页也贴左缘),其余可见键 4dp。 */
+    private fun applyBaseMargins(base: Int) {
+        var first = true
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            val lp = child.layoutParams as LayoutParams
+            if (child.visibility != View.VISIBLE) {
+                lp.leftMargin = 0
+                lp.rightMargin = 0
+                continue
+            }
+            lp.leftMargin = if (first) 0 else base
+            lp.rightMargin = 0
+            first = false
+        }
+    }
+
+    /** 当前页可见键三步适宽:自然装下→富余均摊;压掉 36dp 下限重排;仍不够等比压缩。 */
+    private fun layoutPage(base: Int, avail: Int) {
         var content = naturalContent()
         if (content > avail) {
-            // ②压掉键宽下限(只在本次刷新的键帽上生效,重建时恢复),按文字自然宽重排
+            // 压掉键宽下限(重建时恢复),按文字自然宽重排——只动可见键
             for (i in 0 until childCount) {
                 val child = getChildAt(i)
+                if (child.visibility != View.VISIBLE) continue
                 child.minimumWidth = 0
                 child.measure(
                     MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
@@ -113,20 +187,13 @@ class L4PanelView @JvmOverloads constructor(
         fillSpare(content, avail)
     }
 
-    /** 间距只有基础值,不再放大;内容宽 = 各键实测宽 + 间距。 */
-    private fun applyBaseMargins(base: Int) {
-        for (i in 0 until childCount) {
-            val lp = getChildAt(i).layoutParams as LayoutParams
-            lp.leftMargin = if (i == 0) 0 else base
-            lp.rightMargin = 0
-        }
-    }
-
     private fun naturalContent(): Int {
         var content = 0
         for (i in 0 until childCount) {
-            val lp = getChildAt(i).layoutParams as LayoutParams
-            content += getChildAt(i).measuredWidth + lp.leftMargin
+            val child = getChildAt(i)
+            if (child.visibility != View.VISIBLE) continue
+            val lp = child.layoutParams as LayoutParams
+            content += child.measuredWidth + lp.leftMargin
         }
         return content
     }
@@ -134,11 +201,20 @@ class L4PanelView @JvmOverloads constructor(
     private fun fillSpare(content: Int, avail: Int) {
         val spare = avail - content
         if (spare <= 0) return
-        val share = spare / childCount
-        val rest = spare % childCount // 余数给最左的键,末键右缘正好贴齐
+        // L5 尾巴通常只有几把键:均摊全行会拉成一人多宽的怪键——保持自然宽左对齐
+        // (键多到接近铺满时余量本来就小,视觉上仍是排齐的)。
+        if (tailMode) return
+        var vis = 0
+        for (i in 0 until childCount) if (getChildAt(i).visibility == View.VISIBLE) vis++
+        if (vis == 0) return
+        val share = spare / vis
+        val rest = spare % vis // 余数给最左的可见键,末键右缘正好贴齐
+        var seen = 0
         for (i in 0 until childCount) {
             val child = getChildAt(i)
-            val w = child.measuredWidth + share + if (i == 0) rest else 0
+            if (child.visibility != View.VISIBLE) continue
+            val w = child.measuredWidth + share + if (seen == 0) rest else 0
+            seen++
             child.measure(
                 MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(child.measuredHeight, MeasureSpec.EXACTLY),
@@ -146,17 +222,22 @@ class L4PanelView @JvmOverloads constructor(
         }
     }
 
-    /** 等比压缩到中区宽度(键全部可见;文字放不下时由 TextView 自行截字)。 */
+    /** 等比压缩**可见键**到中区宽度(文字放不下时由 TextView 自行截字)。 */
     private fun compressToFit(base: Int, avail: Int) {
-        var textWidth = 0
-        for (i in 0 until childCount) textWidth += getChildAt(i).measuredWidth
-        val room = avail - base * (childCount - 1)
-        if (textWidth <= 0 || room <= 0) return
-        var used = 0
+        val vis = ArrayList<View>()
         for (i in 0 until childCount) {
             val child = getChildAt(i)
+            if (child.visibility == View.VISIBLE) vis += child
+        }
+        if (vis.isEmpty()) return
+        var textWidth = 0
+        for (c in vis) textWidth += c.measuredWidth
+        val room = avail - base * (vis.size - 1)
+        if (textWidth <= 0 || room <= 0) return
+        var used = 0
+        vis.forEachIndexed { i, child ->
             // 末键吃掉余数,右缘正好贴齐
-            val w = if (i == childCount - 1) room - used else child.measuredWidth * room / textWidth
+            val w = if (i == vis.size - 1) room - used else child.measuredWidth * room / textWidth
             used += w
             child.measure(
                 MeasureSpec.makeMeasureSpec(w.coerceAtLeast(1), MeasureSpec.EXACTLY),

@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-28T17:49:35"
+updated: "2026-09-29T02:34:23"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -175,4 +175,40 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "Shift 独立单击改开关自合(2026-09-28):任意大写状态(大写一次 ONCE / Caps 锁定)在双击窗口外再单击一次必然回 OFF。原 n==1 分支只特判 CAPS,ONCE 成了死状态——除了打一个字母这种无关动作没有任何按键能退出(用户报障:第二次按 Shift 大写没有解除)。不变量:任何一次 Shift 按压都不会把用户卡死,最坏情况(ONCE 时手快第二击落进双击窗口变 Caps)再按一次也必回 OFF。双击=Caps 锁定、再双击解除、长按=按住期间大写、输入字母取消 ONCE 均不变。"
   source: "用户 2026-09-28:大写状态在第二次按shift时应该解除"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T01:21:49
+  kind: decision
+  summary: "新需求入队(todo):Alt+Space 呼出命令面板——输入应用名搜索候选,点按/回车快速打开应用"
+  source: "用户需求 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T01:30:38
+  kind: decision
+  summary: "L5 虚拟键盘落地:L4 一行自然宽装不下的键尾巴移入 L5,齿轮左侧键盘图标(无溢出时 GONE,不挤齿轮/收起位置)点按 L4⇄L5 原地翻页、停在 L5 时高亮;L5 页内仍超宽才压下限→等比压缩,'键一把不裁'升级为两页合计成立;组词态状态行让位时图标随行隐藏"
+  source: "用户需求+设计定案 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T01:34:37
+  kind: reversal
+  summary: "L5 形态修正:推翻\"状态行内 L4⇄L5 原地翻页\"——L5 是**状态栏上方**显示的独立虚拟按键行(用户纠正 2026-09-29);触发仍为齿轮左侧键盘图标(点按切行显隐+高亮),内容仍为 L4 装不下的溢出尾巴"
+  source: "用户纠正 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T02:09:10
+  kind: decision
+  summary: "L5 机制完整定案:L5 = 状态栏上方快捷按键层,内容三类——(1)固定场景快捷按键:类似网址/邮箱输入框那种场景键集但可放更多,支持左右滑动翻页 + 物理键盘(触摸板)滑动翻页;(2)用户编辑短语;(3)最近输入内容。打开范围:除少数限定输入字符的模式(如锁 0-9)外全部模式可开(不再以 L4 溢出为前提)"
+  source: "用户需求 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T02:09:10
+  kind: decision
+  summary: "L1-L4 不可编辑落法(用户选择):设置页移除「编辑三层键位映射」入口,LayerMapActivity 下线——出厂键位即最终键位;README 相关编辑器说明同步删除"
+  source: "用户决策 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T02:34:23
+  kind: decision
+  summary: "邮箱模式 L4/L5 分工(2026-09-29 用户需求):L4 只放短域名后缀键 .com .net .org 等(外加 $ 等核心键);完整邮箱域名(@gmail.com 等)整体显示到 L5——不再是\"宽度装不下才溢出\",而是按键类显式分工"
+  source: "用户需求 2026-09-29"
   affects: [ime-interaction-model]

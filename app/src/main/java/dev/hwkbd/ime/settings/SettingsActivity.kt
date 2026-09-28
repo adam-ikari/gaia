@@ -55,9 +55,6 @@ class SettingsActivity : AppCompatActivity() {
                     .show()
             }
 
-            findPreference<Preference>("layer_map")?.setOnPreferenceClickListener {
-                startActivity(Intent(requireContext(), LayerMapActivity::class.java)); true
-            }
             findPreference<Preference>("layer_reset")?.setOnPreferenceClickListener {
                 KeyLayoutStore.reset(requireContext())
                 toast(getString(R.string.done_reset)); true

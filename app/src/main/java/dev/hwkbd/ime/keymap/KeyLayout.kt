@@ -52,7 +52,7 @@ class KeyLayout(
      *   键位编辑器 [L4] 段的自定义键在后,重复(标签+输出相同)的只留一个。核心键删不掉;
      * - **上下文套**(如 [L4_PROFILE_URL]):该段的字面键,配置什么显示什么;
      *   文件里没写这段时回落出厂预置(老 keymap.txt 也拿得到网址键)。
-     *   **要不要并入核心键由注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4Core] 决定**
+     *   **并入哪些核心键由注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 决定**
      *   (网址框要、邮件框不要),这里只管字面。
      */
     fun l4Combined(profile: String = L4_DEFAULT): List<L4Key> {
@@ -120,6 +120,24 @@ class KeyLayout(
         )
 
         /**
+         * 网址框适用的核心键子集(注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 选用):
+         * `\` 剔除——RFC 3986 非法(unreserved/sub-delim/gen-delim 都不含它),WHATWG 对
+         * http/https 又把 `\` 归一成 `/`,在网址里敲它是错字符;
+         * `;` `$` 是合法 sub-delim(`?a=1;b=2`)且 L1/L2/L3 三层敲不出,**保留**
+         * (2026-09-29 用户定案:合法的留、非法的去)。
+         */
+        val L4_CORE_URL: List<L4Key> = L4_CORE.filter { it.label != "\\" }
+
+        /**
+         * 邮箱框适用的核心键子集(注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 选用):
+         * 只留 `$`——RFC 5322 的 atext 集合(`!#$%&'*+-/=?^_`{|}~` + 字母数字)含它,
+         * `user$tag@example.com` 是合法地址;`;` `\` 不在 atext(只有引号形式才合法,供应商基本不收),
+         * domain 段更是只允许字母/数字/`-`/`.`——**不合法的不进邮箱键帽**
+         * (2026-09-29 用户定案,与网址框同一把尺:合法的留、非法的去)。
+         */
+        val L4_CORE_EMAIL: List<L4Key> = L4_CORE.filter { it.label == "\$" }
+
+        /**
          * 出厂网址键位套:输入框是网址时的一键短语。量过状态行中区约 264dp、键宽下限 36dp,
          * 这里只放最常用的三把(再加就该压键宽了),`[L4 url]` 段可整段改写。
          * **不放 `/`**——那是 L2 的键帽(Alt+o),L4 不重复(2026-09-28 用户定案)。
@@ -131,14 +149,22 @@ class KeyLayout(
         )
 
         /**
-         * 出厂邮件键位套:输入框是邮箱时的一键域名(2026-09-28 用户点名三把);
-         * **不带核心键**(邮箱合法字符用不上 `; $ \`——`FieldProfile.l4Core = false`),
-         * `[L4 email]` 段可整段改写。
+         * 出厂邮件键位套:输入框是邮箱时的一键域名——**按显示优先级排序**(2026-09-29 用户定案):
+         * 短域名后缀(`.com` `.net` `.org` `.cn` `.edu`)优先级高排**前面**,L4 优先显示它们;
+         * 完整域名(`@gmail.com` 等)优先级低排**后面**,L4 自然宽装不下的尾巴才落到 L5
+         * (齿轮左侧键盘图标翻页)——"后缀占 L4、域名溢出 L5"由**键序 + 既有溢出规则**自然达成,
+         * 不做硬分栏。**键位套本身不含核心键**(并入哪些由 `FieldProfile.l4CoreKeys` 定:邮箱只并
+         * 合法的 `$`),`[L4 email]` 段可整段改写。
          */
         val L4_PROFILE_EMAIL_KEYS: List<L4Key> = listOf(
-            L4Key("@gmail", KeyOut.Text("@gmail")),
-            L4Key("@hotmail", KeyOut.Text("@hotmail")),
-            L4Key("@outlook", KeyOut.Text("@outlook")),
+            L4Key(".com", KeyOut.Text(".com")),
+            L4Key(".net", KeyOut.Text(".net")),
+            L4Key(".org", KeyOut.Text(".org")),
+            L4Key(".cn", KeyOut.Text(".cn")),
+            L4Key(".edu", KeyOut.Text(".edu")),
+            L4Key("@gmail.com", KeyOut.Text("@gmail.com")),
+            L4Key("@hotmail.com", KeyOut.Text("@hotmail.com")),
+            L4Key("@outlook.com", KeyOut.Text("@outlook.com")),
         )
 
         /** 上下文键位套的出厂预置(编辑器里没写该段时用它)。 */

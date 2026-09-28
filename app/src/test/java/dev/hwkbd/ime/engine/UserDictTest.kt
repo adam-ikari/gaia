@@ -48,8 +48,13 @@ class UserDictTest {
         val u = UserDict()
         u.addEntry("ni", "你", 10)
         u.addEntry("nihao", "你好", 20)
-        val r = u.prefixEntries("ni")
-        assertEquals(2, r.size)
+        u.addEntry("ni'hao", "你好呀", 5)
+        // 严格更长才算前缀("ni" 那条是全串命中,归 exactEntries);
+        // 去撇等价——带不带分节的查询与词条互相命中(导入词条不带分节约束)
+        assertEquals(2, u.prefixEntries("ni").size)
+        assertEquals(2, u.prefixEntries("ni'").size)
+        assertEquals(2, u.exactEntries("nihao").size)
+        assertEquals(2, u.exactEntries("ni'hao").size)
     }
 
     @Test

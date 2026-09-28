@@ -43,13 +43,6 @@
             </intent-filter>
         </activity>
 
-        <!-- 三层键位映射编辑 -->
-        <activity
-            android:name=".settings.LayerMapActivity"
-            android:exported="false"
-            android:label="@string/layer_map_title"
-            android:windowSoftInputMode="stateAlwaysVisible" />
-
         <!-- 真机按键探测：抓 Sym / Fn / 方向键真实 keycode -->
         <activity
             android:name=".probe.KeyProbeActivity"

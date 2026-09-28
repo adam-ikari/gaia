@@ -48,9 +48,6 @@
 
     <PreferenceCategory android:title="@string/pref_category_keys">
         <Preference
-            android:key="layer_map"
-            android:title="@string/pref_layer_map" />
-        <Preference
             android:key="layer_reset"
             android:title="@string/pref_layer_reset" />
         <SwitchPreferenceCompat

@@ -40,6 +40,22 @@
         android:textSize="13sp"
         android:visibility="gone" />
 
+    <!--
+      L5 虚拟按键层:**状态栏上方**的独立键帽行(2026-09-29 用户定案)。
+      装 L4 一行自然宽放不下的溢出尾巴(键帽与状态行 L4 同款);齿轮左侧键盘图标点按切显隐——
+      组词态/L4 整体隐藏时 GONE。背景与状态行同款(运行时同步主题色);
+      内边距对齐状态行**可见内容**左右缘:左 = 安全区 16dp + 芯片 4dp = 20dp(En 芯片左缘)、
+      右 = 安全区 16dp + 收起键 marginEnd 6dp = 22dp(收起三角右缘)。
+    -->
+    <dev.hwkbd.ime.ui.L4PanelView
+        android:id="@+id/l5_panel"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/status_bg"
+        android:paddingStart="20dp"
+        android:paddingEnd="22dp"
+        android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/bar_container"
         android:layout_width="match_parent"
@@ -166,7 +182,7 @@
               不再被 fitCenter 放大到 48dp——否则齿轮墨迹 ≈32dp,和 34dp 的芯片一样大,太抢眼。
               这个盒子同样 **0dp + weight**,和左区 chip_row **等宽**(两者相等 → 中区 L4
               到屏幕左右距离相等);按钮靠 gravity=end 贴屏幕右缘,盒子多出来的部分
-              就是"齿轮左侧那段空隙"(为了等距明确接受的代价)。
+              挪到最左的键盘图标左侧(等距的代价从"齿轮左侧空隙"挪到这里)。
             -->
             <LinearLayout
                 android:id="@+id/btn_row"
@@ -177,10 +193,26 @@
                 android:gravity="end"
                 android:orientation="horizontal">
 
+            <!--
+              L5 行开关:键盘图标,**齿轮左侧**(2026-09-29 用户定案)。
+              L4 一行自然宽(36dp 下限 + 4dp 间距)装不下的键尾巴移到**状态栏上方的 L5 行**,
+              点按切其显隐;没有溢出时 GONE——按钮全靠 gravity=end 右贴,齿轮/收起位置不跳。
+            -->
+            <ImageButton
+                android:id="@+id/btn_l5"
+                android:layout_width="48dp"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/btn_l5"
+                android:scaleType="center"
+                android:src="@drawable/ic_keyboard"
+                android:tint="@color/status_fg" />
+
                 <ImageButton
                     android:id="@+id/btn_settings"
                 android:layout_width="48dp"
                 android:layout_height="match_parent"
+                android:layout_marginEnd="12dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/app_name"
                 android:paddingEnd="3dp"
@@ -189,17 +221,19 @@
                 android:tint="@color/status_fg" />
 
             <!--
-              收起按钮:宽 48dp(与高相等),paddingStart 32dp 把 16dp 宽的三角推到右缘,
-              使右侧视觉边距 = marginEnd(6dp),与左侧模式芯片的 6dp 对齐。
+              收起按钮:宽 wrap_content(16dp 三角 + paddingEnd 6dp),三角贴按钮右缘——
+              按钮右缘 = 中区右缘,视觉右边距 = 安全区 16dp + 6dp = 22dp,与左侧对称;
+              齿轮 marginEnd(12dp)补三角从 48dp 盒收进来的空隙,使**三字形间距均匀**
+              (2026-09-29 重排:原 48dp + paddingStart 32dp 把三角硬推右缘,
+              字形间距 68/119px 不匀,且整组偏左)。
             -->
             <ImageButton
                 android:id="@+id/btn_hide_ime"
-                android:layout_width="48dp"
+                android:layout_width="wrap_content"
                 android:layout_height="match_parent"
-                android:layout_marginEnd="6dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/btn_hide"
-                android:paddingStart="32dp"
+                android:paddingEnd="6dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_hide"
                 android:tint="@color/status_fg" />

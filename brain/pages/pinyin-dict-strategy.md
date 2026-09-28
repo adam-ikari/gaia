@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [pinyin, dict]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-23T04:29:42"
+updated: "2026-09-29T01:30:38"
 ---
 
 <!-- compiled_truth -->
@@ -59,4 +59,10 @@ updated: "2026-09-23T04:29:42"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
+  affects: [pinyin-dict-strategy]
+
+- time: 2026-09-29T01:30:38
+  kind: decision
+  summary: "词库扩充 30万→40万上限(实际 34.8 万条):jieba 源 1-6 字 CJK 34.7 万条全量入选;另落地首字母输入——全拼精确/前缀/分段三路都空时按音节首字母查(sm→什么/生命/说明),单字母不走(与全拼前缀同集),PinyinDict 加载建 (首字母串,词频desc) 索引,INIT_EXACT/INIT_PREFIX 档位只在空集内排序"
+  source: "用户需求+实现定案 2026-09-29"
   affects: [pinyin-dict-strategy]

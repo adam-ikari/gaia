@@ -16,6 +16,7 @@ import dev.hwkbd.ime.keymap.L4Key
 import dev.hwkbd.ime.keymap.Layer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -73,7 +74,14 @@ class ImeRegistryTest {
 
     private fun rig(): Rig {
         val dict = PinyinDict()
-        dict.load(listOf("ni\t你\t500"))
+        dict.load(
+            listOf(
+                "ni\t你\t500",
+                // 分节符语义用例:先(xian) 与 西安(xi'an) 不同键,xi'an 不中 xian
+                "xian\t先\t5000",
+                "xi'an\t西安\t3000",
+            ),
+        )
         val h = RecHost()
         val registry = ImeRegistry.builtin()
             .registerMethod(PinyinInputMethod(PinyinEngine(dict, UserDict())))
@@ -115,10 +123,24 @@ class ImeRegistryTest {
         val reg = ImeRegistry.builtin()
         assertEquals(KeyLayout.L4_PROFILE_URL, reg.fieldProfile(FieldKind.URL).l4ProfileId)
         assertEquals(KeyLayout.L4_PROFILE_EMAIL, reg.fieldProfile(FieldKind.EMAIL).l4ProfileId)
-        assertFalse(reg.fieldProfile(FieldKind.EMAIL).l4Core) // 邮件不要核心键(合法字符用不上)
-        assertTrue(reg.fieldProfile(FieldKind.URL).l4Core) // 网址框要(L1-L3 没有的按键也显示)
-        assertEquals("0-9", reg.fieldProfile(FieldKind.NUMBER).altChipLabel) // alt 锁定的数字变种
+        // 核心键子集按合法性圈定(2026-09-29 同一把尺):邮箱只留 `$`(RFC 5322 atext 合法)、
+        // 网址留 `; $`(sub-delim 合法),非法的 `\` 两框都不进
+        assertEquals(listOf("\$"), reg.fieldProfile(FieldKind.EMAIL).l4CoreKeys.map { it.label })
+        assertEquals(
+            listOf("；", "$"),
+            reg.fieldProfile(FieldKind.URL).l4CoreKeys.map { it.label },
+        )
+        assertEquals("0-9", reg.fieldProfile(FieldKind.NUMBER).altChipLabel)
         assertEquals("alt", reg.fieldProfile(FieldKind.TEXT).altChipLabel)
+        // 芯片按实际可输字符集标注:decimal/signed/phone/date 光秃秃的 0-9 不恰当(2026-09-29)
+        assertEquals("0-9-", reg.fieldProfile(FieldKind.NUMBER_SIGNED).altChipLabel)
+        assertEquals("0-9.", reg.fieldProfile(FieldKind.NUMBER_DECIMAL).altChipLabel)
+        assertEquals("0-9-.", reg.fieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL).altChipLabel)
+        assertEquals("0-9+*#", reg.fieldProfile(FieldKind.PHONE).altChipLabel)
+        assertEquals("0-9-/:.", reg.fieldProfile(FieldKind.DATETIME).altChipLabel)
+        // 邮箱框默认英文态,其余输入框不动当前语言
+        assertEquals("en", reg.fieldProfile(FieldKind.EMAIL).defaultLanguageId)
+        assertNull(reg.fieldProfile(FieldKind.TEXT).defaultLanguageId)
         assertEquals("en", reg.secureLanguageId) // 密码框强制的语言
         // 数字类限定 0-9 + 各类型合法字符,其余输入框不限
         assertTrue(reg.fieldProfile(FieldKind.NUMBER).digitsOnly)
@@ -151,9 +173,9 @@ class ImeRegistryTest {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
-            // 核心键并入(各输入框核心位置不动)+输入类型选的键位套;拼音没注册补差键
-            // ——分节符走 v 键,不占 L4(`/` 也不放,L2 的)
-            KeyLayout.L4_CORE.map { it.label } + listOf("http://", "https://", ".com"),
+            // 核心键子集并入(网址框 = `； $`,非法的 `\` 不进网址键帽)+ 输入类型选的键位套;
+            // 拼音没注册补差键——分节符走 v 键,不占 L4(`/` 也不放,L2 的)
+            listOf("；", "$") + listOf("http://", "https://", ".com"),
             r.c.l4Keys().map { it.label },
         )
         // 数字框没有自己的 L4 套(L4 面板在数字态整块隐藏,键计算仍是默认核心键)
@@ -173,26 +195,42 @@ class ImeRegistryTest {
     }
 
     @Test
-    fun `邮件框只出三把域名键 不带核心键`() {
+    fun `邮件框出美元键 短后缀在前完整域名在后`() {
         val r = rig()
         r.c.state.fieldKind = FieldKind.EMAIL
         assertEquals(
-            // 邮箱合法字符用不上 `； $ \` → l4Core=false;@outlook 也因此不再被键宽挤掉
-            listOf("@gmail", "@hotmail", "@outlook"),
+            // `$` 是 RFC 5322 atext 合法字符,进邮箱键帽(2026-09-29 定案);
+            // 短域名后缀优先级高排前(占 L4),完整域名排后(L4 装不下的尾巴进 L5,同日定案)
+            listOf(
+                "\$", ".com", ".net", ".org", ".cn", ".edu",
+                "@gmail.com", "@hotmail.com", "@outlook.com",
+            ),
             r.c.l4Keys().map { it.label },
         )
         assertTrue(r.c.l4Signature().startsWith(KeyLayout.L4_PROFILE_EMAIL)) // 换套要触发键帽重建
     }
 
     @Test
-    fun `拼音组词中分节符进缓冲 候选按无分隔符查询`() {
+    fun `拼音组词中分节符进缓冲 查询按分节位匹配`() {
         val r = rig()
         r.type("ni")
         val before = r.c.state.candidates.map { it.word }
         assertTrue(before.isNotEmpty())
         r.c.commitL4Key(KeyOut.Text(ChineseLanguage.SEPARATOR))
         assertEquals("ni'", r.c.state.raw) // 分节符显示在组词区(xi'an 语义)
-        assertEquals(before, r.c.state.candidates.map { it.word }) // 查询剥掉分隔符,候选不变
+        // 末尾分节符:ni' 仍中 你(全串已输完,末尾分节只约束后续前缀)
+        assertEquals(before, r.c.state.candidates.map { it.word })
+        // 内部分节符才是要害:xi'an 按分节位切,只中西安、不中 xian 的先
+        r.c.abandonComposition()
+        r.type("xi")
+        r.c.commitL4Key(KeyOut.Text(ChineseLanguage.SEPARATOR))
+        r.type("an")
+        assertEquals("xi'an", r.c.state.raw)
+        assertEquals(listOf("西安"), r.c.state.candidates.map { it.word })
+        // 不带分隔符歧义照旧:先 词频高排前,西安 照样在列
+        r.c.abandonComposition()
+        r.type("xian")
+        assertEquals(listOf("先", "西安"), r.c.state.candidates.map { it.word })
     }
 
     @Test

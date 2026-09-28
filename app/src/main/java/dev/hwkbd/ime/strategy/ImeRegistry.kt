@@ -65,7 +65,7 @@ class ImeRegistry {
 
     /**
      * 状态行 L4 中区的键序:**语言补差键排最左**(语言注册的键;拼音没有——分节符走 `v` 键),
-     * 其后是**固定核心键**(输入框表现 [FieldProfile.l4Core] 说要才并入:网址框要、邮件框不要)
+     * 其后是**固定核心键**(取 [FieldProfile.l4CoreKeys] 圈定的子集:网址框去 `\`、邮箱只留 `$`)
      * 接输入类型选的键位套(默认套自带核心键+自定义键,重复去重)。
      * **配置什么显示什么,程序不做筛选**。
      */
@@ -73,7 +73,7 @@ class ImeRegistry {
         val profile = fieldProfile(kind)
         val combined = layout.l4Combined(profile.l4ProfileId)
         val keys = LinkedHashMap<String, L4Key>()
-        val list = if (profile.l4Core) KeyLayout.L4_CORE + combined else combined
+        val list = profile.l4CoreKeys + combined
         for (k in language(languageId).l4Extras + list) {
             keys.putIfAbsent("${k.label} ${k.out.format()}", k)
         }
@@ -83,29 +83,50 @@ class ImeRegistry {
     companion object {
 
         /**
+         * 数字类表现:芯片文字 = "0-9" + 该类型额外放行的字符(如实标注可输字符集——
+         * decimal/signed/phone/date 只显示 0-9 不恰当,用户 2026-09-29 定案)、锁 L2、只放行这些字符。
+         */
+        private fun digits(extra: String) = FieldProfile(
+            altChipLabel = "0-9" + extra,
+            digitsOnly = true,
+            digitChars = extra,
+        )
+
+        /**
          * 出厂注册表:拼音 + 英文(密码态)、直接上屏、网址/邮件/数字类表现。
          * 数字类(含签名/小数/电话/日期)统一 [FieldProfile.digitsOnly]:锁 L2、只放行合法字符。
          */
         fun builtin(): ImeRegistry {
-            val digits = FieldProfile(altChipLabel = "0-9", digitsOnly = true)
             return ImeRegistry()
                 .registerLanguage(ChineseLanguage)
                 .registerLanguage(EnglishLanguage, secure = true)
                 .registerMethod(DirectInputMethod)
-                // 网址框:http:// 等一键上屏 + 固定核心键([L4 url] 段可改)
-                .registerFieldProfile(FieldKind.URL, FieldProfile(l4ProfileId = KeyLayout.L4_PROFILE_URL))
-                // 邮件框:只要 @域名键,不要核心键(邮箱合法字符用不上 ; $ \)
+                // 网址框:http:// 等一键上屏 + 核心键子集(去掉非法的 `\`、留合法的 `; $`,
+                // 2026-09-29 定案;[L4 url] 段可改键位套)
+                .registerFieldProfile(
+                    FieldKind.URL,
+                    FieldProfile(
+                        l4ProfileId = KeyLayout.L4_PROFILE_URL,
+                        l4CoreKeys = KeyLayout.L4_CORE_URL,
+                    ),
+                )
+                // 邮件框:@域名键 + 核心键只并 `$`(RFC 5322 atext 合法;`;` `\` 非法不进,
+                // 2026-09-29 定案;默认英文态(邮箱地址是 ASCII,用户 2026-09-29 定案)
                 .registerFieldProfile(
                     FieldKind.EMAIL,
-                    FieldProfile(l4ProfileId = KeyLayout.L4_PROFILE_EMAIL, l4Core = false),
+                    FieldProfile(
+                        l4ProfileId = KeyLayout.L4_PROFILE_EMAIL,
+                        l4CoreKeys = KeyLayout.L4_CORE_EMAIL,
+                        defaultLanguageId = EnglishLanguage.id,
+                    ),
                 )
                 // 数字类:各自按合法格式放行(见 FieldKind 的调查),其余全吞
-                .registerFieldProfile(FieldKind.NUMBER, digits)
-                .registerFieldProfile(FieldKind.NUMBER_SIGNED, digits.copy(digitChars = "-"))
-                .registerFieldProfile(FieldKind.NUMBER_DECIMAL, digits.copy(digitChars = "."))
-                .registerFieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL, digits.copy(digitChars = "-."))
-                .registerFieldProfile(FieldKind.PHONE, digits.copy(digitChars = "+*#"))
-                .registerFieldProfile(FieldKind.DATETIME, digits.copy(digitChars = "-/:."))
+                .registerFieldProfile(FieldKind.NUMBER, digits(""))
+                .registerFieldProfile(FieldKind.NUMBER_SIGNED, digits("-"))
+                .registerFieldProfile(FieldKind.NUMBER_DECIMAL, digits("."))
+                .registerFieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL, digits("-."))
+                .registerFieldProfile(FieldKind.PHONE, digits("+*#"))
+                .registerFieldProfile(FieldKind.DATETIME, digits("-/:."))
         }
     }
 }

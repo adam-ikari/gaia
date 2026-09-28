@@ -56,6 +56,14 @@ class ImeService : InputMethodService() {
     /** L4 面板当前键帽对应的签名([ImeController.l4Signature]);变了才重建键帽。 */
     private var l4PanelSig: String? = null
 
+    /** L5 行态(状态栏上方独立行):溢出有无 / 行是否被点开 / 组词态;由 L4 面板测量回调驱动。 */
+    private var l5HasOverflow = false
+    private var l5RowShown = false
+    private var l5Composing = false
+    private var l4ShownNow = false
+    private var l5Panel: dev.hwkbd.ime.ui.L4PanelView? = null
+    private var btnL5: ImageButton? = null
+
     /**
      * 三颗互斥芯片(大写 ab / ALT / SYM):**同一时刻只亮一颗**,后亮起来的把先前那颗压灰。
      * [litLayerPrev]/[litCapsPrev] 是上一次渲染时各自"是否生效",用来分辨这次是谁刚亮。
@@ -188,8 +196,26 @@ class ImeService : InputMethodService() {
         chipSym = root.findViewById(R.id.chip_sym)
         chipShift = root.findViewById(R.id.chip_shift)
         preeditRow = root.findViewById(R.id.preedit_row)
+        l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
+            tailMode = true // L5 行只显示 L4 装不下的尾巴([tailFrom] 起)
+            onL4Key = { controller.commitL4Key(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
+        }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
             onL4Key = { controller.commitL4Key(it) }
+            onOverflowChange = { hasL5, cut ->
+                l5HasOverflow = hasL5
+                if (!hasL5) l5RowShown = false // 没溢出了就收回,避免下次出现时自动弹开
+                l5Panel?.tailFrom = cut
+                l5Panel?.requestLayout()
+                syncL5()
+            }
+        }
+        // 齿轮左侧键盘图标:点按切换**状态栏上方 L5 行**的显隐(无溢出时不出现)
+        btnL5 = root.findViewById<ImageButton>(R.id.btn_l5).apply {
+            setOnClickListener {
+                l5RowShown = !l5RowShown
+                syncL5()
+            }
         }
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             onSelect = { controller.selectCandidate(it) }
@@ -244,6 +270,11 @@ class ImeService : InputMethodService() {
             controller.state.languageId != controller.registry.secureLanguageId
         ) {
             controller.setLanguage(controller.registry.secureLanguageId)
+        } else if (!restarting) {
+            // 输入框类型带默认语言(邮箱框默认英文,2026-09-29 用户定案):
+            // 换框即恢复默认;同框重启动(restarting)不动,不打断框内手动切的语言
+            controller.registry.fieldProfile(controller.state.fieldKind)
+                .defaultLanguageId?.let { controller.setLanguage(it) }
         }
     }
 
@@ -307,13 +338,19 @@ class ImeService : InputMethodService() {
      * 注意:窗口全屏 ≠ 内容全屏。默认实现把 contentTopInsets 取成根视图顶(=0),
      * 背后 App 会认为输入法内容占满全屏,把自己的内容区压成 0——
      * Termux 在此状态下终端整片空白,并主动 hideSoftInput(状态条/候选条一起消失)。
-     * 所以这里显式只上报 48dp 条自身:组词态与空闲态的 contentTopInsets 恒等,
-     * App 侧既不 resize 也不 pan;而触摸范围仍用整个窗口框架,飞字手势不受影响。
+     * 所以这里显式上报**最上面一条可见的输入法内容**:组词态与空闲态(状态行)恒等,
+     * App 侧既不 resize 也不 pan;L5 行(状态栏上方)出现时改报 L5 行顶——
+     * 那是真实内容边界,App 必须让出这块空间,否则 L5 会盖在 App 内容上。
+     * 触摸范围仍用整个窗口框架,飞字手势不受影响。
      */
     override fun onComputeInsets(outInsets: Insets?) {
         super.onComputeInsets(outInsets)
         if (outInsets == null) return
-        val row = (if (candidateRow?.visibility == View.VISIBLE) candidateRow else statusRow) ?: return
+        val row = when {
+            l5Panel?.visibility == View.VISIBLE -> l5Panel
+            candidateRow?.visibility == View.VISIBLE -> candidateRow
+            else -> statusRow
+        } ?: return
         val loc = IntArray(2)
         row.getLocationInWindow(loc)
         outInsets.contentTopInsets = loc[1]
@@ -362,6 +399,15 @@ class ImeService : InputMethodService() {
         /** 飞字触发上滑距离(屏幕坐标单位),设置页三档 100/160/240,默认 160。 */
         var threshold = 160f
 
+        /**
+         * 屏宽(服务按 displayMetrics 注入):5 区按屏宽平分——Titan 2 物理键盘正好 10 列,
+         * 每区 = 2 个键列,分区边界与物理键列对齐(用户 2026-09-29 定案)。
+         */
+        var xMax = 1440f
+
+        /** 上滑死区 = 阈值 1/4:位移更小视为抖动忽略,不启动拖动(词不起升、其余候选不渐隐)。 */
+        private val deadZone: Float get() = threshold / 4f
+
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
         fun onMotion(action: Int, x: Float, y: Int): Int? {
             when (action) {
@@ -383,9 +429,15 @@ class ImeService : InputMethodService() {
                         abortDrag()
                         return null
                     }
+                    // 死区:上滑还不到阈值 1/4 时整体忽略(已起拖的拖回死区则淡回放弃)
+                    if (dy <= deadZone) {
+                        abortDrag()
+                        return null
+                    }
                     if (zone < 0) zone = zoneOf(downX)
                     dragging = true
-                    val progress = dy / threshold
+                    // 过死区后进度从 0 重算,过阈值语义不变(仍 dy ≥ threshold 提交)
+                    val progress = (dy - deadZone) / (threshold - deadZone)
                     listener.onFlyDrag(zone, progress.coerceAtMost(1f))
                     if (progress >= 1f) {
                         // 过阈值即提交:抬手不再重复判定,完成段动画交给候选栏
@@ -424,9 +476,9 @@ class ImeService : InputMethodService() {
             }
         }
 
-        /** 全宽平分 5 区,返回 downX 落在哪一区。 */
+        /** 全宽平分 5 区(= 每区 2 个物理键列),返回 downX 落在哪一区。 */
         private fun zoneOf(x: Float): Int {
-            val f = x / FLY_X_MAX * FLY_ZONES
+            val f = x / xMax * FLY_ZONES
             return (f.toInt()).coerceIn(0, FLY_ZONES - 1)
         }
     }
@@ -508,11 +560,14 @@ class ImeService : InputMethodService() {
         val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
             ?: FLY_THRESHOLD_DEFAULT.toFloat()
         flyDetector.threshold = flyThreshold
+        // 屏宽注入:5 区按屏宽平分 = 每区 2 个物理键列(Titan 2 正好 10 列)
+        flyDetector.xMax = resources.displayMetrics.widthPixels.toFloat()
         candidateBar?.flyThresholdPx = flyThreshold // 候选行内起手的上滑用同一阈值
         theme = dev.hwkbd.ime.ui.ImeTheme.byId(p.getString(PREF_THEME, "obsidian"))
         candidateBar?.setTheme(theme)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
+        l5Panel?.setBackgroundColor(theme.barBg)
         showL4Panel = p.getBoolean(PREF_SHOW_L4, true)
         l4PanelSig = null // 主题可能变了,下次渲染重建键帽
         // INVISIBLE 占位:中区留着,右侧按钮位置不跳
@@ -566,7 +621,7 @@ class ImeService : InputMethodService() {
     private fun renderChips(s: ImeState) {
         val t = theme
         val lang = controller.registry.language(s.languageId)
-        // 数字框:状态按钮全部隐藏,只留 Alt 芯片(文字 0-9)——数字就靠它
+        // 数字框:状态按钮全部隐藏,只留 Alt 芯片(文字 = 实际字符集 0-9/0-9./0-9+*#…)——数字就靠它
         val digitsOnly = controller.registry.fieldProfile(s.fieldKind).digitsOnly
         chipMode?.visibility = if (digitsOnly) View.GONE else View.VISIBLE
         chipMode?.apply {
@@ -601,7 +656,7 @@ class ImeService : InputMethodService() {
         litCapsPrev = capsNow
 
         // 轮到它亮才上色(锁定=实心 / 单次=描边);没轮到就整颗灰描边(哪怕该层正生效)。
-        // Alt 芯片文字随**输入类型**变:数字框显示 0-9(alt 锁定的数字变种,只改这颗芯片的显示)。
+        // Alt 芯片文字随**输入类型**变:数字框按实际可输字符集显示(0-9、0-9.、0-9+*#,只改这颗芯片的显示)。
         val altLabel = controller.registry.fieldProfile(s.fieldKind).altChipLabel
         renderLayerChip(chipAlt, Layer.L2, altLabel, t.chipL2, s, t, litChip == LitChip.ALT)
         if (digitsOnly) {
@@ -666,6 +721,24 @@ class ImeService : InputMethodService() {
         }
     }
 
+    /**
+     * L5 行 + 齿轮左侧键盘图标:无溢出/L4 整体隐藏时图标 GONE(右区 gravity=end 右贴,
+     * 齿轮/收起位置不跳);图标点开时**状态栏上方的 L5 行**出现并高亮;组词态整行让位。
+     * L5 行会改变 contentTopInsets——切换后要通知窗口重算 insets,让 App 相应 resize。
+     */
+    private fun syncL5() {
+        val enabled = l4ShownNow && l5HasOverflow
+        btnL5?.visibility = if (enabled) View.VISIBLE else View.GONE
+        btnL5?.imageTintList = android.content.res.ColorStateList.valueOf(
+            if (l5RowShown && enabled) theme.accent
+            else androidx.core.content.ContextCompat.getColor(this, R.color.status_fg),
+        )
+        val rowVisible = enabled && l5RowShown && !l5Composing
+        val cur = l5Panel?.visibility == View.VISIBLE
+        l5Panel?.visibility = if (rowVisible) View.VISIBLE else View.GONE
+        if (rowVisible != cur) notifyInsetsChanged()
+    }
+
     private fun updateUi() {
         // 词库后台线程加载完成会触发 render,统一调度回主线程
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
@@ -680,11 +753,15 @@ class ImeService : InputMethodService() {
         val l4Sig = controller.l4Signature()
         if (l4Sig != l4PanelSig) {
             l4PanelSig = l4Sig
-            l4Panel?.refresh(controller.l4Keys(), theme)
+            val keys = controller.l4Keys()
+            l4Panel?.refresh(keys, theme)
+            l5Panel?.refresh(keys, theme) // 同一份键序,L5 取 L4 装不下的尾巴
         }
         // 数字框限定 0-9:核心键对数字没有意义,整块隐藏(设置页开关只管非数字态)
         val l4Shown = showL4Panel && !controller.registry.fieldProfile(s.fieldKind).digitsOnly
         l4Panel?.visibility = if (l4Shown) View.VISIBLE else View.INVISIBLE
+        l4ShownNow = l4Shown
+        syncL5()
 
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
         // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行
@@ -707,6 +784,10 @@ class ImeService : InputMethodService() {
         val composingNow = s.hasComposition || (candidateBar?.isFlyAnimating() == true)
         statusRow?.visibility = if (composingNow) View.GONE else View.VISIBLE
         candidateRow?.visibility = if (composingNow) View.VISIBLE else View.GONE
+        if (composingNow != l5Composing) {
+            l5Composing = composingNow // L5 行属空闲态:组词时整行让位(具体显隐 syncL5 判)
+            syncL5()
+        }
         if (composingNow != lastComposingForInsets) {
             lastComposingForInsets = composingNow
             applyWindowMode(composingNow) // 组词中窗口全屏接键盘表面触摸,空闲恢复细条
@@ -733,10 +814,7 @@ class ImeService : InputMethodService() {
         /** InputDevice.SOURCE_TOUCHPAD(避免 SDK 版本差异直接用常量)。 */
         private const val SOURCE_TOUCHPAD_MASK = 0x100008
 
-        /** 键盘表面触摸坐标 X 上限(dumpsys 实测 raw 0..1440)。 */
-        private const val FLY_X_MAX = 1440f
-
-        /** 键盘面平分 5 区上滑选字。 */
+        /** 键盘面平分 5 区上滑选字(每区 = 2 个物理键列,屏宽按 displayMetrics 注入 FlyDetector.xMax)。 */
         private const val FLY_ZONES = 5
 
         /** 手势返回码:飞字用区号(>=0),翻页用负数。 */

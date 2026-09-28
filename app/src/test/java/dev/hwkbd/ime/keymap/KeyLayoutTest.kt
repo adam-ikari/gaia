@@ -129,14 +129,18 @@ class KeyLayoutTest {
 
     @Test
     fun `L4 上下文键位套按字面返回 核心键并入由注册表决定`() {
-        // 出厂网址套 = 字面三把(不带 `/`——那是 L2 的键帽);要不要并核心键由 FieldProfile.l4Core 决定
+        // 出厂网址套 = 字面三把(不带 `/`——那是 L2 的键帽);并入哪些核心键由 FieldProfile.l4CoreKeys 决定
         assertEquals(
             listOf("http://", "https://", ".com"),
             d.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label },
         )
-        // 邮件套 = 字面三把 @域名键(邮箱不要核心键,l4Core=false)
+        // 邮件套 = 字面键序(短域名后缀优先在前、完整域名在后——L4 优先显示后缀;
+        // 本布局默认 l4CoreKeys 空,不带 `$`)
         assertEquals(
-            listOf("@gmail", "@hotmail", "@outlook"),
+            listOf(
+                ".com", ".net", ".org", ".cn", ".edu",
+                "@gmail.com", "@hotmail.com", "@outlook.com",
+            ),
             d.l4Combined(KeyLayout.L4_PROFILE_EMAIL).map { it.label },
         )
         // 编辑器写了 [L4 url] 段 → 该段字面键(配置什么显示什么,程序不筛选)

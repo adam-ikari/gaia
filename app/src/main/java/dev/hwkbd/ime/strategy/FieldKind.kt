@@ -15,7 +15,7 @@ import android.text.InputType
  *   (短信/姓名/地址/主题…)走默认套即可;密码变体(含**数字密码**)见 [isPassword]。
  *
  * 数字类(digitsOnly)的表现:聚焦即锁 L2 数字层、只放行 [FieldProfile.digitChars]+数字、
- * 状态芯片只留 0-9 的 Alt、L4 整块隐藏。新增类型要同时在 [from] 里识别并注册一份 [FieldProfile]。
+ * 状态芯片只留标着实际字符集的 Alt(`0-9` + 各类型放行字符)、L4 整块隐藏。新增类型要同时在 [from] 里识别并注册一份 [FieldProfile]。
  */
 enum class FieldKind {
     TEXT,

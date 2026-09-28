@@ -32,11 +32,12 @@ class ImeControllerTest {
     }
 
     private val dictLines = listOf(
+        // 多音节键带分节符,镜像真实词库格式(ni'hao ≠ nihao,分节位参与匹配)
         "ni\t你\t500",
         "hao\t好\t400",
-        "nihao\t你好\t300",
-        "shijie\t世界\t250",
-        "zhongguo\t中国\t600",
+        "ni'hao\t你好\t300",
+        "shi'jie\t世界\t250",
+        "zhong'guo\t中国\t600",
         "nian\t年\t900",
         "niang\t娘\t800",
         "niao\t鸟\t100",
@@ -116,7 +117,9 @@ class ImeControllerTest {
         assertTrue(before.isNotEmpty())
         assertTrue(r.key(kc('v')))
         assertEquals("ni'", r.c.state.raw) // 分隔符显示在组词区(xi'an 语义)
-        assertEquals(before, r.c.state.candidates.map { it.word }) // 查询剥掉分隔符,候选不变
+        // 末尾分节符立起边界:全串的 你 照中;前缀只续 ni 之后有边界的词(你好),
+        // 读作 nian/niang/niao/nie 的候选被分节位挡掉——分隔符真正生效(不再"剥掉查询")
+        assertEquals(listOf("你", "你好"), r.c.state.candidates.map { it.word })
         assertTrue(r.h.commits.isEmpty()) // 没有打断组词
     }
 

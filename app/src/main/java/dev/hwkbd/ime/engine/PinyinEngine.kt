@@ -1,13 +1,13 @@
 package dev.hwkbd.ime.engine
 
 /** 候选词条。EXACT=整串精确命中,PREFIX=词的拼音以输入为前缀,SEGMENT=分段组词拼接。 */
-enum class CandidateKind { EXACT, PREFIX, SEGMENT }
+enum class CandidateKind { EXACT, PREFIX, SEGMENT, INIT_EXACT, INIT_PREFIX }
 
 data class Candidate(val word: String, val pinyin: String, val kind: CandidateKind, val score: Long)
 
 /**
- * 拼音解码:整串精确 → 前缀(用户还在输入) → DP 分段组词,三路合并,
- * 用户使用频次大权重加权。所有查询全内存,无 IO。
+ * 拼音解码:整串精确 → 前缀(用户还在输入) → DP 分段组词,三路都空再走**首字母退路**
+ * (`sm` → 什么),多路合并,用户使用频次大权重加权。所有查询全内存,无 IO。
  */
 class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
 
@@ -30,27 +30,34 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
             }
         }
 
-        // 1. 整串精确命中
-        dict.exactIndices(raw)?.forEach { i ->
+        // 1. 整串精确命中(去撇字母相等 + 输入分节位 ⊆ 词条分节位,末尾分节不约束)
+        for (i in dict.exactMatches(raw)) {
             add(dict.word(i), raw, CandidateKind.EXACT, dict.freq(i).toLong())
         }
         for ((w, f) in user.exactEntries(raw)) add(w, raw, CandidateKind.EXACT, f.toLong())
 
-        // 2. 前缀命中:词的拼音比已输入的更长,纯按词频排序(与主流输入法一致)
-        for (i in dict.prefixIndices(raw, PREFIX_SCAN_CAP)) {
-            val p = dict.pinyin(i)
-            if (p.length > raw.length) {
-                add(dict.word(i), p, CandidateKind.PREFIX, dict.freq(i).toLong())
-            }
+        // 2. 前缀命中:词的拼音比已输入的更长(去撇字母数)、分节位约束成立;纯按词频排序
+        for (i in dict.prefixMatches(raw, PREFIX_SCAN_CAP)) {
+            add(dict.word(i), dict.pinyin(i), CandidateKind.PREFIX, dict.freq(i).toLong())
         }
-        for ((w, f, p) in user.prefixEntries(raw)) {
-            if (p.length > raw.length) add(w, p, CandidateKind.PREFIX, f.toLong())
-        }
+        for ((w, f, p) in user.prefixEntries(raw)) add(w, p, CandidateKind.PREFIX, f.toLong())
 
         // 3. DP 分段组词:把整串拼音切成若干段,每段取词频最高的精确命中
         segmentBest(raw)?.let { (word, score) -> add(word, raw, CandidateKind.SEGMENT, score) }
 
-        // 分数降序(分数里已含档位加分:EXACT 400 万 / PREFIX 250 万 / SEGMENT 0)
+        // 4. 首字母退路:三路都没中(如 `sm` 不是任何拼音串)才按音节首字母查
+        //    (`sm` → 什么/生命);单字母不走——与全拼前缀同集,第 2 路已覆盖。
+        val q = raw.filter { it != '\'' }
+        if (out.isEmpty() && q.length >= 2) {
+            for (i in dict.initialExact(q)) {
+                add(dict.word(i), dict.pinyin(i), CandidateKind.INIT_EXACT, dict.freq(i).toLong())
+            }
+            for (i in dict.initialPrefix(q, INITIAL_PREFIX_CAP)) {
+                add(dict.word(i), dict.pinyin(i), CandidateKind.INIT_PREFIX, dict.freq(i).toLong())
+            }
+        }
+
+        // 分数降序(分数里已含档位加分:EXACT 400 万 / PREFIX 250 万 / SEGMENT 0,首字母退路在其后)
         return out.values
             .sortedWith(compareByDescending<Candidate> { it.score })
             .take(limit)
@@ -102,10 +109,16 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
         /** 一次上屏对词频的加权:大于 jieba 词库的最大词频,保证"最近用过"排最前。 */
         const val USER_BOOST = 1_000_000L
 
-        /** 档位加分:EXACT > PREFIX > SEGMENT,档差需盖过字典最大词频(约 73 万)。 */
-        private val KIND_BONUS = longArrayOf(4_000_000L, 2_500_000L, 0L)
+        /**
+         * 档位加分:EXACT > PREFIX > SEGMENT,档差需盖过字典最大词频(约 73 万);
+         * INIT_* 是全拼三路都空时的**退路**(只在空集里排序,档内精确 > 前缀即可)。
+         */
+        private val KIND_BONUS = longArrayOf(4_000_000L, 2_500_000L, 0L, 1_500_000L, 800_000L)
 
         private const val PREFIX_SCAN_CAP = 400
+
+        /** 首字母前缀扫描上限:退路只在全拼为空时触发,同前缀区间量级几千,留足余量不扫爆。 */
+        private const val INITIAL_PREFIX_CAP = 2_000
         private const val MAX_WORD_PINYIN = 24
     }
 }

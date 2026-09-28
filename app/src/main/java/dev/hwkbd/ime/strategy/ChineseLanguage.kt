@@ -7,8 +7,9 @@ import dev.hwkbd.ime.keymap.Layer
 
 /**
  * 拼音(中文):字母进组词缓冲,L2 标点按开关全角,没有大小写。
- * 分节符走 **`v` 键**([mapText]:v → `'`,组词中进缓冲给连读分节 xi'an ≠ xian,查询时由
- * [PinyinInputMethod] 剥掉;空闲时按 v 就是一次普通上屏),**状态行 L4 不再放分隔符键**——
+ * 分节符走 **`v` 键**([mapText]:v → `'`,组词中进缓冲给连读分节 **xi'an ≠ xian**,查询时
+ * [PinyinInputMethod] 原样交给引擎、按分节位约束匹配——`xi'an` 只中西安、不中先;
+ * 空闲时按 v 就是一次普通上屏),**状态行 L4 不再放分隔符键**——
  * 屏上不占位,v 顺手在字母区。注意:v 记分节符后,ü 词(女/绿,词库 v 记 ü)靠 n/l 前缀候选列出。
  */
 object ChineseLanguage : Language {
