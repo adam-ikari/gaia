@@ -8,6 +8,9 @@
     <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。\n在输入框里试：拼音组词 / 空格选字 / Shift·Sym·空格·Ctrl·Alt 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
     <string name="playground_hint2">在这里输入…</string>
     <string name="playground_show_log">查看输入法日志</string>
+    <!-- 上下文输入框:验"输入类型决定 L4 键位套 / Alt 芯片文字"用 -->
+    <string name="playground_url_hint">网址框（textUri）→ L4 出 http:// 等</string>
+    <string name="playground_number_hint">数字框（number）→ Alt 芯片显 0-9</string>
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>
