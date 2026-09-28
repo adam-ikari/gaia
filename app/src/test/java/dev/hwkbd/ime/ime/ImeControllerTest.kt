@@ -515,6 +515,26 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `大写一次状态再单击 Shift 必然解除 不是死状态`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 单击:大写一次
+        assertEquals(ShiftState.ONCE, r.c.state.shift)
+
+        Thread.sleep(350) // 出双击窗口 = 一次独立单击
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(ShiftState.OFF, r.c.state.shift) // 已开着的大写状态被按掉
+
+        Thread.sleep(350)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 再按:重新武装大写一次
+        assertEquals(ShiftState.ONCE, r.c.state.shift)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 窗口内第二击仍 = Caps 锁定(双击语义不变)
+        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 任意一次按压都能退出:再按 = 解除
+        assertEquals(ShiftState.OFF, r.c.state.shift)
+    }
+
+    @Test
     fun `物理 Shift 长按只在按住期间提示 松手不留下状态`() {
         val r = rig()
         r.c.state.mode = ImeMode.EN

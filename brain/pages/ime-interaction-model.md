@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-28T16:05:48"
+updated: "2026-09-28T17:49:35"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -169,4 +169,10 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "双击判定窗口 200ms → 300ms(2026-09-28):TapTracker 默认 windowMs 改 300,与长按 HOLD_MS(300ms)同量级,手速慢也能连击;出窗口的测试等待从 250ms 改 350ms。"
   source: "用户 2026-09-28:双击判定时间长一点 300ms"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-28T17:49:35
+  kind: decision
+  summary: "Shift 独立单击改开关自合(2026-09-28):任意大写状态(大写一次 ONCE / Caps 锁定)在双击窗口外再单击一次必然回 OFF。原 n==1 分支只特判 CAPS,ONCE 成了死状态——除了打一个字母这种无关动作没有任何按键能退出(用户报障:第二次按 Shift 大写没有解除)。不变量:任何一次 Shift 按压都不会把用户卡死,最坏情况(ONCE 时手快第二击落进双击窗口变 Caps)再按一次也必回 OFF。双击=Caps 锁定、再双击解除、长按=按住期间大写、输入字母取消 ONCE 均不变。"
+  source: "用户 2026-09-28:大写状态在第二次按shift时应该解除"
   affects: [ime-interaction-model]

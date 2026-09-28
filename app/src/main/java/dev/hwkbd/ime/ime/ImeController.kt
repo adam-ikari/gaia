@@ -15,7 +15,7 @@ import dev.hwkbd.ime.keymap.TapTracker
  * - Alt 在 keyDown 进层并计数(单击一次性 / 双击锁定 / 长按临时层),keyUp 判定是否取消;
  * - Sym 在 keyUp 时若是独立敲击才生效;**按住 Alt/Sym 超过 [HOLD_MS] = 长按临时层,松开立即取消**;
  * - 按住修饰键期间按下别的键,这次长按即被"用掉",松开必然取消;
- * - Shift:单击=大写一次、双击=Caps 锁定、长按=按住期间大写(物理修饰键,松手取消);
+ * - Shift:单击=大写一次(已开着的任意大写状态再单击=关掉)、双击=Caps 锁定(再双击解除)、长按=按住期间大写(物理修饰键,松手取消);
  * - 返回 false 的键未被本输入法消费,由 service 原样放行(保证 Termux/vim 拿到原始按键)。
  */
 class ImeController(
@@ -242,15 +242,19 @@ class ImeController(
     }
 
     /**
-     * Shift 敲击:单击 = 大写一次(输入一个字母后取消,已是 Caps 则单击关掉锁定),
-     * 双击 = Caps 大写锁定(再双击解除)。软键盘 ⇧ 与物理 Shift 共用。
+     * Shift 敲击。两条规则(软键盘 ⇧ 与物理 Shift 共用):
+     * - **独立单击**(双击窗口外)= 开关自合:OFF → 大写一次;大写一次 / Caps → 关掉。
+     *   已开着的任意大写状态再单击必然回 OFF —— Shift 永远是自己的退出键,不存在按不掉的死状态。
+     * - **双击**(窗口内)= 跳到 Caps 锁定;已是 Caps 再双击解除。
+     *   窗口内第二击被双击征用,所以"ONCE 时手快再按"得到的是 Caps,之后再按一次必然回 OFF。
+     * 大写一次仍会在输入一个字母后自动取消。
      * 拼音态直接忽略——拼音不需要大小写锁定(状态芯片也只在英文态显示)。
      */
     private fun applyShiftTap() {
         if (state.mode == ImeMode.CN) return
         val n = shiftTracker.tap()
         state.shift = when {
-            n == 1 -> if (state.shift == ShiftState.CAPS) ShiftState.OFF else ShiftState.ONCE
+            n == 1 -> if (state.shift == ShiftState.OFF) ShiftState.ONCE else ShiftState.OFF
             else -> if (state.shift == ShiftState.CAPS) ShiftState.OFF else ShiftState.CAPS
         }
         host.render()
