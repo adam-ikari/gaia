@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-23T04:29:42"
+updated: "2026-09-28T10:39:25"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -97,4 +97,10 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "修饰键语义重做:Alt/Sym 长按=临时层(松开取消),Shift 单击/双击/长按大写+状态芯片;废弃 Sym=Ctrl 组合(Ctrl 只走 Fn/Ctrl 键);上滑选字改拖动反馈+越阈值提交,飞字阈值档位上调为 25/40/60 默认 40"
   source: "用户需求+实现"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-28T10:39:25
+  kind: decision
+  summary: "状态行三区化:左=状态芯片(可触摸切换:模式中↔En、层 L1→L2→L3 循环落锁定、大写小写⇄Caps)/中=L4 紧凑键帽(24-26dp、不足一屏居中、超屏可滚,设置页 show_l4_panel 开关,关闭用 INVISIBLE 占位)/右=设置·收起按钮;层芯片常显(L1 显示 A 描边),删除双击窗口期 GONE+postDelayed 补渲染机制(单击=描边即时显示,双击=实心锁定),不再闪烁;组词中状态行(含 L4)整行让位给候选行"
+  source: "用户需求(状态提示图标闪烁/混乱、L4 紧凑居中、状态栏触摸切换、L4 开关移入设置)"
   affects: [ime-interaction-model]

@@ -102,10 +102,6 @@ class ImeService : InputMethodService() {
         override fun render() {
             updateUi()
         }
-
-        override fun postDelayed(action: Runnable, delayMs: Long) {
-            mainHandler.postDelayed(action, delayMs)
-        }
     }
 
     // ------------------------------------------------------------------ 生命周期
@@ -181,13 +177,6 @@ class ImeService : InputMethodService() {
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
         }
-        root.findViewById<ImageButton>(R.id.btn_l4).apply {
-            setOnClickListener {
-                showL4Panel = !showL4Panel
-                ImeRuntime.prefs.edit().putBoolean(PREF_SHOW_L4, showL4Panel).apply()
-                l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.GONE
-            }
-        }
         root.findViewById<ImageButton>(R.id.btn_settings).apply {
             setOnClickListener {
                 startActivity(
@@ -197,7 +186,10 @@ class ImeService : InputMethodService() {
             }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
+        // 状态栏触摸切换:模式芯片 = 中/En,层芯片 = L1→L2→L3 循环,大写芯片 = Caps 开关
         chipMode?.setOnClickListener { controller.toggleMode() }
+        chipLayer?.setOnClickListener { controller.tapLayerChip() }
+        chipShift?.setOnClickListener { controller.tapShiftChip() }
         applyPrefs()
         updateUi()
         return root
@@ -492,9 +484,10 @@ class ImeService : InputMethodService() {
         candidateBar?.setTheme(theme)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
-        showL4Panel = p.getBoolean(PREF_SHOW_L4, false)
+        showL4Panel = p.getBoolean(PREF_SHOW_L4, true)
         l4Panel?.refresh(controller.layout, theme)
-        l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.GONE
+        // INVISIBLE 占位:中区留着,右侧按钮位置不跳
+        l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.INVISIBLE
         updateUi()
     }
 
@@ -542,19 +535,16 @@ class ImeService : InputMethodService() {
                 setColor(if (cn) t.accent else t.fg)
             }
         }
+        // 层芯片常显(触摸切换入口):L1 也显示基态标签,单击循环 L1→L2→L3→L1。
+        // 单击/双击的区分靠 描边(一次性) vs 实心(锁定),按 keyDown/keyUp 即时渲染,无窗口期延迟。
         when (s.effectiveLayer) {
-            Layer.L1 -> chipLayer?.visibility = View.GONE
+            Layer.L1 -> renderChip(chipLayer, "A", t.hint, solid = false)
             Layer.L2 -> renderChip(chipLayer, "符", t.chipL2, s.lock != null)
             Layer.L3 -> renderChip(chipLayer, "SYM", t.chipL3, s.lock != null)
         }
-        // 双击窗口期内暂不显示一次性层芯片(区分单击取消/双击锁定);
-        // 窗口过期后由 postDelayed 的 render 补显描边芯片(长按层芯片不受此影响)
-        val inDoubleTapWindow = s.oneShot != null &&
-            System.currentTimeMillis() - controller.lastLayerTapAt <= ImeController.DOUBLE_TAP_WINDOW
-        if (s.hold == null && s.oneShot != null && inDoubleTapWindow) chipLayer?.visibility = View.GONE
 
         // 大写状态:拼音态一律不显示(拼音不需要大小写);
-        // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定
+        // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)
         when {
             cn -> chipShift?.visibility = View.GONE
             s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.accent, solid = true)

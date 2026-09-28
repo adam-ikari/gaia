@@ -137,8 +137,8 @@ export const scenarios = [
     name: 'layer-chips',
     desc: '层芯片视觉:锁 L2 实心「符」、En 灰字(AI 判卷)',
     judge: [
-      { shot: 'locked-l2', question: '这是输入法状态行截图。左下角是否有一个橙/红色「中」字芯片和一个蓝色实心背景的「符」芯片?简短回答。' },
-      { shot: 'en-mode', question: '这是输入法状态行截图。左下角是否只有灰色的「En」芯片(无层芯片)?简短回答。' },
+      { shot: 'locked-l2', question: '这是输入法状态行截图。左侧是否有一个橙/红色「中」字芯片和一个蓝色实心背景的「符」芯片?简短回答。' },
+      { shot: 'en-mode', question: '这是输入法状态行截图。左侧是否有一个灰色的「En」芯片和一个灰色描边的「A」层芯片?简短回答。' },
     ],
     steps: [
       async (c) => {
@@ -179,7 +179,11 @@ export const scenarios = [
     desc: '设置齿轮按钮直达设置页',
     steps: [
       async (c) => {
-        c.device.tap(1376, 1397) // 状态行右侧齿轮
+        // 齿轮坐标动态算:右缘 - (hide 26dp + 右边距 6dp + 齿轮半宽 17dp)
+        const size = c.device.shell('wm size')
+        const w = Number((size.match(/(\d+)x\d+\s*$/) ?? [])[1] ?? 1436)
+        const dens = Number((c.device.shell('wm density').match(/(\d+)/) ?? [])[1] ?? 384) / 160
+        c.device.tap(Math.round(w - 49 * dens), 1397) // 状态行右侧齿轮
         await sleep(2000)
         c.expect(c.device.foreground().includes('SettingsActivity'), `应打开设置页,实际前台=${c.device.foreground()}`)
         c.device.key(4) // 返回

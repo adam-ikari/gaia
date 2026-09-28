@@ -72,10 +72,6 @@ class ImeController(
     /** 本次 Shift keyDown 是否被消费(组词中消费、空闲透传);keyUp 必须与它成对,否则系统侧 Shift 会粘住。 */
     private var shiftDownConsumed = false
 
-    /** 最近一次层修饰键敲击时间(渲染层判断一次性芯片是否仍在双击窗口内)。 */
-    var lastLayerTapAt: Long = 0
-        private set
-
     /** 解锁/取消后吸收同键连击(双击解除应保持解除)。 */
     private var suppressNextTap: Layer? = null
     private var suppressUntil = 0L
@@ -279,6 +275,27 @@ class ImeController(
         applyShiftTap()
     }
 
+    /**
+     * 状态栏层芯片触摸:显式选层 L1→L2→L3→L1。触摸是"直接指定",落**锁定**语义
+     * (不再有单击一次性/双击锁定的歧义),下一次触摸继续循环。
+     */
+    fun tapLayerChip() {
+        state.lock = when (state.effectiveLayer) {
+            Layer.L1 -> Layer.L2
+            Layer.L2 -> Layer.L3
+            Layer.L3 -> null
+        }
+        state.oneShot = null
+        host.render()
+    }
+
+    /** 状态栏大写芯片触摸(英文态):小写 ⇄ Caps 锁定。 */
+    fun tapShiftChip() {
+        if (state.mode == ImeMode.CN) return
+        state.shift = if (state.shift == ShiftState.CAPS) ShiftState.OFF else ShiftState.CAPS
+        host.render()
+    }
+
     fun toggleMode() {
         flushComposition()
         state.mode = if (state.mode == ImeMode.CN) ImeMode.EN else ImeMode.CN
@@ -296,7 +313,6 @@ class ImeController(
             return
         }
         suppressNextTap = null
-        lastLayerTapAt = now
         val n = tracker.tap()
         when {
             state.lock != null -> { // 锁定态:同层键解锁回 L1(并吸收连击),异层键切换锁定层
@@ -321,11 +337,9 @@ class ImeController(
             }
             n >= 3 -> { // 连击:从当前一次性层切换到下一层(L1↔L2/L3)
                 state.oneShot = if (state.oneShot == Layer.L2) Layer.L3 else Layer.L2
-                host.postDelayed({ host.render() }, DOUBLE_TAP_WINDOW + 20)
             }
-            else -> { // 单击 = 一次性层;芯片延迟到双击窗口过期后显示(区分锁定/取消)
+            else -> { // 单击 = 一次性层,芯片立刻渲染(描边),双击升级为锁定(实心)——无延迟无闪烁
                 state.oneShot = mod
-                host.postDelayed({ host.render() }, DOUBLE_TAP_WINDOW + 20)
             }
         }
     }
@@ -577,9 +591,6 @@ class ImeController(
 
         /** 首选(逻辑第 1 候选)的显示位 = 中间(空格键)。 */
         const val TOP_DISPLAY = 2
-
-        /** 层敲击双击判定窗口(TapTracker 一致)。 */
-        const val DOUBLE_TAP_WINDOW = 200L
 
         /** 长按修饰键判定:按住 Alt/Sym/Shift 超过此时长算"长按"(松开即取消),不到则按敲击。 */
         const val HOLD_MS = 300L

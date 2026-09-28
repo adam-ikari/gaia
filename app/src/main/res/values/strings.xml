@@ -11,7 +11,8 @@
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>
-    <string name="pref_l4_panel">L4 虚拟按键面板</string>
+    <string name="pref_l4_panel">状态栏显示 L4 虚拟按键</string>
+    <string name="pref_l4_panel_summary">在状态栏中区显示一排可滚动的 L4 键帽（Tab/Esc/方向键等，可在键位编辑器 [L4] 段自定义）；关闭后中区留空</string>
     <string name="mode_cn">拼</string>
     <string name="mode_en">En</string>
     <string name="mode_alt">符</string>

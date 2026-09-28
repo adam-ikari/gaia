@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   输入法根视图:36dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
-  - 组词中:候选行(整行候选)——飞字/选字目标尽量大;上方浮一条拼音(部分 App
-    自己不渲染 composing 区),拼音条不占 insets,直接盖在应用内容上
-  - 空闲时:状态行(模式徽标 + 屏幕键盘开关 + 收起)
-  屏幕键盘(可选,默认隐藏)追加在下方。组词中 touchable 区扩到全屏接飞字。
+  - 组词中:候选行(整行候选)——飞字/选字目标尽量大,状态行(含 L4)整行让位;
+    上方浮一条拼音(部分 App 自己不渲染 composing 区),拼音条不占 insets
+  - 空闲时:状态行三区——左=状态芯片,中=L4 紧凑键(可滚动、居中),右=按钮
+  组词中 touchable 区扩到全屏接飞字。
 -->
 <dev.hwkbd.ime.ui.ImeRootView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -87,7 +87,7 @@
                     android:paddingEnd="3dp"
                     android:textSize="11sp"
                     android:textStyle="bold"
-                    android:visibility="gone" />
+                    android:visibility="visible" />
 
                 <!-- 大写状态芯片(Shift):锁定=实心,一次性/按住=描边 -->
                 <TextView
@@ -105,22 +105,19 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <Space
+            <!--
+              中区:L4 紧凑键(单行可滚动,内容不足时居中)。占满左右两区之间的
+              剩余宽度,隐藏时用 INVISIBLE 占位——右区按钮位置不跳。
+            -->
+            <dev.hwkbd.ime.ui.L4PanelView
+                android:id="@+id/l4_panel"
                 android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <ImageButton
-                android:id="@+id/btn_l4"
-                android:layout_width="34dp"
                 android:layout_height="match_parent"
-                android:background="@android:color/transparent"
-                android:contentDescription="@string/pref_l4_panel"
-                android:paddingEnd="3dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_l4"
-                android:tint="@color/status_fg" />
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:visibility="invisible" />
 
+            <!-- 右区:按钮 -->
             <ImageButton
                 android:id="@+id/btn_settings"
                 android:layout_width="34dp"
@@ -166,11 +163,4 @@
                 android:layout_weight="1" />
         </LinearLayout>
     </FrameLayout>
-
-    <!-- L4 虚拟按键面板:单行可滚动键帽,键位编辑器 [L4] 段配置;默认隐藏,⌨ 按钮开关 -->
-    <dev.hwkbd.ime.ui.L4PanelView
-        android:id="@+id/l4_panel"
-        android:layout_width="match_parent"
-        android:layout_height="40dp"
-        android:visibility="gone" />
 </dev.hwkbd.ime.ui.ImeRootView>

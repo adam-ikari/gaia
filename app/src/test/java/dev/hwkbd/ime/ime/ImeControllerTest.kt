@@ -24,10 +24,6 @@ class ImeControllerTest {
         }
 
         override fun render() {}
-
-        override fun postDelayed(action: Runnable, delayMs: Long) {
-            action.run()
-        }
     }
 
     private val dictLines = listOf(
@@ -566,6 +562,45 @@ class ImeControllerTest {
         r.c.toggleMode()
         assertEquals(ImeMode.CN, r.c.state.mode)
         assertEquals(ShiftState.OFF, r.c.state.shift)
+    }
+
+    // ---------------------------------------------------------------- 状态栏触摸切换
+
+    @Test
+    fun `状态栏层芯片单击循环 L1 到 L2 到 L3 回 L1`() {
+        val r = rig()
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+        r.c.tapLayerChip()
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock) // 触摸 = 锁定语义
+        r.c.tapLayerChip()
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        r.c.tapLayerChip()
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+        assertEquals(null, r.c.state.lock)
+    }
+
+    @Test
+    fun `状态栏层芯片触摸覆盖物理键的一次性层`() {
+        val r = rig()
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 物理单击 = 一次性 L2
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
+        r.c.tapLayerChip() // 触摸直接指定为 L3,一次性层被清掉
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        assertEquals(null, r.c.state.oneShot)
+    }
+
+    @Test
+    fun `状态栏大写芯片在英文态开关 Caps 拼音态忽略`() {
+        val r = rig()
+        r.c.state.mode = ImeMode.EN
+        r.c.tapShiftChip()
+        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        r.c.tapShiftChip()
+        assertEquals(ShiftState.OFF, r.c.state.shift)
+        r.c.state.mode = ImeMode.CN
+        r.c.tapShiftChip()
+        assertEquals(ShiftState.OFF, r.c.state.shift) // 拼音态不动大小写
     }
 
     // ---------------------------------------------------------------- 透传
