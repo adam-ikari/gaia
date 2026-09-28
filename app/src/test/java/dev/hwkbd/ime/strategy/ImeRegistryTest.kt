@@ -98,25 +98,26 @@ class ImeRegistryTest {
     }
 
     @Test
-    fun `网址框出网址键 数字框走默认套 拼音补分节符`() {
+    fun `网址框出网址键 数字框走默认套 拼音 L4 不放分隔符`() {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
-            // 语言补差键**排最左**(输入法注册的键),其后才是输入类型选的键位套
-            listOf(ChineseLanguage.SEPARATOR, "http://", "https://", ".com", "/"),
+            // 输入类型选的键位套;拼音没注册补差键——分节符走 v 键,不占 L4(`/` 也不放,L2 的)
+            listOf("http://", "https://", ".com"),
             r.c.l4Keys().map { it.label },
         )
-        // 数字框没有自己的 L4 套(那是 Alt 芯片的活):补差键 + 默认核心键
+        // 数字框没有自己的 L4 套(那是 Alt 芯片的活):默认核心键
         r.c.state.fieldKind = FieldKind.NUMBER
         assertEquals(
-            listOf(ChineseLanguage.SEPARATOR) + KeyLayout.L4_CORE.map { it.label },
+            KeyLayout.L4_CORE.map { it.label },
             r.c.l4Keys().map { it.label },
         )
         // 键位套换了,面板签名必须跟着变(service 据此决定要不要重建键帽)
         val sigNumber = r.c.l4Signature()
         r.c.state.fieldKind = FieldKind.URL
         assertTrue(sigNumber != r.c.l4Signature())
-        // 英文态没有分节符(那是拼音的补差键)
+        // 拼音/英文的 L4 都没有分隔符键(v 键才是拼音的分隔符)
+        assertFalse(r.c.l4Keys().any { it.out == KeyOut.Text(ChineseLanguage.SEPARATOR) })
         r.c.state.languageId = "en"
         assertFalse(r.c.l4Keys().any { it.out == KeyOut.Text(ChineseLanguage.SEPARATOR) })
     }

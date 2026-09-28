@@ -410,14 +410,17 @@ class ImeController(
      */
     fun commitL4Key(out: KeyOut) {
         when (out) {
-            is KeyOut.Text ->
-                if (language().composes(out.text, state)) {
-                    state.raw += out.text
+            is KeyOut.Text -> {
+                // 策略先改写按键文本(拼音:v → 分节符),再决定进缓冲还是上屏
+                val text = language().mapText(out.text, state)
+                if (language().composes(text, state)) {
+                    state.raw += text
                     refreshQuery()
                 } else {
                     flushComposition()
-                    host.commitText(out.text)
+                    host.commitText(text)
                 }
+            }
             is KeyOut.Special -> {
                 flushComposition()
                 KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
@@ -427,8 +430,9 @@ class ImeController(
     }
 
     /**
-     * 状态行 L4 中区的键序 = **当前语言的补差键排最左**(拼音 → 分隔符 `'`)
-     * **接输入类型选的键位套**(网址框 → http:// 等)。UI 按 [l4Signature] 变化才重建面板。
+     * 状态行 L4 中区的键序 = **当前语言注册的补差键排最左**(空则直接是键位套;拼音没有——
+     * 分节符走 `v` 键,不占屏)**接输入类型选的键位套**(网址框 → http:// 等)。
+     * UI 按 [l4Signature] 变化才重建面板。
      */
     fun l4Keys(): List<L4Key> = registry.l4Keys(layout, state.fieldKind, state.languageId)
 
@@ -545,15 +549,17 @@ class ImeController(
         when (out) {
             is KeyOut.Text -> {
                 val lang = language()
-                if (lang.composes(out.text, state)) {
+                // 策略先改写按键文本(拼音:组词中的 v → 分隔符 `'`),再走组词/上屏两条路
+                val text = lang.mapText(out.text, state)
+                if (lang.composes(text, state)) {
                     // 进组词缓冲(拼音字母;分隔符只在组词中被接纳)
-                    state.raw += out.text
+                    state.raw += text
                     refreshQuery()
                 } else {
                     // 语言策略决定上屏形态:英文跟大写、中文按开关全角
                     flushComposition()
                     val upper = shift || caps || state.shift != ShiftState.OFF
-                    host.commitText(lang.commitText(out.text, layer, upper, fullWidthSymbolsInCn))
+                    host.commitText(lang.commitText(text, layer, upper, fullWidthSymbolsInCn))
                 }
                 consumeShiftOnce()
                 consumeOneShot()

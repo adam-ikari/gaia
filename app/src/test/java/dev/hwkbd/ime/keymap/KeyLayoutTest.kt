@@ -102,6 +102,8 @@ class KeyLayoutTest {
 
     @Test
     fun `L4 固定核心键永远在前 自定义键在后 重复去重`() {
+        // 核心键内容定点：； $ 以及点名固定的 \（L4 按下就有）
+        assertEquals(listOf("；", "\$", "\\"), KeyLayout.L4_CORE.map { it.label })
         // 编辑器里 [L4] 段空/被删光,固定核心键照样显示
         assertEquals(
             KeyLayout.L4_CORE.map { it.label },
@@ -127,9 +129,9 @@ class KeyLayoutTest {
 
     @Test
     fun `L4 上下文键位套按字面显示 不并核心键也不筛`() {
-        // 出厂网址套:输入框是网址时显示([FieldKind.URL] 选用)
+        // 出厂网址套:输入框是网址时显示([FieldKind.URL] 选用);不带 `/`(那是 L2 的键帽)
         assertEquals(
-            listOf("http://", "https://", ".com", "/"),
+            listOf("http://", "https://", ".com"),
             d.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label },
         )
         // 编辑器写了 [L4 url] 段 → 整段按字面(配置什么显示什么,程序不筛选)

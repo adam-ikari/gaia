@@ -106,6 +106,29 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `拼音组词中 v 键作为分隔符进缓冲`() {
+        val r = rig()
+        r.type("ni")
+        val before = r.c.state.candidates.map { it.word }
+        assertTrue(before.isNotEmpty())
+        assertTrue(r.key(kc('v')))
+        assertEquals("ni'", r.c.state.raw) // 分隔符显示在组词区(xi'an 语义)
+        assertEquals(before, r.c.state.candidates.map { it.word }) // 查询剥掉分隔符,候选不变
+        assertTrue(r.h.commits.isEmpty()) // 没有打断组词
+    }
+
+    @Test
+    fun `拼音空闲时 v 键上屏分隔符 英文态 v 仍是字母`() {
+        val r = rig()
+        assertTrue(r.key(kc('v')))
+        assertEquals(listOf("'"), r.h.commits) // 空闲按 v = 普通上屏,不新开组词
+        assertFalse(r.c.state.hasComposition)
+        r.c.setLanguage("en")
+        assertTrue(r.key(kc('v')))
+        assertEquals(listOf("'", "v"), r.h.commits) // 英文策略不改写,v 就是字母
+    }
+
+    @Test
     fun `空缓冲时空格上屏半角空格`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SPACE)

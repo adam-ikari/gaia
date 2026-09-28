@@ -100,8 +100,9 @@ class KeyLayout(
         const val L4_PROFILE_URL = "url"
 
         /**
-         * L4 **固定核心键**:L1/L2/L3 三层敲不出的**单个字符**。
-         * 默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来);
+         * L4 **固定核心键**:默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来)。
+         * `;`/`$` 是 L1/L2/L3 三层敲不出的**单个字符**;`\` 是点名固定的(2026-09-28:
+         * 前三层拿它不顺手,L4 按下就有,L4 也不做事后筛选)。
          * Tab/Esc/Home/End/PU/PD/Ins/方向键 L3 全有,不重复占用中区。
          *
          * **不放组合按键**——`-> => != ==` 这类多字符串键已按用户要求移除(2026-09-28):
@@ -110,17 +111,18 @@ class KeyLayout(
         val L4_CORE: List<L4Key> = listOf(
             L4Key("；", KeyOut.Text(";")),
             L4Key("$", KeyOut.Text("\$")),
+            L4Key("\\", KeyOut.Text("\\")),
         )
 
         /**
          * 出厂网址键位套:输入框是网址时的一键短语。量过状态行中区约 264dp、键宽下限 36dp,
-         * 这里只放最常用的四把(再加就该压键宽了),`[L4 url]` 段可整段改写。
+         * 这里只放最常用的三把(再加就该压键宽了),`[L4 url]` 段可整段改写。
+         * **不放 `/`**——那是 L2 的键帽(Alt+o),L4 不重复(2026-09-28 用户定案)。
          */
         val L4_PROFILE_URL_KEYS: List<L4Key> = listOf(
             L4Key("http://", KeyOut.Text("http://")),
             L4Key("https://", KeyOut.Text("https://")),
             L4Key(".com", KeyOut.Text(".com")),
-            L4Key("/", KeyOut.Text("/")),
         )
 
         /** 上下文键位套的出厂预置(编辑器里没写该段时用它)。 */
