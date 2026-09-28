@@ -135,10 +135,11 @@ export const scenarios = [
 
   {
     name: 'layer-chips',
-    desc: '层芯片视觉:锁 L2 实心「符」、En 灰字(AI 判卷)',
+    desc: '层芯片视觉:锁 L2 实心「ALT」、三颗互斥芯片同刻只亮一颗(AI 判卷)',
     judge: [
-      { shot: 'locked-l2', question: '这是输入法状态行截图。左侧是否有一个橙/红色「中」字芯片和一个蓝色实心背景的「符」芯片?简短回答。' },
-      { shot: 'en-mode', question: '这是输入法状态行截图。左侧是否有一个灰色的「En」芯片和一个灰色描边的「A」层芯片?简短回答。' },
+      { shot: 'locked-l2', question: '这是输入法状态行截图。左侧是否有一个橙/红色「拼」字芯片和一个蓝色实心背景的「ALT」芯片?简短回答。' },
+      { shot: 'en-mode', question: '这是输入法状态行截图。左侧是否有一个灰色的「En」芯片,以及三颗灰色描边的「ab」「ALT」「SYM」芯片?简短回答。' },
+      { shot: 'en-caps', question: '这是输入法状态行截图。左侧「ab」芯片是否为橙/红色(亮起),而「ALT」「SYM」芯片是否仍是灰色描边?简短回答。' },
     ],
     steps: [
       async (c) => {
@@ -149,8 +150,11 @@ export const scenarios = [
         await sleep(400)
         c.device.key(59, 62) // Shift+Space 切英文
         await sleep(700)
-        c.shot('en-mode')
-        c.device.key(59, 62) // 切回中文
+        c.shot('en-mode') // 英文空闲:ab/ALT/SYM 三颗全灰(ab 不常亮)
+        c.device.key(59) // 单击 Shift → 大写一次:只亮 ab,ALT/SYM 压灰
+        await sleep(500)
+        c.shot('en-caps')
+        c.device.key(59, 62) // 切回中文(切 CN 会把 shift 清掉)
         await sleep(400)
       },
     ],
@@ -183,7 +187,7 @@ export const scenarios = [
         const size = c.device.shell('wm size')
         const w = Number((size.match(/(\d+)x\d+\s*$/) ?? [])[1] ?? 1436)
         const dens = Number((c.device.shell('wm density').match(/(\d+)/) ?? [])[1] ?? 384) / 160
-        c.device.tap(Math.round(w - 49 * dens), 1397) // 状态行右侧齿轮
+        c.device.tap(Math.round(w - 78 * dens), 1397) // 状态行右侧齿轮(右缘 - 收起48dp - 边距6dp - 齿轮半宽24dp)
         await sleep(2000)
         c.expect(c.device.foreground().includes('SettingsActivity'), `应打开设置页,实际前台=${c.device.foreground()}`)
         c.device.key(4) // 返回

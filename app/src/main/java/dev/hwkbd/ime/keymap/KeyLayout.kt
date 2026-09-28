@@ -40,6 +40,27 @@ class KeyLayout(
     fun lookup(layer: Layer, code: Int): KeyOut? =
         maps[layer]?.get(code) ?: if (layer != Layer.L1) maps[Layer.L1]?.get(code) else null
 
+    /**
+     * L1/L2/L3 三层**已经能敲出来**的取值(文本与功能键都算,去掉重复)。
+     * 状态行中区(L4)只保留这些之外的键——L1-L3 敲得出的就不占中区了。
+     */
+    fun producible(): Set<String> = Layer.values().flatMap { layer ->
+        maps[layer]?.values?.map { it.format() } ?: emptyList()
+    }.toSet()
+
+    /**
+     * 状态行中区(L4)实际显示的键序:**固定核心键([L4_CORE],L1-L3 敲不出的那几个)在前,
+     * 键位编辑器 [L4] 段的自定义键在后,重复(标签+输出相同)的只留一个**。
+     * 核心键不随编辑器增删消失——这是"固定显示"的语义;自定义键可自由增删。
+     */
+    fun l4Combined(): List<L4Key> {
+        val keys = LinkedHashMap<String, L4Key>()
+        for (k in L4_CORE + l4) {
+            keys.putIfAbsent("${k.label} ${k.out.format()}", k)
+        }
+        return keys.values.toList()
+    }
+
     fun formatText(): String = buildString {
         for (layer in Layer.values()) {
             append('[').append(layer.name).append("]\n")
@@ -53,11 +74,59 @@ class KeyLayout(
         }
         if (l4.isNotEmpty()) {
             append("[L4]\n")
-            l4.forEach { append(it.label).append('=').append(it.out.format()).append('\n') }
+            // 标签要转义:标签里有 '=' 时(如 `!=`),不转义会被 parseText 当成分界符切成两半
+            l4.forEach { append(escapeLabel(it.label)).append('=').append(it.out.format()).append('\n') }
         }
     }
 
     companion object {
+
+        /**
+         * L4 **固定核心键**:L1/L2/L3 三层敲不出的**单个字符**。
+         * 状态行中区永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来);
+         * Tab/Esc/Home/End/PU/PD/Ins/方向键 L3 全有,不重复占用中区。
+         *
+         * **不放组合按键**——`-> => != ==` 这类多字符串键已按用户要求移除(2026-09-28):
+         * 组合串要去就去 L3 或键位编辑器 [L4] 段自定义,状态行中区只留单字符标点。
+         */
+        val L4_CORE: List<L4Key> = listOf(
+            L4Key("；", KeyOut.Text(";")),
+            L4Key("$", KeyOut.Text("\$")),
+        )
+
+        /** 标签里的 `\` 与 `=` 转义(层映射的键名不含这两个字符,转义只对 L4 标签有意义)。 */
+        private fun escapeLabel(s: String): String = s.replace("\\", "\\\\").replace("=", "\\=")
+
+        /** [escapeLabel] 的逆运算。 */
+        private fun unescapeLabel(s: String): String {
+            if ('\\' !in s) return s
+            val sb = StringBuilder(s.length)
+            var i = 0
+            while (i < s.length) {
+                val c = s[i]
+                if (c == '\\' && i + 1 < s.length) {
+                    sb.append(s[i + 1])
+                    i += 2
+                } else {
+                    sb.append(c)
+                    i++
+                }
+            }
+            return sb.toString()
+        }
+
+        /** 标签/取值分界:第一个**没被转义**的 `=`;没有则 -1。 */
+        private fun splitLabelValue(line: String): Int {
+            var i = 0
+            while (i < line.length) {
+                when (line[i]) {
+                    '\\' -> i += 2
+                    '=' -> return i
+                    else -> i++
+                }
+            }
+            return -1
+        }
 
         fun parseText(text: String): KeyLayoutParse {
             val maps = mutableMapOf<Layer, MutableMap<Int, KeyOut>>()
@@ -82,7 +151,7 @@ class KeyLayout(
                     }
                     return@forEachIndexed
                 }
-                val eq = line.indexOf('=')
+                val eq = splitLabelValue(line)
                 if (eq <= 0) {
                     errors += lineNo
                     return@forEachIndexed
@@ -93,10 +162,10 @@ class KeyLayout(
                     return@forEachIndexed
                 }
                 if (inL4) {
-                    val label = line.substring(0, eq).trim()
+                    val label = unescapeLabel(line.substring(0, eq)).trim()
                     if (label.isEmpty()) errors += lineNo else l4 += L4Key(label, out)
                 } else {
-                    val code = KeyNames.NAME_TO_CODE[line.substring(0, eq)]
+                    val code = KeyNames.NAME_TO_CODE[unescapeLabel(line.substring(0, eq))]
                     if (code == null) errors += lineNo
                     else maps.getOrPut(Layer.valueOf(section)) { mutableMapOf() }[code] = out
                 }
@@ -137,33 +206,8 @@ class KeyLayout(
                 "n" to "=", "m" to "key:insert",
             )) l3[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.parse(s)!!
 
-            // L4 虚拟按键预置:物理键盘缺失的开发常用键与高频组合符(面板上点击输出)
-            val l4 = listOf(
-                "Tab", "Esc", "Home", "End", "PU", "PD", "Ins",
-                "↑", "↓", "←", "→",
-            ).map { label ->
-                val out = when (label) {
-                    "Tab" -> KeyOut.Special("tab")
-                    "Esc" -> KeyOut.Special("esc")
-                    "Home" -> KeyOut.Special("move_home")
-                    "End" -> KeyOut.Special("move_end")
-                    "PU" -> KeyOut.Special("pgup")
-                    "PD" -> KeyOut.Special("pgdn")
-                    "Ins" -> KeyOut.Special("insert")
-                    "↑" -> KeyOut.Special("up")
-                    "↓" -> KeyOut.Special("down")
-                    "←" -> KeyOut.Special("left")
-                    else -> KeyOut.Special("right")
-                }
-                L4Key(label, out)
-            } + listOf(
-                L4Key("->", KeyOut.Text("->")),
-                L4Key("＝>", KeyOut.Text("=>")),
-                L4Key("!=", KeyOut.Text("!=")),
-                L4Key("＝＝", KeyOut.Text("==")),
-                L4Key("；", KeyOut.Text(";")),
-                L4Key("$", KeyOut.Text("\$")),
-            )
+            // L4 预置 = 固定核心键;键位编辑器 [L4] 段可在其后追加自定义键(核心键删不掉)
+            val l4 = L4_CORE
 
             return KeyLayout(
                 mapOf(

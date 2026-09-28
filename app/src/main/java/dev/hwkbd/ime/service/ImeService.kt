@@ -45,11 +45,23 @@ class ImeService : InputMethodService() {
     private var statusRow: View? = null
     private var candidateRow: View? = null
     private var chipMode: TextView? = null
-    private var chipLayer: TextView? = null
+    private var chipAlt: TextView? = null
+    private var chipSym: TextView? = null
     private var chipShift: TextView? = null
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
     private var showL4Panel = false
+
+    /**
+     * 三颗互斥芯片(大写 ab / ALT / SYM):**同一时刻只亮一颗**,后亮起来的把先前那颗压灰。
+     * [litLayerPrev]/[litCapsPrev] 是上一次渲染时各自"是否生效",用来分辨这次是谁刚亮。
+     */
+    private var litChip = LitChip.NONE
+    private var litLayerPrev: Layer? = null
+    private var litCapsPrev = false
+
+    private enum class LitChip { NONE, CAPS, ALT, SYM }
+
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
     private var lastComposingForInsets = false
@@ -166,7 +178,8 @@ class ImeService : InputMethodService() {
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
         chipMode = root.findViewById(R.id.chip_mode)
-        chipLayer = root.findViewById(R.id.chip_layer)
+        chipAlt = root.findViewById(R.id.chip_alt)
+        chipSym = root.findViewById(R.id.chip_sym)
         chipShift = root.findViewById(R.id.chip_shift)
         preeditRow = root.findViewById(R.id.preedit_row)
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
@@ -186,9 +199,18 @@ class ImeService : InputMethodService() {
             }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
-        // 状态栏触摸切换:模式芯片 = 中/En,层芯片 = L1→L2→L3 循环,大写芯片 = Caps 开关
+        // 状态栏触摸切换:模式芯片 = 循环 中↔En;层芯片 ALT/SYM 单击=单次切换 / 长按=锁定切换;大写芯片 = Caps 开关
         chipMode?.setOnClickListener { controller.toggleMode() }
-        chipLayer?.setOnClickListener { controller.tapLayerChip() }
+        chipAlt?.setOnClickListener { controller.tapLayerChip(Layer.L2) }
+        chipAlt?.setOnLongClickListener {
+            controller.longPressLayerChip(Layer.L2)
+            true
+        }
+        chipSym?.setOnClickListener { controller.tapLayerChip(Layer.L3) }
+        chipSym?.setOnLongClickListener {
+            controller.longPressLayerChip(Layer.L3)
+            true
+        }
         chipShift?.setOnClickListener { controller.tapShiftChip() }
         applyPrefs()
         updateUi()
@@ -268,12 +290,12 @@ class ImeService : InputMethodService() {
     /**
      * 飞字窗口策略:键盘表面被固件映射为屏幕触摸,落点遍布屏幕,
      * 只有窗口全屏才能收到。组词中窗口临时全屏(透明、内容贴底),
-     * 条上方区域全部转飞字手势;非组词恢复 36dp 细条,不挡应用。
+     * 条上方区域全部转飞字手势;非组词恢复 48dp 细条,不挡应用。
      *
      * 注意:窗口全屏 ≠ 内容全屏。默认实现把 contentTopInsets 取成根视图顶(=0),
      * 背后 App 会认为输入法内容占满全屏,把自己的内容区压成 0——
      * Termux 在此状态下终端整片空白,并主动 hideSoftInput(状态条/候选条一起消失)。
-     * 所以这里显式只上报 36dp 条自身:组词态与空闲态的 contentTopInsets 恒等,
+     * 所以这里显式只上报 48dp 条自身:组词态与空闲态的 contentTopInsets 恒等,
      * App 侧既不 resize 也不 pan;而触摸范围仍用整个窗口框架,飞字手势不受影响。
      */
     override fun onComputeInsets(outInsets: Insets?) {
@@ -535,22 +557,61 @@ class ImeService : InputMethodService() {
                 setColor(if (cn) t.accent else t.fg)
             }
         }
-        // 层芯片常显(触摸切换入口):L1 也显示基态标签,单击循环 L1→L2→L3→L1。
-        // 单击/双击的区分靠 描边(一次性) vs 实心(锁定),按 keyDown/keyUp 即时渲染,无窗口期延迟。
-        when (s.effectiveLayer) {
-            Layer.L1 -> renderChip(chipLayer, "A", t.hint, solid = false)
-            Layer.L2 -> renderChip(chipLayer, "符", t.chipL2, s.lock != null)
-            Layer.L3 -> renderChip(chipLayer, "SYM", t.chipL3, s.lock != null)
+        // 层芯片 ALT/SYM **常显**(打普通字母时没有"当前层"图标,只是两颗灰芯片):
+        // 未切到的层 = 灰描边;切到 = 该层主色(锁定=实心 / 单次=描边)。
+        // 谁亮着:**三颗互斥(大写/ALT/SYM),同一时刻只亮一颗**——
+        // 刚生效的那颗赢(后按的压过先前);两个都还生效就维持上次亮着的那颗;
+        // 亮着的那颗失效了就退给另一颗还生效的;全都没生效 = 全灰。
+        val layerNow: Layer? = s.effectiveLayer.takeIf { it == Layer.L2 || it == Layer.L3 }
+        val capsNow = s.shift != ShiftState.OFF || s.shiftHeld
+        val layerJustOn = layerNow != null && layerNow != litLayerPrev
+        val capsJustOn = capsNow && !litCapsPrev
+        litChip = when {
+            layerJustOn -> if (layerNow == Layer.L2) LitChip.ALT else LitChip.SYM
+            capsJustOn -> LitChip.CAPS
+            litChip == LitChip.ALT && layerNow == Layer.L2 -> LitChip.ALT
+            litChip == LitChip.SYM && layerNow == Layer.L3 -> LitChip.SYM
+            litChip == LitChip.CAPS && capsNow -> LitChip.CAPS
+            layerNow != null -> if (layerNow == Layer.L2) LitChip.ALT else LitChip.SYM
+            capsNow -> LitChip.CAPS
+            else -> LitChip.NONE
         }
+        litLayerPrev = layerNow
+        litCapsPrev = capsNow
+
+        // 轮到它亮才上色(锁定=实心 / 单次=描边);没轮到就整颗灰描边(哪怕该层正生效)。
+        renderLayerChip(chipAlt, Layer.L2, "ALT", t.chipL2, s, t, litChip == LitChip.ALT)
+        renderLayerChip(chipSym, Layer.L3, "SYM", t.chipL3, s, t, litChip == LitChip.SYM)
 
         // 大写状态:拼音态一律不显示(拼音不需要大小写);
-        // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)
+        // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)。
+        // 拼音态用 **GONE**:**「拼」右边的 ALT/SYM 紧贴过来**,不留 34dp 空档;
+        // 中英切换时中区(L4)不挪,靠的是 chip_row 那个**权重定宽的盒子**(不再是这颗芯片占位)。
+        // 没轮到它亮(含大写根本没生效)= 灰描边——ab **不再常亮**。
         when {
             cn -> chipShift?.visibility = View.GONE
-            s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.accent, solid = true)
-            s.shift == ShiftState.ONCE || s.shiftHeld -> renderChip(chipShift, "Ab", t.accent, solid = false)
-            else -> renderChip(chipShift, "ab", t.fg, solid = false)
+            litChip == LitChip.CAPS && s.shift == ShiftState.CAPS ->
+                renderChip(chipShift, "AB", t.accent, solid = true)
+            litChip == LitChip.CAPS ->
+                renderChip(chipShift, "Ab", t.accent, solid = false)
+            s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.hint, solid = false)
+            s.shift == ShiftState.ONCE || s.shiftHeld -> renderChip(chipShift, "Ab", t.hint, solid = false)
+            else -> renderChip(chipShift, "ab", t.hint, solid = false)
         }
+    }
+
+    /** 层芯片:目标层生效 → 该层主色(锁定实心 / 单次描边);没生效 → 整颗灰描边。 */
+    private fun renderLayerChip(
+        chip: TextView?,
+        target: Layer,
+        label: String,
+        color: Int,
+        s: ImeState,
+        t: dev.hwkbd.ime.ui.ImeTheme,
+        lit: Boolean,
+    ) {
+        if (lit && s.effectiveLayer == target) renderChip(chip, label, color, solid = s.lock == target)
+        else renderChip(chip, label, t.hint, solid = false)
     }
 
     /** 芯片渲染:实心 = 锁定/持续状态,描边 = 一次性/临时状态。 */

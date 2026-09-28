@@ -5,18 +5,16 @@
     <string name="layer_map_title">三层键位映射</string>
     <string name="probe_title">按键探测</string>
     <string name="playground_title">实验场</string>
-    <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。\n在输入框里试：拼音组词 / 空格选字 / Ctrl(Fn)+QWERT 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
+    <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。\n在输入框里试：拼音组词 / 空格选字 / Shift·Sym·空格·Ctrl·Alt 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
     <string name="playground_hint2">在这里输入…</string>
     <string name="playground_show_log">查看输入法日志</string>
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>
     <string name="pref_l4_panel">状态栏显示 L4 虚拟按键</string>
-    <string name="pref_l4_panel_summary">在状态栏中区显示一排可滚动的 L4 键帽（Tab/Esc/方向键等，可在键位编辑器 [L4] 段自定义）；关闭后中区留空</string>
+    <string name="pref_l4_panel_summary">在状态栏中区显示一排 L4 键帽（只放 L1-L3 敲不出的键，可在键位编辑器 [L4] 段自定义）；关闭后中区留空</string>
     <string name="mode_cn">拼</string>
     <string name="mode_en">En</string>
-    <string name="mode_alt">符</string>
-    <string name="mode_sym">sym</string>
     <string name="lock_badge">锁</string>
 
     <!-- 设置 -->
@@ -33,7 +31,7 @@
     <string name="pref_theme">界面主题</string>
     <string name="pref_fly_threshold">飞字触发滑动距离</string>
     <string name="titan2_fn_hint_title">Titan 2 用户必读：Fn 键需设为 Ctrl</string>
-    <string name="titan2_fn_hint_body">五键选字（Ctrl+Q/W/E/R/T）与 Ctrl 组合依赖 Fn 键。\n\n请先在系统设置中把 Fn 键指派为 Ctrl：\n设置 → 快捷键与手势（或键盘设置）→ Fn 键 → 选「Ctrl」。\n\nAlt / Sym / Shift 无需设置，直接可用。</string>
+    <string name="titan2_fn_hint_body">五键选字里的「Ctrl 单击」以及 Ctrl 组合键（Ctrl+C 等）依赖 Fn 键。\n\n请先在系统设置中把 Fn 键指派为 Ctrl：\n设置 → 快捷键与手势（或键盘设置）→ Fn 键 → 选「Ctrl」。\n\nAlt / Sym / Shift 无需设置，直接可用。</string>
     <string name="pref_page_reverse">翻页方向反转</string>
     <string name="pref_fullwidth">中文态符号层输出全角</string>
 
@@ -77,6 +75,6 @@
     <string name="dict_stats_user_entries">用户导入词条：%1$d</string>
     <string name="dict_stats_user_freq">使用频次记录：%1$d</string>
     <string name="dict_stats_loading">内置词库尚未载入（输入法未启动过）</string>
-    <string name="select_keys_summary">Ctrl(Fn) + Q/W/E/R/T（默认，暂不可改）</string>
+    <string name="select_keys_summary">Shift / Sym / 空格 / Ctrl / Alt（左→右对应候选 2/5/1/4/3，暂不可改）；Ctrl+字母只转发给应用</string>
     <string name="about_body">盖亚输入法 v%1$s\n为 Unihertz Titan 2 全键盘设计的硬件键盘拼音输入。\n词库来源：fxsjy/jieba (MIT)。</string>
 </resources>

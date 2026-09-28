@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  输入法根视图:36dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
+  输入法根视图:48dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
   - 组词中:候选行(整行候选)——飞字/选字目标尽量大,状态行(含 L4)整行让位;
     上方浮一条拼音(部分 App 自己不渲染 composing 区),拼音条不占 insets
-  - 空闲时:状态行三区——左=状态芯片,中=L4 紧凑键(可滚动、居中),右=按钮
+  - 空闲时:状态行三区——左=状态芯片(拼/En + 大写占位 + 常显的 ALT/SYM 层芯片),中=L4(固定核心键+
+    自定义键,不滚动、填满中区、左右各 6dp 对称边距),右=按钮(宽≥高)
   组词中 touchable 区扩到全屏接飞字。
+  高度取 48dp 而非更细的 36dp:芯片/键帽/按钮都要够得着(触摸目标 ≥34dp)。
 -->
 <dev.hwkbd.ime.ui.ImeRootView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -41,7 +43,7 @@
     <FrameLayout
         android:id="@+id/bar_container"
         android:layout_width="match_parent"
-        android:layout_height="36dp">
+        android:layout_height="48dp">
 
         <!-- 状态行(空闲) -->
         <LinearLayout
@@ -52,98 +54,152 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
+            <!--
+              左区:状态芯片。**宽度由权重固定**(0dp + weight),不随内容伸缩——
+              与右区按钮盒等宽 → 中区 L4 到屏幕左右距离相等;英文多出的大写芯片
+              只是这个盒子里多占一格,盒子宽度不变 → 中英切换 L4 不挪。
+              拼音态大写芯片是 GONE(见 chip_shift 注释),ALT/SYM 直接紧贴「拼」。
+            -->
             <LinearLayout
                 android:id="@+id/chip_row"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="match_parent"
+                android:layout_weight="0.6"
                 android:baselineAligned="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="6dp">
 
+                <!-- 三颗芯片:34dp 见方起(minWidth=height,宽不小于高) -->
                 <TextView
                     android:id="@+id/chip_mode"
                     android:layout_width="wrap_content"
-                    android:layout_height="20dp"
+                    android:layout_height="34dp"
                     android:gravity="center"
                     android:includeFontPadding="false"
-                    android:minWidth="20dp"
-                    android:paddingStart="3dp"
-                    android:paddingEnd="3dp"
+                    android:minWidth="34dp"
+                    android:paddingStart="5dp"
+                    android:paddingEnd="5dp"
                     android:text="@string/mode_cn"
                     android:textColor="@color/status_active"
-                    android:textSize="11sp"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/chip_layer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="20dp"
-                    android:layout_marginStart="3dp"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:minWidth="20dp"
-                    android:paddingStart="3dp"
-                    android:paddingEnd="3dp"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:visibility="visible" />
-
-                <!-- 大写状态芯片(Shift):锁定=实心,一次性/按住=描边 -->
+                <!--
+                  大写状态芯片(EN 态显示):紧挨模式芯片 EN|ab|ALT|SYM——
+                  锁定=实心,一次性/按住=描边。放在这里是为了贴着 EN,不被层芯片隔开。
+                  拼音态置 **GONE**:「拼」右边的 ALT/SYM 直接紧贴过来,不空 34dp;
+                  中英切换时 L4 不挪,靠的是 chip_row 的**权重定宽盒子**(不是这颗芯片占位)。
+                -->
                 <TextView
                     android:id="@+id/chip_shift"
                     android:layout_width="wrap_content"
-                    android:layout_height="20dp"
-                    android:layout_marginStart="3dp"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="4dp"
                     android:gravity="center"
                     android:includeFontPadding="false"
-                    android:minWidth="20dp"
-                    android:paddingStart="3dp"
-                    android:paddingEnd="3dp"
-                    android:textSize="11sp"
+                    android:minWidth="34dp"
+                    android:paddingStart="5dp"
+                    android:paddingEnd="5dp"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
+
+                <!--
+                  层芯片 ALT/SYM:两颗常显(打普通字母时也没有"当前层"图标,只是两颗灰芯片)。
+                  未切到的层 = 灰色描边;切到 = 该层主色(锁定实心 / 单次描边)。
+                -->
+                <TextView
+                    android:id="@+id/chip_alt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="4dp"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:minWidth="34dp"
+                    android:paddingStart="5dp"
+                    android:paddingEnd="5dp"
+                    android:text="ALT"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/chip_sym"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="4dp"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:minWidth="34dp"
+                    android:paddingStart="5dp"
+                    android:paddingEnd="5dp"
+                    android:text="SYM"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="visible" />
             </LinearLayout>
 
             <!--
-              中区:L4 紧凑键(单行可滚动,内容不足时居中)。占满左右两区之间的
-              剩余宽度,隐藏时用 INVISIBLE 占位——右区按钮位置不跳。
+              中区:L4 键(单行不滚动;**间距固定 4dp**,富余宽度加到键宽上**贴边填满**中区;横滑让给手势)。
+              **到屏幕左右两侧距离相等**:靠 chip_row 与 btn_row 这两个等宽权重盒,
+              L4 自己再留对称的 6dp 外边距(和状态行两端 6dp 齐)。
+              内容 = 固定核心键 + 键位编辑器自定义键,**只显示 L1-L3 敲不出的键**。
+              隐藏时用 INVISIBLE 占位——右区按钮位置不跳。
             -->
             <dev.hwkbd.ime.ui.L4PanelView
                 android:id="@+id/l4_panel"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
                 android:layout_weight="1"
                 android:visibility="invisible" />
 
-            <!-- 右区:按钮 -->
-            <ImageButton
-                android:id="@+id/btn_settings"
-                android:layout_width="34dp"
+            <!--
+              右区:按钮(宽 ≥ 高 = 48dp 见方,和条同高,点击目标不小于高)。
+              齿轮用 scaleType=center 只按 24dp 原始尺寸画(24dp 线稿的墨迹 ≈16dp),
+              不再被 fitCenter 放大到 48dp——否则齿轮墨迹 ≈32dp,和 34dp 的芯片一样大,太抢眼。
+              这个盒子同样 **0dp + weight**,和左区 chip_row **等宽**(两者相等 → 中区 L4
+              到屏幕左右距离相等);按钮靠 gravity=end 贴屏幕右缘,盒子多出来的部分
+              就是"齿轮左侧那段空隙"(为了等距明确接受的代价)。
+            -->
+            <LinearLayout
+                android:id="@+id/btn_row"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="0.6"
+                android:baselineAligned="false"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/btn_settings"
+                android:layout_width="48dp"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/app_name"
                 android:paddingEnd="3dp"
-                android:scaleType="fitCenter"
+                android:scaleType="center"
                 android:src="@drawable/ic_settings"
                 android:tint="@color/status_fg" />
 
             <!--
-              收起按钮:宽 26dp(触摸目标),paddingLeft 10dp 把 16dp 宽的三角推到右缘,
+              收起按钮:宽 48dp(与高相等),paddingStart 32dp 把 16dp 宽的三角推到右缘,
               使右侧视觉边距 = marginEnd(6dp),与左侧模式芯片的 6dp 对齐。
             -->
             <ImageButton
                 android:id="@+id/btn_hide_ime"
-                android:layout_width="26dp"
+                android:layout_width="48dp"
                 android:layout_height="match_parent"
                 android:layout_marginEnd="6dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/btn_hide"
-                android:paddingLeft="10dp"
+                android:paddingStart="32dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_hide"
                 android:tint="@color/status_fg" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 候选行(组词中):整行候选 -->

@@ -45,7 +45,7 @@ AITEST_API_KEY=xxx node tools/aitest/harness.mjs run all
 | page-flip | logcat `fly page: next/prev` | |
 | fly-select | logcat `fly select: zone=2` | |
 | longpress-delete | 删词后槽0 换词 | |
-| layer-chips | | 蓝色实心「符」/灰色「En」 |
+| layer-chips | | 蓝色实心「ALT」/灰色「En」/英文空闲三颗全灰(ab 不常亮) |
 | en-mode-typing | editText 以「ab」结尾 | |
 | settings-open | 前台 = SettingsActivity | |
 | l2-output | editText 以「1」结尾 | |

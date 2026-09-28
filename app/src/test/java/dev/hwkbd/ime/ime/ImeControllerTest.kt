@@ -213,16 +213,19 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `ctrl 加 qwe rt 按槽位选字`() {
+    fun `ctrl 加 qwe rt 不选字只转发给应用`() {
         val r = rig()
         r.type("ni")
         assertTrue(r.key(kc('q'), ctrl = true))
-        assertEquals(listOf("年"), r.h.commits) // Q = 槽0(年被用过一次仍居 logical[1]? 不——年跨档后居首)
-        // 年 count=1 → 3.5009M 仍低于 你 4.0005M → 首选还是你;槽0 = logical[1] = 年 ✓
+        assertTrue(r.h.commits.isEmpty()) // 候选只由五键选,Ctrl+Q 不上屏
+        assertEquals("ni", r.c.state.raw) // 组词区也不动
 
-        r.type("ni")
         r.key(kc('t'), ctrl = true)
-        assertEquals(listOf("年", "娘"), r.h.commits) // T = 槽4 = logical[2] = 娘(年跨档后 logical[1]=你? —— 按实测排序)
+        assertTrue(r.h.commits.isEmpty())
+        assertEquals(
+            listOf("${kc('q')}/true/false", "${kc('t')}/true/false"),
+            r.h.keys, // 组合原样转发(vim 的 Ctrl+W 之类靠这个透传)
+        )
     }
 
     @Test
@@ -498,7 +501,7 @@ class ImeControllerTest {
         assertEquals(listOf("A"), r.h.commits)
         assertEquals(ShiftState.OFF, r.c.state.shift) // 输入一个字母就取消
 
-        Thread.sleep(250) // 出双击窗口,重新起算
+        Thread.sleep(350) // 出双击窗口,重新起算
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 双击第一击:大写一次
         assertEquals(ShiftState.ONCE, r.c.state.shift)
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 第二击:Caps 锁定
@@ -567,27 +570,83 @@ class ImeControllerTest {
     // ---------------------------------------------------------------- 状态栏触摸切换
 
     @Test
-    fun `状态栏层芯片单击循环 L1 到 L2 到 L3 回 L1`() {
+    fun `层芯片 ALT SYM 单击是单次切换 再点回 L1`() {
         val r = rig()
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
-        r.c.tapLayerChip()
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock) // 触摸 = 锁定语义
-        r.c.tapLayerChip()
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
-        r.c.tapLayerChip()
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
+        val L1 = dev.hwkbd.ime.keymap.Layer.L1
+        val L2 = dev.hwkbd.ime.keymap.Layer.L2
+        val L3 = dev.hwkbd.ime.keymap.Layer.L3
+        assertEquals(L1, r.c.state.effectiveLayer)
+
+        r.c.tapLayerChip(L2) // 点 ALT
+        assertEquals(L2, r.c.state.effectiveLayer)
+        assertEquals(L2, r.c.state.oneShot) // 单击 = 一次性,不是锁定
+        assertEquals(null, r.c.state.lock)
+
+        r.c.tapLayerChip(L2) // 已在该层再点 = 回 L1
+        assertEquals(L1, r.c.state.effectiveLayer)
+        assertEquals(null, r.c.state.oneShot)
+
+        r.c.tapLayerChip(L3) // 点 SYM
+        assertEquals(L3, r.c.state.effectiveLayer)
+        r.c.tapLayerChip(L2) // 换层:一次性被顶掉
+        assertEquals(L2, r.c.state.effectiveLayer)
+        assertEquals(L2, r.c.state.oneShot)
         assertEquals(null, r.c.state.lock)
     }
 
     @Test
-    fun `状态栏层芯片触摸覆盖物理键的一次性层`() {
+    fun `层芯片长按是锁定切换 再长按解锁`() {
         val r = rig()
-        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 物理单击 = 一次性 L2
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
-        r.c.tapLayerChip() // 触摸直接指定为 L3,一次性层被清掉
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        val L1 = dev.hwkbd.ime.keymap.Layer.L1
+        val L2 = dev.hwkbd.ime.keymap.Layer.L2
+        val L3 = dev.hwkbd.ime.keymap.Layer.L3
+
+        r.c.longPressLayerChip(L2)
+        assertEquals(L2, r.c.state.effectiveLayer)
+        assertEquals(L2, r.c.state.lock) // 长按 = 锁定
         assertEquals(null, r.c.state.oneShot)
+
+        r.c.longPressLayerChip(L3)
+        assertEquals(L3, r.c.state.lock)
+
+        r.c.longPressLayerChip(L3) // 再长按 = 解锁
+        assertEquals(null, r.c.state.lock)
+        assertEquals(L1, r.c.state.effectiveLayer)
+    }
+
+    @Test
+    fun `层芯片单击清掉锁定 长按清掉一次性`() {
+        val r = rig()
+        val L1 = dev.hwkbd.ime.keymap.Layer.L1
+        val L2 = dev.hwkbd.ime.keymap.Layer.L2
+        val L3 = dev.hwkbd.ime.keymap.Layer.L3
+
+        r.c.longPressLayerChip(L2) // 锁定 L2
+        r.c.tapLayerChip(L3) // 单击 → 一次性 L3,锁被清掉
+        assertEquals(L3, r.c.state.effectiveLayer)
+        assertEquals(null, r.c.state.lock)
+        assertEquals(L3, r.c.state.oneShot)
+
+        r.c.longPressLayerChip(L3) // 长按 → 锁定 L3,一次性清掉
+        assertEquals(L3, r.c.state.lock)
+        assertEquals(null, r.c.state.oneShot)
+
+        r.c.longPressLayerChip(L3) // 解锁回 L1
+        assertEquals(null, r.c.state.lock)
+        assertEquals(L1, r.c.state.effectiveLayer)
+    }
+
+    @Test
+    fun `层芯片单击覆盖物理键的一次性层`() {
+        val r = rig()
+        val L2 = dev.hwkbd.ime.keymap.Layer.L2
+        val L3 = dev.hwkbd.ime.keymap.Layer.L3
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 物理单击 = 一次性 L2
+        assertEquals(L2, r.c.state.effectiveLayer)
+        r.c.tapLayerChip(L3) // 触摸切到 L3 的一次性,原一次性被顶掉
+        assertEquals(L3, r.c.state.effectiveLayer)
+        assertEquals(L3, r.c.state.oneShot)
+        assertEquals(null, r.c.state.lock)
     }
 
     @Test

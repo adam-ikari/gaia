@@ -99,4 +99,65 @@ class KeyLayoutTest {
         assertNull(parsed.layout)
         assertEquals(listOf(2, 4), parsed.errors)
     }
+
+    @Test
+    fun `L4 固定核心键永远在前 自定义键在后 重复去重`() {
+        // 编辑器里 [L4] 段空/被删光,固定核心键照样显示
+        assertEquals(
+            KeyLayout.L4_CORE.map { it.label },
+            KeyLayout(emptyMap()).l4Combined().map { it.label },
+        )
+        // 自定义键追加在核心键之后;与核心重复的只留一个
+        val combined = KeyLayout(
+            emptyMap(),
+            listOf(
+                L4Key("foo", KeyOut.Text("foo")),
+                L4Key("；", KeyOut.Text(";")), // 与核心键重复
+            ),
+        ).l4Combined()
+        assertEquals(KeyLayout.L4_CORE.size + 1, combined.size)
+        assertEquals(
+            KeyLayout.L4_CORE.map { it.label },
+            combined.take(KeyLayout.L4_CORE.size).map { it.label },
+        )
+        assertEquals("foo", combined.last().label)
+        // 默认布局 = 核心键(去重后与核心完全一致)
+        assertEquals(KeyLayout.L4_CORE.map { it.label }, d.l4Combined().map { it.label })
+    }
+
+    @Test
+    fun `L4 只该显示 L1-L3 敲不出的键`() {
+        val p = d.producible()
+        // L1/L2/L3 各有代表:字母、L2 的 !、L3 的功能键
+        assertTrue(p.contains("a"))
+        assertTrue(p.contains("!"))
+        assertTrue(p.contains("key:esc"))
+        // 固定核心键全部落在 L1-L3 之外(否则中区就该被筛掉)
+        for (k in KeyLayout.L4_CORE) {
+            assertTrue("core ${k.label}", !p.contains(k.out.format()))
+        }
+        // 自定义键若是 L1-L3 已有的取值,会被筛掉
+        assertTrue(p.contains(KeyOut.Text("!").format()))
+    }
+
+    @Test
+    fun `格式文本往返后 L4 键原样回来 不多不少`() {
+        // 回归:以前 `!=` 标签写成 `!==!=`,再解析成 标签`!`+输出`=!=`,
+        // 和核心键对不上 → l4Combined 多出一把坏键(状态行凭空多一个键帽)。
+        val parsed = KeyLayout.parseText(d.formatText())
+        assertTrue(parsed.errors.isEmpty())
+        assertEquals(d.l4Combined(), parsed.layout!!.l4Combined())
+        assertEquals(KeyLayout.L4_CORE.size, parsed.layout!!.l4Combined().size)
+    }
+
+    @Test
+    fun `L4 标签里带等号也能往返`() {
+        val kl = KeyLayout(
+            emptyMap(),
+            listOf(L4Key("!=", KeyOut.Text("!=")), L4Key("a=b", KeyOut.Text("x"))),
+        )
+        val parsed = KeyLayout.parseText(kl.formatText())
+        assertTrue(parsed.errors.isEmpty())
+        assertEquals(kl.l4Combined(), parsed.layout!!.l4Combined())
+    }
 }

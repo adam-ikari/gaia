@@ -2,7 +2,7 @@
 slug: background
 title: Project background
 role: project background
-updated: "2026-09-27T22:45:07"
+updated: "2026-09-28T16:03:02"
 ---
 
 # Project background
@@ -26,4 +26,10 @@ updated: "2026-09-27T22:45:07"
 
 ## 目标用户
 
-全键盘手机重度用户，尤其是需要在手机上用 Termux / vim / ssh 干活的开发者——这也是模仿对象可可输入法作者的原始动机。
+全键盘手机重度用户，尤其是喜欢用 Termux / vim / ssh 干活的开发者——这也是模仿对象可可输入法作者的原始动机。
+
+## 文档与决策的分工（2026-09-28 用户定）
+
+- **README 只写用户能照着用的功能说明**（是什么、怎么按），**不写设计决策、取舍与演进理由**。
+- **决策、反转、为什么这么定** 一律进 brain（页面 timeline + compiled_truth），由 `brain` CLI 读写；代码注释只解释"这段代码怎么工作"。
+- 违反此分工的写法（把决策句写进 README）要回退，改记到 brain。

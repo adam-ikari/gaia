@@ -276,15 +276,24 @@ class ImeController(
     }
 
     /**
-     * 状态栏层芯片触摸:显式选层 L1→L2→L3→L1。触摸是"直接指定",落**锁定**语义
-     * (不再有单击一次性/双击锁定的歧义),下一次触摸继续循环。
+     * 状态栏层芯片(ALT/SYM)**单击** = 单次切换:切到该层并落 [ImeState.oneShot]
+     * (出下一个键后自动回 L1);已在该层时再点 = 取消回 L1。顺带清掉可能挂着的 lock,
+     * 单击永远只是"临时切一下"。
      */
-    fun tapLayerChip() {
-        state.lock = when (state.effectiveLayer) {
-            Layer.L1 -> Layer.L2
-            Layer.L2 -> Layer.L3
-            Layer.L3 -> null
-        }
+    fun tapLayerChip(target: Layer) {
+        val active = state.effectiveLayer == target
+        state.oneShot = if (active) null else target
+        state.lock = null
+        host.render()
+    }
+
+    /**
+     * 状态栏层芯片(ALT/SYM)**长按** = 锁定切换:落 [ImeState.lock] 一直保持;
+     * 已在该层锁定时再长按 = 解锁回 L1。顺带清掉一次性层。
+     */
+    fun longPressLayerChip(target: Layer) {
+        val locked = state.lock == target
+        state.lock = if (locked) null else target
         state.oneShot = null
         host.render()
     }
@@ -347,9 +356,9 @@ class ImeController(
     // ------------------------------------------------------------------ 候选与组词
 
     /**
-     * 选显示位 i 的候选上屏。显示位与物理键对应:
-     * 0=Shift(候选4) 1=Sym(候选2) 2=空格(候选1,首选) 3=Ctrl(候选3) 4=Alt(候选5)。
-     * 候选栏点选/上滑 5 区/五键选字/高亮确认都用显示位。
+     * 选显示位 i 的候选上屏。显示位与物理五键对应(左→右 = 候选2/5/1/4/3):
+     * 0=Shift(候选2) 1=Sym(候选5) 2=空格(候选1,首选) 3=Ctrl(候选4) 4=Alt(候选3)。
+     * 候选栏点选/上滑 5 区/五键选字/高亮确认都用显示位;Ctrl+QWERT 不选字(原样转发)。
      */
     fun selectCandidate(displayIndex: Int) {
         val logical = state.currentPageLogical()
@@ -442,19 +451,8 @@ class ImeController(
     // ------------------------------------------------------------------ 内部处理
 
     private fun handleCtrlKey(code: Int, shift: Boolean): Boolean {
-        // Ctrl+Q/W/E/R/T 按键盘几何对应五个候选槽(Q=最左 … T=最右)
-        val idx = when (code) {
-            KeyEvent.KEYCODE_Q -> 0
-            KeyEvent.KEYCODE_W -> 1
-            KeyEvent.KEYCODE_E -> 2
-            KeyEvent.KEYCODE_R -> 3
-            KeyEvent.KEYCODE_T -> 4
-            else -> -1
-        }
-        if (idx >= 0 && state.hasComposition) {
-            selectCandidate(idx)
-            return true
-        }
+        // 候选只由五键(Shift/Sym/空格/Ctrl/Alt)选:Ctrl 组合一律原样转发给应用,
+        // Ctrl+Q/W/E/R/T 不参与选字(vim 的 Ctrl+C/Ctrl+W 等组合必须透传)。
         host.sendKey(code, ctrl = true, shift = shift)
         return true
     }
