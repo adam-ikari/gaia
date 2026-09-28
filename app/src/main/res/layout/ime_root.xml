@@ -3,7 +3,7 @@
   输入法根视图:48dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
   - 组词中:候选行(整行候选)——飞字/选字目标尽量大,状态行(含 L4)整行让位;
     上方浮一条拼音(部分 App 自己不渲染 composing 区),拼音条不占 insets
-  - 空闲时:状态行三区——左=状态芯片(拼/En + 大写占位 + 常显的 ALT/SYM 层芯片),中=L4(固定核心键+
+  - 空闲时:状态行三区——左=状态芯片(拼/En + 大写占位 + 常显的 alt/sym 层芯片),中=L4(固定核心键+
     自定义键,不滚动、填满中区、左右各 6dp 对称边距),右=按钮(宽≥高)
   组词中 touchable 区扩到全屏接飞字。
   高度取 48dp 而非更细的 36dp:芯片/键帽/按钮都要够得着(触摸目标 ≥34dp)。
@@ -45,20 +45,24 @@
         android:layout_width="match_parent"
         android:layout_height="48dp">
 
-        <!-- 状态行(空闲) -->
+        <!-- 状态行(空闲):左右留安全区,躲开 Titan 2 Elite 底部两角的物理圆角 -->
         <LinearLayout
             android:id="@+id/status_row"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@color/status_bg"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/bar_safe_edge"
+            android:paddingEnd="@dimen/bar_safe_edge">
 
             <!--
               左区:状态芯片。**宽度由权重固定**(0dp + weight),不随内容伸缩——
               与右区按钮盒等宽 → 中区 L4 到屏幕左右距离相等;英文多出的大写芯片
               只是这个盒子里多占一格,盒子宽度不变 → 中英切换 L4 不挪。
-              拼音态大写芯片是 GONE(见 chip_shift 注释),ALT/SYM 直接紧贴「拼」。
+              拼音态大写芯片是 GONE(见 chip_shift 注释),alt/sym 直接紧贴「拼」。
+              两端安全区(16dp)占掉后 EN 态四芯片(En|ab|alt|sym)要塞进这个盒子,
+              芯片保持 34×34(宽不小于高),空间靠间距挤:芯片间距 4→2dp、此内边距 6→4dp。
             -->
             <LinearLayout
                 android:id="@+id/chip_row"
@@ -68,9 +72,9 @@
                 android:baselineAligned="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingStart="6dp">
+                android:paddingStart="4dp">
 
-                <!-- 三颗芯片:34dp 见方起(minWidth=height,宽不小于高) -->
+                <!-- 芯片:34dp 见方起(minWidth=height,宽不小于高,用户 2026-09-28 定案)——EN 态四颗 = 4×34 + 3×2 + 4 = 146dp ≤ 安全区挤压后的左盒 ~148dp -->
                 <TextView
                     android:id="@+id/chip_mode"
                     android:layout_width="wrap_content"
@@ -86,16 +90,16 @@
                     android:textStyle="bold" />
 
                 <!--
-                  大写状态芯片(EN 态显示):紧挨模式芯片 EN|ab|ALT|SYM——
+                  大写状态芯片(EN 态显示):紧挨模式芯片 En|ab|alt|sym——
                   锁定=实心,一次性/按住=描边。放在这里是为了贴着 EN,不被层芯片隔开。
-                  拼音态置 **GONE**:「拼」右边的 ALT/SYM 直接紧贴过来,不空 34dp;
+                  拼音态置 **GONE**:「拼」右边的 alt/sym 直接紧贴过来,不空一格;
                   中英切换时 L4 不挪,靠的是 chip_row 的**权重定宽盒子**(不是这颗芯片占位)。
                 -->
                 <TextView
                     android:id="@+id/chip_shift"
                     android:layout_width="wrap_content"
                     android:layout_height="34dp"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="2dp"
                     android:gravity="center"
                     android:includeFontPadding="false"
                     android:minWidth="34dp"
@@ -106,20 +110,20 @@
                     android:visibility="gone" />
 
                 <!--
-                  层芯片 ALT/SYM:两颗常显(打普通字母时也没有"当前层"图标,只是两颗灰芯片)。
+                  层芯片 alt/sym:两颗常显(打普通字母时也没有"当前层"图标,只是两颗灰芯片)。
                   未切到的层 = 灰色描边;切到 = 该层主色(锁定实心 / 单次描边)。
                 -->
                 <TextView
                     android:id="@+id/chip_alt"
                     android:layout_width="wrap_content"
                     android:layout_height="34dp"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="2dp"
                     android:gravity="center"
                     android:includeFontPadding="false"
                     android:minWidth="34dp"
                     android:paddingStart="5dp"
                     android:paddingEnd="5dp"
-                    android:text="ALT"
+                    android:text="alt"
                     android:textSize="12sp"
                     android:textStyle="bold"
                     android:visibility="visible" />
@@ -128,13 +132,13 @@
                     android:id="@+id/chip_sym"
                     android:layout_width="wrap_content"
                     android:layout_height="34dp"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="2dp"
                     android:gravity="center"
                     android:includeFontPadding="false"
                     android:minWidth="34dp"
                     android:paddingStart="5dp"
                     android:paddingEnd="5dp"
-                    android:text="SYM"
+                    android:text="sym"
                     android:textSize="12sp"
                     android:textStyle="bold"
                     android:visibility="visible" />
@@ -202,7 +206,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 候选行(组词中):整行候选 -->
+        <!-- 候选行(组词中):整行候选;左右同状态行留安全区(底部圆角) -->
         <LinearLayout
             android:id="@+id/candidate_row"
             android:layout_width="match_parent"
@@ -210,6 +214,8 @@
             android:background="@color/status_bg"
             android:gravity="center_vertical"
             android:orientation="horizontal"
+            android:paddingStart="@dimen/bar_safe_edge"
+            android:paddingEnd="@dimen/bar_safe_edge"
             android:visibility="gone">
 
             <dev.hwkbd.ime.ui.CandidateBarView

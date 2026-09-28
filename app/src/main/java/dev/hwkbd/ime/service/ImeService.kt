@@ -227,8 +227,10 @@ class ImeService : InputMethodService() {
         super.onStartInput(attribute, restarting)
         // 层映射可能被设置页改过,每次开始输入重新加载(开销可忽略)
         controller.layout = KeyLayoutStore.load(this)
-        // **输入类型决定上下文**:网址框换 L4 键位套、数字框把 Alt 芯片显示成 0-9
-        controller.state.fieldKind = FieldKind.from(attribute?.inputType ?: InputType.TYPE_NULL)
+        // **输入类型决定上下文**:网址/邮件框换 L4 键位套,数字类聚焦即锁数字层
+        controller.setFieldKind(FieldKind.from(attribute?.inputType ?: InputType.TYPE_NULL))
+        // 密码框置安全标志:框内禁止切语言(只能英文),见 ImeState.secure
+        controller.state.secure = isPasswordField(attribute)
         l4PanelSig = null // 键位套变了,下次渲染重建 L4 面板
         composing = ""
         // 每次开始输入都重新判定:换一个输入框,App 是否就地渲染组词区可能不同
@@ -357,8 +359,8 @@ class ImeService : InputMethodService() {
         private var dragging = false
         private var committed = false
 
-        /** 飞字触发上滑距离(屏幕坐标单位),设置页可调,默认 40 = 保守档。 */
-        var threshold = 40f
+        /** 飞字触发上滑距离(屏幕坐标单位),设置页三档 100/160/240,默认 160。 */
+        var threshold = 160f
 
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
         fun onMotion(action: Int, x: Float, y: Int): Int? {
@@ -482,14 +484,9 @@ class ImeService : InputMethodService() {
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
-    /** 密码/数字域不进拼音模式,直接透传(仍保留层与候选通道)。 */
-    private fun isPasswordField(attribute: EditorInfo?): Boolean {
-        val t = attribute?.inputType ?: InputType.TYPE_NULL
-        val variation = t and InputType.TYPE_MASK_VARIATION
-        return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
-            variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
-            variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-    }
+    /** 密码框不进拼音模式,直接透传(仍保留层与候选通道);变体判定见 [FieldKind.isPassword]。 */
+    private fun isPasswordField(attribute: EditorInfo?): Boolean =
+        FieldKind.isPassword(attribute?.inputType ?: InputType.TYPE_NULL)
 
     // ------------------------------------------------------------------ 偏好
 
@@ -524,7 +521,8 @@ class ImeService : InputMethodService() {
     }
 
     /**
-     * 飞字阈值整体上调(触发距离更大):v2 15/25/40 → 25/40/60,v3 再翻倍 → 50/80/120。
+     * 飞字阈值整体上调(触发距离更大):v2 15/25/40 → 25/40/60,v3 再翻倍 → 50/80/120,
+     * v4 再翻倍 → 100/160/240(用户 2026-09-28:"飞字的阈值需要加大 而不是缩小")。
      * 各为一次性迁移(带标记),否则已在新档位上的值会被反复上调。
      */
     private fun migrateFlyThreshold(p: SharedPreferences) {
@@ -548,6 +546,16 @@ class ImeService : InputMethodService() {
             }
             p.edit().putString(PREF_FLY_THRESHOLD, mapped).putBoolean(PREF_FLY_THRESHOLD_V3, true).apply()
         }
+        if (!p.getBoolean(PREF_FLY_THRESHOLD_V4, false)) {
+            val mapped = when (p.getString(PREF_FLY_THRESHOLD, null)) {
+                "50" -> "100"
+                "80" -> "160"
+                "120" -> "240"
+                null -> FLY_THRESHOLD_DEFAULT
+                else -> p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)
+            }
+            p.edit().putString(PREF_FLY_THRESHOLD, mapped).putBoolean(PREF_FLY_THRESHOLD_V4, true).apply()
+        }
     }
 
     // ------------------------------------------------------------------ 渲染
@@ -558,6 +566,9 @@ class ImeService : InputMethodService() {
     private fun renderChips(s: ImeState) {
         val t = theme
         val lang = controller.registry.language(s.languageId)
+        // 数字框:状态按钮全部隐藏,只留 Alt 芯片(文字 0-9)——数字就靠它
+        val digitsOnly = controller.registry.fieldProfile(s.fieldKind).digitsOnly
+        chipMode?.visibility = if (digitsOnly) View.GONE else View.VISIBLE
         chipMode?.apply {
             text = lang.chipLabel
             setTextColor(0xFF16181D.toInt())
@@ -567,7 +578,7 @@ class ImeService : InputMethodService() {
                 setColor(if (s.languageId == controller.registry.primaryLanguageId) t.accent else t.fg)
             }
         }
-        // 层芯片 ALT/SYM **常显**(打普通字母时没有"当前层"图标,只是两颗灰芯片):
+        // 层芯片 alt/sym **常显**(打普通字母时没有"当前层"图标,只是两颗灰芯片):
         // 未切到的层 = 灰描边;切到 = 该层主色(锁定=实心 / 单次=描边)。
         // 谁亮着:**三颗互斥(大写/ALT/SYM),同一时刻只亮一颗**——
         // 刚生效的那颗赢(后按的压过先前);两个都还生效就维持上次亮着的那颗;
@@ -593,21 +604,27 @@ class ImeService : InputMethodService() {
         // Alt 芯片文字随**输入类型**变:数字框显示 0-9(alt 锁定的数字变种,只改这颗芯片的显示)。
         val altLabel = controller.registry.fieldProfile(s.fieldKind).altChipLabel
         renderLayerChip(chipAlt, Layer.L2, altLabel, t.chipL2, s, t, litChip == LitChip.ALT)
-        renderLayerChip(chipSym, Layer.L3, "SYM", t.chipL3, s, t, litChip == LitChip.SYM)
+        if (digitsOnly) {
+            // 数字框:SYM/大写状态与数字无关,连同语言芯片一起藏掉
+            chipSym?.visibility = View.GONE
+            chipShift?.visibility = View.GONE
+        } else {
+            renderLayerChip(chipSym, Layer.L3, "sym", t.chipL3, s, t, litChip == LitChip.SYM)
 
-        // 大写状态:语言策略说不显示就 GONE(拼音不需要大小写,「拼」右边的 ALT/SYM 紧贴过来);
-        // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)。
-        // 中英切换时中区(L4)不挪,靠的是 chip_row 那个**权重定宽的盒子**(不再是这颗芯片占位)。
-        // 没轮到它亮(含大写根本没生效)= 灰描边——ab **不再常亮**。
-        when {
-            !lang.showShiftChip -> chipShift?.visibility = View.GONE
-            litChip == LitChip.CAPS && s.shift == ShiftState.CAPS ->
-                renderChip(chipShift, "AB", t.accent, solid = true)
-            litChip == LitChip.CAPS ->
-                renderChip(chipShift, "Ab", t.accent, solid = false)
-            s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.hint, solid = false)
-            s.shift == ShiftState.ONCE || s.shiftHeld -> renderChip(chipShift, "Ab", t.hint, solid = false)
-            else -> renderChip(chipShift, "ab", t.hint, solid = false)
+            // 大写状态:语言策略说不显示就 GONE(拼音不需要大小写,「拼」右边的 alt/sym 紧贴过来);
+            // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)。
+            // 中英切换时中区(L4)不挪,靠的是 chip_row 那个**权重定宽的盒子**(不再是这颗芯片占位)。
+            // 没轮到它亮(含大写根本没生效)= 灰描边——ab **不再常亮**。
+            when {
+                !lang.showShiftChip -> chipShift?.visibility = View.GONE
+                litChip == LitChip.CAPS && s.shift == ShiftState.CAPS ->
+                    renderChip(chipShift, "AB", t.accent, solid = true)
+                litChip == LitChip.CAPS ->
+                    renderChip(chipShift, "Ab", t.accent, solid = false)
+                s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.hint, solid = false)
+                s.shift == ShiftState.ONCE || s.shiftHeld -> renderChip(chipShift, "Ab", t.hint, solid = false)
+                else -> renderChip(chipShift, "ab", t.hint, solid = false)
+            }
         }
     }
 
@@ -665,6 +682,9 @@ class ImeService : InputMethodService() {
             l4PanelSig = l4Sig
             l4Panel?.refresh(controller.l4Keys(), theme)
         }
+        // 数字框限定 0-9:核心键对数字没有意义,整块隐藏(设置页开关只管非数字态)
+        val l4Shown = showL4Panel && !controller.registry.fieldProfile(s.fieldKind).digitsOnly
+        l4Panel?.visibility = if (l4Shown) View.VISIBLE else View.INVISIBLE
 
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
         // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行
@@ -730,14 +750,15 @@ class ImeService : InputMethodService() {
         const val PREF_SHOW_L4 = "show_l4_panel"
 
         /** 飞字阈值默认档(更保守:需明显上滑才触发)。 */
-        const val FLY_THRESHOLD_DEFAULT = "80"
+        const val FLY_THRESHOLD_DEFAULT = "160"
 
         /** 组词开始后等 App 回报组词区的时限:没等到 = App 不渲染组词区,悬浮拼音上场。 */
         private const val PREEDIT_PROBE_MS = 100L
 
-        /** 飞字阈值档位上调的一次性迁移标记(v3 = 再翻倍一档)。 */
+        /** 飞字阈值档位上调的一次性迁移标记(v2/v3/v4 = 逐次翻倍一档)。 */
         const val PREF_FLY_THRESHOLD_V2 = "fly_threshold_v2"
         const val PREF_FLY_THRESHOLD_V3 = "fly_threshold_v3"
+        const val PREF_FLY_THRESHOLD_V4 = "fly_threshold_v4"
         const val PREF_THEME = "theme"
         const val PREF_SYM_KEYCODE = "sym_keycode"
         const val PREF_ALT_KEYCODE = "alt_keycode"

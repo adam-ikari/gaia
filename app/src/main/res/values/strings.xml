@@ -5,12 +5,19 @@
     <string name="layer_map_title">三层键位映射</string>
     <string name="probe_title">按键探测</string>
     <string name="playground_title">实验场</string>
-    <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。\n在输入框里试：拼音组词 / 空格选字 / Shift·Sym·空格·Ctrl·Alt 五键选字 / Alt·Sym 层切换 / 键盘表面上滑飞字</string>
+    <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。在输入框里试：拼音组词 / 五键选字 / 层切换 / 上滑飞字</string>
     <string name="playground_hint2">在这里输入…</string>
     <string name="playground_show_log">查看输入法日志</string>
-    <!-- 上下文输入框:验"输入类型决定 L4 键位套 / Alt 芯片文字"用 -->
-    <string name="playground_url_hint">网址框（textUri）→ L4 出 http:// 等</string>
-    <string name="playground_number_hint">数字框（number）→ Alt 芯片显 0-9</string>
+    <!-- 上下文输入框:验"输入类型决定 L4 键位套 / 数字类锁定放行"用;提示精简,避免同排互相裁字 -->
+    <string name="playground_url_hint">网址 textUri → L4 http://</string>
+    <string name="playground_number_hint">数字 number → 锁 0-9</string>
+    <string name="playground_email_hint">邮箱 email → @域名键</string>
+    <string name="playground_signed_hint">signed → 放行 -</string>
+    <string name="playground_decimal_hint">decimal → 放行 .</string>
+    <string name="playground_datetime_hint">date → 放行 -/:.</string>
+    <string name="playground_phone_hint">phone → 放行 +*#</string>
+    <string name="playground_password_hint">密码 → 强制英文</string>
+    <string name="playground_log_hint">输入法日志输出区（点上方按钮填充）</string>
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>

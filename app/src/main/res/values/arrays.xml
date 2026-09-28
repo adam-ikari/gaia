@@ -24,8 +24,8 @@
         <item>保守(需明显上滑)</item>
     </string-array>
     <string-array name="fly_threshold_values">
-        <item>50</item>
-        <item>80</item>
-        <item>120</item>
+        <item>100</item>
+        <item>160</item>
+        <item>240</item>
     </string-array>
 </resources>

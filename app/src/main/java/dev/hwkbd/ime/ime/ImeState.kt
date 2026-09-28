@@ -17,6 +17,12 @@ class ImeState {
     /** 当前输入框类型:决定 L4 键位套与 Alt 芯片文字(输入类型决定)。 */
     var fieldKind: FieldKind = FieldKind.TEXT
 
+    /**
+     * 密码框标志(服务在 onStartInput 按 [dev.hwkbd.ime.strategy.FieldKind.isPassword] 置位):
+     * 为 true 时**禁止切换语言**(只能停留在安全语言),避免拼音组词混入密码。
+     */
+    var secure = false
+
     var shift = ShiftState.OFF
 
     /** 物理 Shift 正被按住(长按大写:松手即取消),用于状态行大写芯片提示。 */
@@ -50,10 +56,10 @@ class ImeState {
         get() = if (candidates.isEmpty()) 0 else (candidates.size + pageSize - 1) / pageSize
 
     /**
-     * 页内显示顺序:第一候选固定在中间(空格键位)。
-     * 五键 Shift/Sym/空格/Ctrl/Alt 对应显示槽 0..4;槽内候选按下表取逻辑序:
-     * 显示 [0]=候选2(Shift) [1]=候选5(Sym) [2]=候选1(空格) [3]=候选4(Ctrl) [4]=候选3(Alt)
-     * ——与可可实测排列一致(输入 ni 显示:呢 拟 你 尼 泥)。
+     * 页内显示顺序:**4 2 1 3 5**——第一候选固定在中间(空格键位),2/3 紧邻两侧,4/5 在最外:
+     * 显示 [0]=候选4(Shift) [1]=候选2(Sym) [2]=候选1(空格) [3]=候选3(Ctrl) [4]=候选5(Alt)。
+     * 五键 Shift/Sym/空格/Ctrl/Alt 对应显示槽 0..4——紧邻空格的 Sym/Ctrl 拿 2/3,外侧拿 4/5。
+     * (2026-09-28 用户定案,取代此前的"可可实测排列 2 5 1 4 3"。)
      */
     fun currentPageLogical(): List<Candidate> {
         if (candidates.isEmpty() || totalPages == 0) return emptyList()
@@ -63,7 +69,7 @@ class ImeState {
         return candidates.subList(from, to)
     }
 
-    /** 页内显示槽(固定 5 槽;空槽为 null)。满 5 用可可排列,不足时从中位向两侧紧凑补位。 */
+    /** 页内显示槽(固定 5 槽;空槽为 null)。满 5 用 4-2-1-3-5 排列,不足时同规则从中位向两侧紧凑补位。 */
     fun pageSlots(): List<Candidate?> {
         val pageList = currentPageLogical()
         if (pageList.isEmpty()) return emptyList()
@@ -73,7 +79,7 @@ class ImeState {
         }.toList()
     }
 
-    /** 显示槽 → 逻辑序映射:满 5 用可可排列,不足时紧凑(中→右内→左内→右外→左外),避免空洞。 */
+    /** 显示槽 → 逻辑序映射:满 5 用 4-2-1-3-5,不足时同规则紧凑(中→左内→右内→左外→右外),避免空洞。 */
     fun displayOrder(logicalSize: Int): IntArray =
         if (logicalSize >= pageSize) DISPLAY_ORDER else COMPACT_ORDER
 
@@ -84,10 +90,10 @@ class ImeState {
     fun pageItems(): List<Candidate> = pageSlots().filterNotNull()
 
     companion object {
-        /** 满 5 候选:可可实测排列(槽=Shift/Sym/空格/Ctrl/Alt → 候选2/5/1/4/3)。 */
-        val DISPLAY_ORDER = intArrayOf(1, 4, 0, 3, 2)
+        /** 满 5 候选:4 2 1 3 5(槽=Shift/Sym/空格/Ctrl/Alt → 候选4/2/1/3/5,首选恒在中槽)。 */
+        val DISPLAY_ORDER = intArrayOf(3, 1, 0, 2, 4)
 
-        /** 不足 5 候选:从中位向两侧紧凑补位(槽2=首选,槽3=候选2,槽1=候选3…)。 */
-        val COMPACT_ORDER = intArrayOf(4, 2, 0, 1, 3)
+        /** 不足 5 候选:同规则紧凑(槽2=首选,槽1=候选2,槽3=候选3,槽0=候选4…),从中间往两侧补。 */
+        val COMPACT_ORDER = intArrayOf(3, 1, 0, 2, 4)
     }
 }

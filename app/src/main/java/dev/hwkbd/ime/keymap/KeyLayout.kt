@@ -50,8 +50,10 @@ class KeyLayout(
      *
      * - **默认套**([L4_DEFAULT]):固定核心键([L4_CORE],L1-L3 敲不出的那几个)在前,
      *   键位编辑器 [L4] 段的自定义键在后,重复(标签+输出相同)的只留一个。核心键删不掉;
-     * - **上下文套**(如 [L4_PROFILE_URL]):编辑器 [L4 xxx] 段的字面键,配置什么显示什么;
+     * - **上下文套**(如 [L4_PROFILE_URL]):该段的字面键,配置什么显示什么;
      *   文件里没写这段时回落出厂预置(老 keymap.txt 也拿得到网址键)。
+     *   **要不要并入核心键由注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4Core] 决定**
+     *   (网址框要、邮件框不要),这里只管字面。
      */
     fun l4Combined(profile: String = L4_DEFAULT): List<L4Key> {
         val list = if (profile == L4_DEFAULT) {
@@ -99,6 +101,9 @@ class KeyLayout(
         /** 网址键位套 id(编辑器 `[L4 url]` 段,[dev.hwkbd.ime.strategy.FieldKind.URL] 选用)。 */
         const val L4_PROFILE_URL = "url"
 
+        /** 邮件键位套 id(编辑器 `[L4 email]` 段,[dev.hwkbd.ime.strategy.FieldKind.EMAIL] 选用)。 */
+        const val L4_PROFILE_EMAIL = "email"
+
         /**
          * L4 **固定核心键**:默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来)。
          * `;`/`$` 是 L1/L2/L3 三层敲不出的**单个字符**;`\` 是点名固定的(2026-09-28:
@@ -125,9 +130,21 @@ class KeyLayout(
             L4Key(".com", KeyOut.Text(".com")),
         )
 
+        /**
+         * 出厂邮件键位套:输入框是邮箱时的一键域名(2026-09-28 用户点名三把);
+         * **不带核心键**(邮箱合法字符用不上 `; $ \`——`FieldProfile.l4Core = false`),
+         * `[L4 email]` 段可整段改写。
+         */
+        val L4_PROFILE_EMAIL_KEYS: List<L4Key> = listOf(
+            L4Key("@gmail", KeyOut.Text("@gmail")),
+            L4Key("@hotmail", KeyOut.Text("@hotmail")),
+            L4Key("@outlook", KeyOut.Text("@outlook")),
+        )
+
         /** 上下文键位套的出厂预置(编辑器里没写该段时用它)。 */
         private fun builtinProfile(id: String): List<L4Key> = when (id) {
             L4_PROFILE_URL -> L4_PROFILE_URL_KEYS
+            L4_PROFILE_EMAIL -> L4_PROFILE_EMAIL_KEYS
             else -> emptyList()
         }
 

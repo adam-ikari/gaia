@@ -6,6 +6,7 @@ import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.L4Key
 import dev.hwkbd.ime.keymap.Layer
 import dev.hwkbd.ime.keymap.TapTracker
+import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.strategy.InputMethod
 import dev.hwkbd.ime.strategy.Language
@@ -95,6 +96,8 @@ class ImeController(
         // 按住修饰键期间按下任何别的键 = 这次长按"用掉了"(松开要取消,不再算独立敲击)
         if (!repeat) markModifiersUsed(code)
         if (code == symKeycode) {
+            // 数字框限定 0-9:SYM 芯片已隐藏,按下也不进 L3(L3 敲出的全是非数字)
+            if (fieldProfile().digitsOnly) return true
             if (!repeat) {
                 symDown = true
                 symProducedKey = false
@@ -170,6 +173,8 @@ class ImeController(
             if (holdMod == Layer.L2 && code == holdCode) endHold()
             return true
         }
+        // 数字框:keyDown 已吞,keyUp 成对吞掉(不触发 L3 敲击语义)
+        if (code == symKeycode && fieldProfile().digitsOnly) return true
         // 长按 Sym 松开:超过 HOLD_MS 或按住期间按过键 = 取消 L3,不再算敲击
         if (code == symKeycode && holdMod == Layer.L3 && code == holdCode) {
             val quickTap = endHold()
@@ -298,6 +303,13 @@ class ImeController(
      * 单击永远只是"临时切一下"。
      */
     fun tapLayerChip(target: Layer) {
+        // 数字类锁着 L2:单击不解锁也不转一次性(解锁后 L1 全被吞,没法打字)
+        if (target == Layer.L2 && fieldProfile().digitsOnly) {
+            state.lock = Layer.L2
+            state.oneShot = null
+            host.render()
+            return
+        }
         val active = state.effectiveLayer == target
         state.oneShot = if (active) null else target
         state.lock = null
@@ -309,6 +321,13 @@ class ImeController(
      * 已在该层锁定时再长按 = 解锁回 L1。顺带清掉一次性层。
      */
     fun longPressLayerChip(target: Layer) {
+        // 数字类:长按也解不掉数字锁(同上,解锁即没法打字)
+        if (target == Layer.L2 && fieldProfile().digitsOnly) {
+            state.lock = Layer.L2
+            state.oneShot = null
+            host.render()
+            return
+        }
         val locked = state.lock == target
         state.lock = if (locked) null else target
         state.oneShot = null
@@ -328,8 +347,11 @@ class ImeController(
     /**
      * 切到指定语言(密码框强制英文等场景)。先把挂着的组词上屏,切入收尾交给语言策略
      * ([dev.hwkbd.ime.strategy.ChineseLanguage.onEnter] 清掉英文态的大小写锁定)。
+     * **密码框内(secure)禁止切到安全语言以外**——切语言的两个入口(状态栏语言芯片、
+     * Shift+空格)都收口在这里,一处守卫全覆盖。
      */
     fun setLanguage(id: String) {
+        if (state.secure && id != registry.secureLanguageId) return
         val lang = registry.language(id)
         if (state.languageId == lang.id) return
         flushComposition()
@@ -381,8 +403,8 @@ class ImeController(
     // ------------------------------------------------------------------ 候选与组词
 
     /**
-     * 选显示位 i 的候选上屏。显示位与物理五键对应(左→右 = 候选2/5/1/4/3):
-     * 0=Shift(候选2) 1=Sym(候选5) 2=空格(候选1,首选) 3=Ctrl(候选4) 4=Alt(候选3)。
+     * 选显示位 i 的候选上屏。显示位与物理五键对应(左→右 = 4 2 1 3 5):
+     * 0=Shift(候选4) 1=Sym(候选2) 2=空格(候选1,首选) 3=Ctrl(候选3) 4=Alt(候选5)。
      * 候选栏点选/上滑 5 区/五键选字/高亮确认都用显示位;Ctrl+QWERT 不选字(原样转发)。
      */
     fun selectCandidate(displayIndex: Int) {
@@ -439,6 +461,24 @@ class ImeController(
     /** [l4Keys] 的变化签名(键位套 id|语言 id):没变就不重建面板。 */
     fun l4Signature(): String =
         "${registry.fieldProfile(state.fieldKind).l4ProfileId}|${state.languageId}"
+
+    /**
+     * 输入框切换(服务在 onStartInput 调):**数字类(digitsOnly)直接锁定 L2 数字层**——
+     * 聚焦即能敲 0-9,免按 Alt(alt 锁定的数字变种,用户 2026-09-28 定案);
+     * 离开数字类时解除这把"字段加的锁"。
+     */
+    fun setFieldKind(kind: FieldKind) {
+        val prev = state.fieldKind
+        state.fieldKind = kind
+        if (prev == kind) return
+        val nowDigit = registry.fieldProfile(kind).digitsOnly
+        val wasDigit = registry.fieldProfile(prev).digitsOnly
+        when {
+            nowDigit -> state.lock = Layer.L2
+            wasDigit && state.lock == Layer.L2 -> state.lock = null
+        }
+        host.render()
+    }
 
     /** 词的用户使用频次(测试/调试用)。 */
     fun userCountOf(word: String): Int = inputMethod().userCount(word)
@@ -498,6 +538,9 @@ class ImeController(
 
     // ------------------------------------------------------------------ 内部处理
 
+    /** 当前输入框的表现策略(键位套 / Alt 芯片文字 / 数字限定)。 */
+    private fun fieldProfile() = registry.fieldProfile(state.fieldKind)
+
     private fun handleCtrlKey(code: Int, shift: Boolean): Boolean {
         // 候选只由五键(Shift/Sym/空格/Ctrl/Alt)选:Ctrl 组合一律原样转发给应用,
         // Ctrl+Q/W/E/R/T 不参与选字(vim 的 Ctrl+C/Ctrl+W 等组合必须透传)。
@@ -507,15 +550,18 @@ class ImeController(
 
     private fun handleNormalKey(code: Int, shift: Boolean, caps: Boolean): Boolean {
         val layer = state.effectiveLayer
+        val fp = fieldProfile()
+        val digitsOnly = fp.digitsOnly
 
-        // Shift+Space = 中英切换(可可语义)
-        if (shift && code == KeyEvent.KEYCODE_SPACE && layer == Layer.L1) {
+        // Shift+Space = 中英切换(可可语义);数字类锁着数字层,没有语言可切(芯片已隐藏)
+        if (shift && code == KeyEvent.KEYCODE_SPACE && layer == Layer.L1 && !digitsOnly) {
             cycleLanguage()
             return true
         }
 
         when (code) {
-            KeyEvent.KEYCODE_SPACE -> return handleSpace()
+            // 数字框限定 0-9:空格吞掉(数字不需要空格,状态按钮也全隐藏)
+            KeyEvent.KEYCODE_SPACE -> return if (digitsOnly) true else handleSpace()
             KeyEvent.KEYCODE_ENTER -> {
                 if (state.hasComposition) commitRaw() else host.sendKey(KeyEvent.KEYCODE_ENTER)
                 consumeShiftOnce()
@@ -551,15 +597,19 @@ class ImeController(
                 val lang = language()
                 // 策略先改写按键文本(拼音:组词中的 v → 分隔符 `'`),再走组词/上屏两条路
                 val text = lang.mapText(out.text, state)
+                // 数字类限定合法字符(0-9 + 该类型放行的):其余吞掉,不落屏也不消耗修饰态
+                if (digitsOnly && (text.length != 1 || (text[0] !in '0'..'9' && text[0] !in fp.digitChars))) return true
                 if (lang.composes(text, state)) {
                     // 进组词缓冲(拼音字母;分隔符只在组词中被接纳)
                     state.raw += text
                     refreshQuery()
                 } else {
-                    // 语言策略决定上屏形态:英文跟大写、中文按开关全角
+                    // 语言策略决定上屏形态:英文跟大写、中文按开关全角;**数字类放行的字符强制半角**
+                    // (全角 `－` `。` `：` 进不了日期/小数/电话/签名的合法格式,数字本身本就半角)
                     flushComposition()
                     val upper = shift || caps || state.shift != ShiftState.OFF
-                    host.commitText(lang.commitText(text, layer, upper, fullWidthSymbolsInCn))
+                    val full = fullWidthSymbolsInCn && !digitsOnly
+                    host.commitText(lang.commitText(text, layer, upper, full))
                 }
                 consumeShiftOnce()
                 consumeOneShot()

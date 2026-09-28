@@ -4,10 +4,13 @@ import android.view.KeyEvent
 import dev.hwkbd.ime.engine.PinyinDict
 import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.keymap.KeyLayout
+import dev.hwkbd.ime.keymap.Layer
+import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.strategy.PinyinInputMethod
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -128,6 +131,82 @@ class ImeControllerTest {
         assertEquals(listOf("'", "v"), r.h.commits) // 英文策略不改写,v 就是字母
     }
 
+    // ------------------------------------------------------------ 数字类(锁定数字层)
+
+    @Test
+    fun `数字框聚焦直接锁定数字层 离开解锁 芯片解不掉锁`() {
+        val r = rig()
+        r.c.setFieldKind(FieldKind.NUMBER)
+        assertEquals(Layer.L2, r.c.state.lock) // 聚焦即锁,免按 Alt(alt 锁定的数字变种)
+        assertTrue(r.key(kc('q'))) // L2 的 q = 0,直接出数字
+        assertEquals(listOf("0"), r.h.commits)
+        // 芯片单击/长按都解不掉锁(解锁后 L1 全被吞,没法打字)
+        r.c.tapLayerChip(Layer.L2)
+        r.c.longPressLayerChip(Layer.L2)
+        assertEquals(Layer.L2, r.c.state.lock)
+        // 离开数字类 → 解除字段加的锁
+        r.c.setFieldKind(FieldKind.TEXT)
+        assertNull(r.c.state.lock)
+    }
+
+    @Test
+    fun `数字类按各自合法字符放行 其余字符吞`() {
+        val r = rig()
+        // 中文全角开关默认开:数字类放行的字符也要出半角(- 不许变 －),这里顺带验这一点
+        // signed:放行 '-',L2 的 '.' 不放行
+        r.c.setFieldKind(FieldKind.NUMBER_SIGNED)
+        assertTrue(r.key(kc('u'))) // L2 u = -
+        assertTrue(r.key(kc('b'))) // L2 b = .
+        assertEquals(listOf("-"), r.h.commits)
+        // decimal:放行 '.','-' 不放行
+        r.c.setFieldKind(FieldKind.NUMBER_DECIMAL)
+        assertTrue(r.key(kc('b')))
+        assertTrue(r.key(kc('u')))
+        assertEquals(listOf("-", "."), r.h.commits)
+        // phone(Android PhoneKeyListener 集合):放行 '+',不放行 '-'
+        r.c.setFieldKind(FieldKind.PHONE)
+        assertTrue(r.key(kc('j'))) // L2 j = +
+        assertTrue(r.key(kc('u')))
+        assertEquals(listOf("-", ".", "+"), r.h.commits)
+        // datetime:放行 '/' 与 ':'
+        r.c.setFieldKind(FieldKind.DATETIME)
+        assertTrue(r.key(kc('o'))) // L2 o = /
+        assertTrue(r.key(kc('p'))) // L2 p = :
+        assertEquals(listOf("-", ".", "+", "/", ":"), r.h.commits)
+    }
+
+    @Test
+    fun `数字框只吃 0-9 非数字文本键全吞`() {
+        val r = rig()
+        r.c.state.fieldKind = FieldKind.NUMBER
+        // L1 字母不是数字:吞掉(被消费),不落屏也不开组词
+        assertTrue(r.key(kc('q')))
+        assertTrue(r.h.commits.isEmpty())
+        assertTrue(r.c.state.raw.isEmpty())
+        // 空格也吞(数字框不放空格)
+        assertTrue(r.key(KeyEvent.KEYCODE_SPACE))
+        assertTrue(r.h.commits.isEmpty())
+        // Alt 按住进 L2:数字键放行(q → 0,中文全角开关下数字也保持半角)
+        assertTrue(r.key(KeyEvent.KEYCODE_ALT_LEFT))
+        assertTrue(r.key(kc('q')))
+        assertEquals(listOf("0"), r.h.commits)
+        // 退格照常透传(数字删得掉)
+        assertTrue(r.key(KeyEvent.KEYCODE_DEL))
+        assertEquals(listOf("${KeyEvent.KEYCODE_DEL}/false/false"), r.h.keys)
+    }
+
+    @Test
+    fun `数字框 Sym 敲击被吞 不进 L3`() {
+        val r = rig()
+        r.c.state.fieldKind = FieldKind.NUMBER
+        // Sym 按下/松开都成对吞掉(SYM 芯片已隐藏),L3 进不去
+        assertTrue(r.tap(KeyEvent.KEYCODE_SYM))
+        assertTrue(r.key(kc('a'))) // 还在 L1,'a' 非数字 → 吞
+        assertTrue(r.h.commits.isEmpty())
+        assertTrue(r.c.state.raw.isEmpty())
+        assertTrue(r.h.keys.isEmpty())
+    }
+
     @Test
     fun `空缓冲时空格上屏半角空格`() {
         val r = rig()
@@ -186,26 +265,31 @@ class ImeControllerTest {
         val items = r.c.state.pageItems()
         assertEquals(5, items.size)
         assertEquals("你", items[2].word) // 中间 = 首选 = 空格键位
-        // 与可可实测排列一致(ni → 呢 拟 你 尼 泥):
-        // 测试词典 logical = [你, 年, 娘, 你好, 鸟, 捏] → 显示 [年, 鸟, 你, 你好, 娘]
-        assertEquals(listOf("年", "鸟", "你", "你好", "娘"), items.map { it.word })
+        // 4 2 1 3 5 排列(2026-09-28 定案):
+        // 测试词典 logical = [你, 年, 娘, 你好, 鸟, 捏] → 显示 [你好, 年, 你, 娘, 鸟]
+        assertEquals(listOf("你好", "年", "你", "娘", "鸟"), items.map { it.word })
     }
 
     @Test
     fun `组词中五修饰键独立敲击选字`() {
+        // 每次上屏都抬高该词的用户词频,下一刻候选可能重排——
+        // 本测试钉"键→显示槽"的对应,取当刻该槽的词;静态词序由「首候选固定显示在中间」钉
         val r = rig()
         r.type("ni")
+        val s0 = r.c.state.pageSlots()[0]!!.word
         r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
-        assertEquals(listOf("年"), r.h.commits) // Shift = 槽0 = 候选2
+        assertEquals(listOf(s0), r.h.commits) // Shift = 槽0 = 候选4
 
         r.type("ni")
+        val s4 = r.c.state.pageSlots()[4]!!.word
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        assertEquals(listOf("年", "娘"), r.h.commits) // Alt = 槽4 = 候选3
+        assertEquals(listOf(s0, s4), r.h.commits) // Alt = 槽4 = 候选5
 
         r.type("ni")
+        val s3 = r.c.state.pageSlots()[3]!!.word
         r.key(KeyEvent.KEYCODE_CTRL_LEFT)
         r.c.onKeyUp(KeyEvent.KEYCODE_CTRL_LEFT)
-        assertEquals(listOf("年", "娘", "你好"), r.h.commits) // Ctrl = 槽3 = 候选4
+        assertEquals(listOf(s0, s4, s3), r.h.commits) // Ctrl = 槽3 = 候选3
     }
 
     @Test
@@ -613,6 +697,22 @@ class ImeControllerTest {
         r.c.cycleLanguage()
         assertEquals("zh", r.c.state.languageId)
         assertEquals(ShiftState.OFF, r.c.state.shift)
+    }
+
+    @Test
+    fun `密码框内禁止切到拼音 语言芯片与Shift空格都收口在 setLanguage`() {
+        val r = rig()
+        r.c.state.secure = true
+        r.c.state.languageId = "en" // onStartInput 聚焦密码框时已强制到安全语言
+        r.c.cycleLanguage() // 状态栏语言芯片 / Shift+空格 的共同入口
+        assertEquals("en", r.c.state.languageId)
+        r.c.setLanguage("zh") // 直接点名切走也被拒
+        assertEquals("en", r.c.state.languageId)
+        r.c.setLanguage("en") // 安全语言自身仍可达(强制英文路径依赖)
+        assertEquals("en", r.c.state.languageId)
+        r.c.state.secure = false // 离开密码框(onStartInput 重算 secure)后恢复可切
+        r.c.cycleLanguage()
+        assertEquals("zh", r.c.state.languageId)
     }
 
     // ---------------------------------------------------------------- 状态栏触摸切换

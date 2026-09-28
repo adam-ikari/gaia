@@ -18,6 +18,10 @@ class PlaygroundActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_playground)
+        // 实验场不需要任何自动填充:整窗禁用。密码框聚焦时 GMS 仍会弹数据集选择器抢焦点,
+        // 字段级 importantForAutofill="no" 压不住,升级到窗口级(实验场是调试工具,禁了无副作用)
+        window.decorView.importantForAutofill =
+            android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         val et = findViewById<EditText>(R.id.et_playground)
         val logView = findViewById<TextView>(R.id.tv_play_log)
 

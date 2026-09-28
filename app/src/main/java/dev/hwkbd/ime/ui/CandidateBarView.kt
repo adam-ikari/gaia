@@ -31,7 +31,7 @@ class CandidateBarView @JvmOverloads constructor(
      * 飞字触发上滑距离(px):由 service 按设置注入,与全屏飞字手势(FlyDetector)
      * 用同一个阈值——在候选行上起手的上滑不再走独立的 24dp 判据。
      */
-    var flyThresholdPx: Float = 80f
+    var flyThresholdPx: Float = 160f
 
     /** 固定 5 显示槽(首选在中间,槽位即物理键位);空槽为 null。 */
     private var slots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
@@ -373,15 +373,16 @@ class CandidateBarView @JvmOverloads constructor(
 
         if (flyWord.isEmpty()) return
         val base = 17f * resources.displayMetrics.scaledDensity
-        // 飞的是第一候选时,把行内的强调(主色+略大)原样带上,飞行前后观感一致
-        val first = flyZone == 0
+        // 飞的是中槽第一候选时,把行内的强调(主色+略大)原样带上,飞行前后观感一致
+        val first = flyZone == CENTER_SLOT
         wordPaint.textSize = base *
             (if (flyWord.length > 6) 0.7f else 1f) *
             (if (first) FIRST_BOOST else 1f) *
             (1f + 0.2f * (p / 2f))
-        wordPaint.alpha = ((if (s <= 0f) 1f else 1f - s) * 255).toInt()
         val savedColor = wordPaint.color
         wordPaint.color = if (first) accentColor else savedColor
+        // setColor 连 alpha 一起覆盖:先上色、后设透明度,否则完成段的淡出被抹掉
+        wordPaint.alpha = ((if (s <= 0f) 1f else 1f - s) * 255).toInt()
         val lift = drag * dip(26) + (if (s <= 0f) 0f else (dip(64) - dip(26)) * s * s)
         val w = wordPaint.measureText(flyWord)
         val x = (flyX - w / 2f).coerceIn(dip(8), width - w - dip(8))
@@ -402,7 +403,11 @@ class CandidateBarView @JvmOverloads constructor(
     ) {
         val savedAlpha = wordPaint.alpha
         val savedColor = wordPaint.color
-        if (alpha < 1f) wordPaint.alpha = (alpha * 255).toInt()
+        // 目标透明度:飞字走 alpha 参数;翻页动画由调用方先设好 alpha(取进画笔的 savedAlpha)。
+        // 关键:Paint.setColor 连 alpha 一起覆盖——循环里每次上色后必须补设,
+        // 否则"其余候选随上滑渐隐"会在第一遍 setColor 时被抹回不透明(真机看不到渐隐的根因)。
+        val fadeAlpha = if (alpha < 1f) (alpha * 255).toInt() else savedAlpha
+        wordPaint.alpha = fadeAlpha
         val base = 17f * resources.displayMetrics.scaledDensity
         for (i in 0 until 5) {
             if (i == skip) continue
@@ -414,8 +419,8 @@ class CandidateBarView @JvmOverloads constructor(
             if (i == highlightOf) {
                 canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
             }
-            // 第一候选轻度强调:主色 + 略大一号。先定尺寸再测量,免得居中跑偏
-            val first = i == 0
+            // 中槽第一候选轻度强调:主色 + 略大一号。先定尺寸再测量,免得居中跑偏
+            val first = i == CENTER_SLOT
             wordPaint.textSize = base *
                 (if (c.word.length > 6) 0.7f else 1f) *
                 (if (first) FIRST_BOOST else 1f)
@@ -423,6 +428,7 @@ class CandidateBarView @JvmOverloads constructor(
             val x = left + (cellWidth - w) / 2f
             val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
             wordPaint.color = if (first) accentColor else savedColor
+            wordPaint.alpha = fadeAlpha // setColor 会覆盖 alpha,补回渐隐值
             canvas.drawText(c.word, x, y, wordPaint)
             wordPaint.textSize = base
         }
@@ -433,6 +439,9 @@ class CandidateBarView @JvmOverloads constructor(
     private fun dip(v: Int): Float = v * density
 
     private companion object {
+        /** 中槽 = 第一候选(空格键位)。 */
+        const val CENTER_SLOT = 2
+
         /** 第一候选的强调幅度(尺寸)。 */
         const val FIRST_BOOST = 1.1f
     }

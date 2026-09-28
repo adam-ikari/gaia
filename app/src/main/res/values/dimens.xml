@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      状态行/候选行左右安全区:Titan 2 Elite 屏幕左下/右下是物理圆角,而这两条 bar
+      贴着屏幕底边,两端内容(左芯片/右按钮/候选行两侧箭头)会被圆角裁到。
+      取值按实际圆角半径调,改这一个 dimen 两条 bar 同步生效。
+    -->
+    <dimen name="bar_safe_edge">16dp</dimen>
+</resources>

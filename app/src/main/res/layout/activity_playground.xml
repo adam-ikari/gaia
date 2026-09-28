@@ -42,7 +42,8 @@
             android:text="@string/playground_show_log" />
     </LinearLayout>
 
-    <!-- 上下文输入框:只在按钮行**下方**追加(不挪上面两个控件的坐标,aitest 的点按/判定不受影响) -->
+    <!-- 上下文输入框:2 列均匀网格(只在按钮行**下方**重排,主输入框 (700,400) 落点不变,aitest 不受影响)。
+         左列格子留 8dp 右间距,提示互不裁字;每格 hint = 类型 + 行为速记。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -53,17 +54,110 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginEnd="8dp"
             android:hint="@string/playground_url_hint"
             android:inputType="textUri"
+            android:singleLine="true"
+            android:importantForAutofill="no"
             android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/et_email"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/playground_email_hint"
+            android:inputType="textEmailAddress"
+            android:singleLine="true"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
 
         <EditText
             android:id="@+id/et_number"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginEnd="8dp"
             android:hint="@string/playground_number_hint"
             android:inputType="number"
+            android:singleLine="true"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/et_signed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/playground_signed_hint"
+            android:inputType="numberSigned"
+            android:singleLine="true"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/et_decimal"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:hint="@string/playground_decimal_hint"
+            android:inputType="numberDecimal"
+            android:singleLine="true"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/et_phone"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/playground_phone_hint"
+            android:inputType="phone"
+            android:singleLine="true"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/et_datetime"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:hint="@string/playground_datetime_hint"
+            android:inputType="date"
+            android:singleLine="true"
+            android:importantForAutofill="no"
+            android:textSize="14sp" />
+
+        <!-- 密码框:验强制英文(secure 语言);放这里凑齐 2 列网格 -->
+        <EditText
+            android:id="@+id/et_password"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/playground_password_hint"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:importantForAutofill="no"
             android:textSize="14sp" />
     </LinearLayout>
 
@@ -72,6 +166,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:fontFamily="monospace"
+        android:hint="@string/playground_log_hint"
         android:textSize="11sp"
         android:id="@+id/tv_play_log" />
 </LinearLayout>

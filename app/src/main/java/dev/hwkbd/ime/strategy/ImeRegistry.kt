@@ -64,14 +64,17 @@ class ImeRegistry {
     }
 
     /**
-     * 状态行 L4 中区的键序:**语言补差键排最左**(语言注册的键,语义上属于"这种输入语言随时
-     * 可能要用";拼音没有——分节符走 `v` 键),其后是输入类型选的键位套(默认套 = 固定核心键
-     * + 自定义键),重复(标签+输出)去重。默认键位套带固定核心键;其它键位套按编辑器字面
-     * 显示——**配置什么显示什么,程序不做筛选**。
+     * 状态行 L4 中区的键序:**语言补差键排最左**(语言注册的键;拼音没有——分节符走 `v` 键),
+     * 其后是**固定核心键**(输入框表现 [FieldProfile.l4Core] 说要才并入:网址框要、邮件框不要)
+     * 接输入类型选的键位套(默认套自带核心键+自定义键,重复去重)。
+     * **配置什么显示什么,程序不做筛选**。
      */
     fun l4Keys(layout: KeyLayout, kind: FieldKind, languageId: String): List<L4Key> {
+        val profile = fieldProfile(kind)
+        val combined = layout.l4Combined(profile.l4ProfileId)
         val keys = LinkedHashMap<String, L4Key>()
-        for (k in language(languageId).l4Extras + layout.l4Combined(fieldProfile(kind).l4ProfileId)) {
+        val list = if (profile.l4Core) KeyLayout.L4_CORE + combined else combined
+        for (k in language(languageId).l4Extras + list) {
             keys.putIfAbsent("${k.label} ${k.out.format()}", k)
         }
         return keys.values.toList()
@@ -79,14 +82,30 @@ class ImeRegistry {
 
     companion object {
 
-        /** 出厂注册表:拼音 + 英文(密码态)、直接上屏、网址/数字框表现。 */
-        fun builtin(): ImeRegistry = ImeRegistry()
-            .registerLanguage(ChineseLanguage)
-            .registerLanguage(EnglishLanguage, secure = true)
-            .registerMethod(DirectInputMethod)
-            // 网址框:http:// 等一键上屏(键位套在键位编辑器 [L4 url] 段可改)
-            .registerFieldProfile(FieldKind.URL, FieldProfile(l4ProfileId = KeyLayout.L4_PROFILE_URL))
-            // 数字框:Alt 芯片显示 0-9(alt 锁定的数字变种,只改芯片文字)
-            .registerFieldProfile(FieldKind.NUMBER, FieldProfile(altChipLabel = "0-9"))
+        /**
+         * 出厂注册表:拼音 + 英文(密码态)、直接上屏、网址/邮件/数字类表现。
+         * 数字类(含签名/小数/电话/日期)统一 [FieldProfile.digitsOnly]:锁 L2、只放行合法字符。
+         */
+        fun builtin(): ImeRegistry {
+            val digits = FieldProfile(altChipLabel = "0-9", digitsOnly = true)
+            return ImeRegistry()
+                .registerLanguage(ChineseLanguage)
+                .registerLanguage(EnglishLanguage, secure = true)
+                .registerMethod(DirectInputMethod)
+                // 网址框:http:// 等一键上屏 + 固定核心键([L4 url] 段可改)
+                .registerFieldProfile(FieldKind.URL, FieldProfile(l4ProfileId = KeyLayout.L4_PROFILE_URL))
+                // 邮件框:只要 @域名键,不要核心键(邮箱合法字符用不上 ; $ \)
+                .registerFieldProfile(
+                    FieldKind.EMAIL,
+                    FieldProfile(l4ProfileId = KeyLayout.L4_PROFILE_EMAIL, l4Core = false),
+                )
+                // 数字类:各自按合法格式放行(见 FieldKind 的调查),其余全吞
+                .registerFieldProfile(FieldKind.NUMBER, digits)
+                .registerFieldProfile(FieldKind.NUMBER_SIGNED, digits.copy(digitChars = "-"))
+                .registerFieldProfile(FieldKind.NUMBER_DECIMAL, digits.copy(digitChars = "."))
+                .registerFieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL, digits.copy(digitChars = "-."))
+                .registerFieldProfile(FieldKind.PHONE, digits.copy(digitChars = "+*#"))
+                .registerFieldProfile(FieldKind.DATETIME, digits.copy(digitChars = "-/:."))
+        }
     }
 }

@@ -86,15 +86,64 @@ class ImeRegistryTest {
             FieldKind.URL,
             FieldKind.from(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI),
         )
+        assertEquals(
+            FieldKind.EMAIL,
+            FieldKind.from(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS),
+        )
         assertEquals(FieldKind.NUMBER, FieldKind.from(InputType.TYPE_CLASS_NUMBER))
-        assertEquals(FieldKind.NUMBER, FieldKind.from(InputType.TYPE_CLASS_PHONE))
+        // 同理调查的其他输入类型:电话/日期时间/数字签名与小数变体(flag 不是 variation)
+        assertEquals(FieldKind.PHONE, FieldKind.from(InputType.TYPE_CLASS_PHONE))
+        assertEquals(FieldKind.DATETIME, FieldKind.from(InputType.TYPE_CLASS_DATETIME))
+        assertEquals(
+            FieldKind.NUMBER_SIGNED,
+            FieldKind.from(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED),
+        )
+        assertEquals(
+            FieldKind.NUMBER_DECIMAL,
+            FieldKind.from(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL),
+        )
+        assertEquals(
+            FieldKind.NUMBER_SIGNED_DECIMAL,
+            FieldKind.from(
+                InputType.TYPE_CLASS_NUMBER or
+                    InputType.TYPE_NUMBER_FLAG_SIGNED or
+                    InputType.TYPE_NUMBER_FLAG_DECIMAL,
+            ),
+        )
         assertEquals(FieldKind.TEXT, FieldKind.from(InputType.TYPE_CLASS_TEXT))
 
         val reg = ImeRegistry.builtin()
         assertEquals(KeyLayout.L4_PROFILE_URL, reg.fieldProfile(FieldKind.URL).l4ProfileId)
+        assertEquals(KeyLayout.L4_PROFILE_EMAIL, reg.fieldProfile(FieldKind.EMAIL).l4ProfileId)
+        assertFalse(reg.fieldProfile(FieldKind.EMAIL).l4Core) // 邮件不要核心键(合法字符用不上)
+        assertTrue(reg.fieldProfile(FieldKind.URL).l4Core) // 网址框要(L1-L3 没有的按键也显示)
         assertEquals("0-9", reg.fieldProfile(FieldKind.NUMBER).altChipLabel) // alt 锁定的数字变种
-        assertEquals("ALT", reg.fieldProfile(FieldKind.TEXT).altChipLabel)
+        assertEquals("alt", reg.fieldProfile(FieldKind.TEXT).altChipLabel)
         assertEquals("en", reg.secureLanguageId) // 密码框强制的语言
+        // 数字类限定 0-9 + 各类型合法字符,其余输入框不限
+        assertTrue(reg.fieldProfile(FieldKind.NUMBER).digitsOnly)
+        assertEquals("-", reg.fieldProfile(FieldKind.NUMBER_SIGNED).digitChars)
+        assertEquals(".", reg.fieldProfile(FieldKind.NUMBER_DECIMAL).digitChars)
+        assertEquals("+*#", reg.fieldProfile(FieldKind.PHONE).digitChars)
+        assertEquals("-/:.", reg.fieldProfile(FieldKind.DATETIME).digitChars)
+        assertTrue(reg.fieldProfile(FieldKind.DATETIME).digitsOnly)
+        assertFalse(reg.fieldProfile(FieldKind.URL).digitsOnly)
+        assertFalse(reg.fieldProfile(FieldKind.TEXT).digitsOnly)
+        // 密码变体判定含以前漏掉的数字密码
+        assertTrue(
+            FieldKind.isPassword(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD),
+        )
+        assertTrue(
+            FieldKind.isPassword(
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+            ),
+        )
+        assertTrue(
+            FieldKind.isPassword(
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD,
+            ),
+        )
+        assertFalse(FieldKind.isPassword(InputType.TYPE_CLASS_NUMBER))
     }
 
     @Test
@@ -102,11 +151,12 @@ class ImeRegistryTest {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
-            // 输入类型选的键位套;拼音没注册补差键——分节符走 v 键,不占 L4(`/` 也不放,L2 的)
-            listOf("http://", "https://", ".com"),
+            // 核心键并入(各输入框核心位置不动)+输入类型选的键位套;拼音没注册补差键
+            // ——分节符走 v 键,不占 L4(`/` 也不放,L2 的)
+            KeyLayout.L4_CORE.map { it.label } + listOf("http://", "https://", ".com"),
             r.c.l4Keys().map { it.label },
         )
-        // 数字框没有自己的 L4 套(那是 Alt 芯片的活):默认核心键
+        // 数字框没有自己的 L4 套(L4 面板在数字态整块隐藏,键计算仍是默认核心键)
         r.c.state.fieldKind = FieldKind.NUMBER
         assertEquals(
             KeyLayout.L4_CORE.map { it.label },
@@ -120,6 +170,18 @@ class ImeRegistryTest {
         assertFalse(r.c.l4Keys().any { it.out == KeyOut.Text(ChineseLanguage.SEPARATOR) })
         r.c.state.languageId = "en"
         assertFalse(r.c.l4Keys().any { it.out == KeyOut.Text(ChineseLanguage.SEPARATOR) })
+    }
+
+    @Test
+    fun `邮件框只出三把域名键 不带核心键`() {
+        val r = rig()
+        r.c.state.fieldKind = FieldKind.EMAIL
+        assertEquals(
+            // 邮箱合法字符用不上 `； $ \` → l4Core=false;@outlook 也因此不再被键宽挤掉
+            listOf("@gmail", "@hotmail", "@outlook"),
+            r.c.l4Keys().map { it.label },
+        )
+        assertTrue(r.c.l4Signature().startsWith(KeyLayout.L4_PROFILE_EMAIL)) // 换套要触发键帽重建
     }
 
     @Test
