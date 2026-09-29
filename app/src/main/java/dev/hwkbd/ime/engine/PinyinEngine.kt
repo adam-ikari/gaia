@@ -15,6 +15,13 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
         user.bump(word)
     }
 
+    /**
+     * 用户词频加权(**饱和曲线**,2026-09-29 用户"字频调整不要太灵敏"):
+     * boost = 60 万 · count/(count+4)——单次使用仅 +12 万,重复使用渐进累积,
+     * 上限 60 万 < 档位差(150 万)→ 词频只重排档内次序,永不跨档。
+     */
+    private fun userBoost(count: Int): Long = 600_000L * count / (count + 4)
+
     fun query(raw: String, limit: Int): List<Candidate> {
         if (raw.isEmpty()) return emptyList()
         val out = LinkedHashMap<String, Candidate>()
@@ -22,8 +29,8 @@ class PinyinEngine(val dict: PinyinDict, val user: UserDict) {
         fun add(word: String, pinyin: String, kind: CandidateKind, base: Long) {
             if (word.isEmpty()) return
             // 档位加分保证 精确>前缀>组词 的整体次序(字典词频最高约 70 万,
-            // 档位差需盖过它);用户词频加权仍可跨档把高频词顶上去。
-            val score = base + KIND_BONUS[kind.ordinal] + user.count(word) * USER_BOOST
+            // 档位差需盖过它);用户词频加权只重排**档内**次序,不跨档。
+            val score = base + KIND_BONUS[kind.ordinal] + userBoost(user.count(word))
             val prev = out[word]
             if (prev == null || score > prev.score) {
                 out[word] = Candidate(word, pinyin, kind, score)

@@ -71,16 +71,27 @@ class PinyinEngineTest {
     }
 
     @Test
-    fun `用户频次把用过的词顶到最前`() {
+    fun `用户频次在档位内把用过的词顶到最前`() {
         val e = engine(
             "ni\t你\t500",
-            "nihao\t你好\t300",
+            "ni\t妮\t450",
         )
         assertEquals("你", e.query("ni", 10).first().word)
-        e.onCommitted("你好")
-        assertEquals("你", e.query("ni", 10).first().word) // 一次使用不足以跨档
-        e.onCommitted("你好")
-        assertEquals("你好", e.query("ni", 10).first().word) // 两次后跨档
+        e.onCommitted("妮")
+        e.onCommitted("妮")
+        assertEquals("妮", e.query("ni", 10).first().word) // 两次使用后档位内置顶(同档词频接近)
+    }
+
+    @Test
+    fun `用户词频不跨档`() {
+        val e = engine(
+            "ni\t你\t500",
+            "nian\t年\t734437",
+        )
+        // "年"是前缀命中且词频极高;即使"年"被反复使用,饱和加成(上限 60 万)
+        // 也小于档位差(精确 400 万 - 前缀 250 万),永不越过精确命中
+        repeat(10) { e.onCommitted("年") }
+        assertEquals("你", e.query("ni", 10).first().word)
     }
 
     @Test

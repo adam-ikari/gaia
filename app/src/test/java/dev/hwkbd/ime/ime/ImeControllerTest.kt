@@ -334,17 +334,18 @@ class ImeControllerTest {
     @Test
     fun `长按候选删除用户词刷新排序`() {
         val r = rig()
-        repeat(2) { // 跨档需要两次使用
+        val prefixes = { r.c.state.candidates.filter { it.kind == dev.hwkbd.ime.engine.CandidateKind.PREFIX } }
+        repeat(10) { // 饱和加成下多次使用,让"你好"在其档(前缀)内置顶
             r.type("nihao")
             r.key(KeyEvent.KEYCODE_SPACE) // 选"你好"(前缀候选) → 频次加权
         }
         r.type("ni")
-        assertEquals("你好", r.c.state.candidates.first().word) // 被顶到第一(越过精确命中"你")
+        assertEquals("你", r.c.state.candidates.first().word) // 精确命中恒第一(档位稳定)
+        assertEquals("你好", prefixes().first().word) // 档内被顶到第一(压过词频更高的"年")
         val slot = r.c.state.pageItems().indexOfFirst { it.word == "你好" }
         r.c.removeUserWord(slot) // 长按删除
         assertEquals(0, r.c.userCountOf("你好")) // 用户频次清零
-        assertEquals("你", r.c.state.candidates.first().word) // 精确命中"你"回到第一
-        assertFalse(r.c.state.candidates.take(2).any { it.word == "你好" }) // "你好"跌出前二
+        assertEquals("年", prefixes().first().word) // 回落到档内词频最高的"年"
     }
 
     @Test
