@@ -4,7 +4,9 @@ import android.view.KeyEvent
 import dev.hwkbd.ime.engine.PinyinDict
 import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.keymap.KeyLayout
+import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.Layer
+import dev.hwkbd.ime.strategy.ChineseLanguage
 import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.strategy.PinyinInputMethod
@@ -210,6 +212,8 @@ class ImeControllerTest {
         val c = ImeController(h, layout, registry)
         val r = Rig(c, h)
         c.state.fieldKind = FieldKind.DATETIME
+        // 拼音态 L4 = 核心键(去掉 `$`) + l4Extras(`￥`)+ datetime 段,再过 producible 那把筛。
+        // `' ` 按不出 → 留;`￥` 拼音态 L2/L3 都能敲出 → 被筛掉(否则屏上会出现两把同义的键)。
         assertEquals(listOf("分隔"), c.l4Keys().map { it.label })
         // 物理键的 "-." 不在 datetime 合法单字符集、L4 也没显示它 → 吞
         assertTrue(r.key(kc('q')))
@@ -255,12 +259,15 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `中文态标点全角逗号句号`() {
-        // Titan2 无独立标点键:中文标点走 Alt 层 N=, B=.
+    fun `全角态固定键就是丝印符号的全角形态`() {
+        // Titan2 无独立标点键,标点走 Alt 层。全角态把丝印上那个字符换成全角形态,
+        // 位子一位不挪 —— Alt+P(印 `:`)敲 `：`,Alt+B(印 `.`)敲 `。`。
+        // 2026-09-29 中间两版都栽在这:一版把中文标点按"读着顺"摊开(16 把里 12 把错位),
+        // 一版全角态直接铺 31 个中文标点(丝印同样对不上)。用户两次报障。
         val r = rig()
-        r.key(KeyEvent.KEYCODE_ALT_LEFT); r.key(kc('n'))
-        r.key(KeyEvent.KEYCODE_ALT_LEFT); r.key(kc('b'))
-        assertEquals(listOf("\uFF0C", "\u3002"), r.h.commits)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT); r.key(kc('p')) // 丝印 :
+        r.key(KeyEvent.KEYCODE_ALT_LEFT); r.key(kc('b')) // 丝印 .
+        assertEquals(listOf("\uFF1A", "\u3002"), r.h.commits)
     }
 
     // ---------------------------------------------------------------- 选字/翻页
@@ -528,20 +535,238 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `中文态 L2 标点全角`() {
+    fun `中文态 L2 标点位是中文`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
         r.key(kc('t'))
-        assertEquals(listOf("\uFF08"), r.h.commits) // Alt 层 T=( → 全角(
+        assertEquals(listOf("\uFF08"), r.h.commits) // 全角态 Alt+T:丝印 `(` → 全角（
     }
 
     @Test
     fun `英文态 L2 输出半角符号`() {
         val r = rig()
-        r.key(KeyEvent.KEYCODE_SPACE, shift = true)
+        r.key(KeyEvent.KEYCODE_SPACE, shift = true) // 切英文
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(kc('w'))
-        assertEquals(listOf("1"), r.h.commits)
+        r.key(kc('t'))
+        assertEquals(listOf("("), r.h.commits) // 半角,不受拼音态那张表影响
+    }
+
+    // ---------------- L2/L3 固定键跟着语言切换(2026-09-29 用户定案)
+
+    @Test
+    fun `半角态 L2 L3 就是键位表出厂值 也就是键盘上印着的`() {
+        // 半角态 = **按眼所见**:那颗「全/半」开关切过去之后,Alt/Sym 每把键都该敲出
+        // 键盘上印着的那个字符。层表返回 null 就是这个意思(见 ChineseLanguage.layerMap)。
+        val layout = KeyLayout.default()
+        for (layer in listOf(Layer.L2, Layer.L3)) {
+            assertNull("$layer 半角态不该有语言专属层表", ChineseLanguage.layerMap(layer, fullWidth = false))
+        }
+        val r = rig()
+        r.c.fullWidthSymbolsInCn = false
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(kc('b')) // 丝印 `.`
+        r.key(kc('n')) // 丝印 `,`
+        r.key(kc('t')) // 丝印 `(`
+        assertEquals(listOf(".", ",", "("), r.h.commits)
+        // 丝印没印的那些(L2 的数字位)也照旧
+        r.key(kc('q'))
+        assertEquals(listOf(".", ",", "(", "0"), r.h.commits)
+        assertEquals(layout.mapFor(Layer.L2).size, 26) // 出厂表本身没被动过
+    }
+
+    @Test
+    fun `全角态 L2 每把键只是丝印符号的全角形态`() {
+        // 硬件键盘,Alt 层的字符就印在键上。全角态只许"同一个字符换宽",不许换字 ——
+        // 印着 `:` 的键(Alt+P)必须敲 `：`,印着 `.` 的键(Alt+B)必须敲 `。`。
+        // 2026-09-29 中间两版都栽在这:一版把中文标点按"读着顺"摊开(16 把里 12 把错位),
+        // 一版全角态直接铺 31 个中文标点(丝印同样对不上)。用户两次报障。
+        val factory = KeyLayout.default().mapFor(Layer.L2)
+        val cn = ChineseLanguage.layerMap(Layer.L2, fullWidth = true)!!
+        var checked = 0
+        for ((code, out) in cn) {
+            val printed = factory[code] as? KeyOut.Text ?: continue
+            if (printed.text.length != 1) continue
+            val got = (out as KeyOut.Text).text
+            assertEquals(
+                "Alt+${letterOf(code)} 丝印 ${printed.text} 却敲出 $got —— 字换了,应该只是换宽",
+                wideOf(printed.text[0]),
+                got,
+            )
+            checked++
+        }
+        assertEquals("16 个符号位(10 个数字位不在表里)", 16, checked)
+    }
+
+    @Test
+    fun `全角态 L3 成对符号换中文那一个 其余只换宽`() {
+        val factory = KeyLayout.default().mapFor(Layer.L3)
+        val cn = ChineseLanguage.layerMap(Layer.L3, fullWidth = true)!!
+        assertEquals("15 个符号位", 15, cn.size)
+        fun at(ch: Char) = (cn[KeyEvent.KEYCODE_A + (ch - 'a')] as KeyOut.Text).text
+        // 成对符号换的是**中文里真正用的那一个**,不是 Unicode 的全角区块(用户 2026-09-29
+        // 定案:「中文状态 `<>` 对应的应该是 `《》,`[]` 对应 `【】,同理」)。中文排版里这两对
+        // 就是书名号与方头括号,写成全角 `＜＞［］` 没人用。
+        assertEquals("《", at('t'))
+        assertEquals("》", at('y'))
+        assertEquals("【", at('g'))
+        assertEquals("】", at('h'))
+        // 其余一律机械全角 +0xFEE0
+        for (ch in "efujzxcb n".filter { it in 'a'..'z' }) {
+            val printed = factory[KeyEvent.KEYCODE_A + (ch - 'a')] as KeyOut.Text
+            assertEquals(
+                "Sym+$ch 丝印 ${printed.text} 却敲出 ${at(ch)}",
+                wideOf(printed.text[0]),
+                at(ch),
+            )
+        }
+        // 币种位:半角/英文敲 `$`,拼音全角敲 `￥` —— 币种是唯一不随标点全角变的一类,
+        // 归物理键承担,状态行那把核心 `$` 因此退场(屏上不出现第二把币种键)
+        assertEquals("￥", at('r'))
+    }
+
+    @Test
+    fun `Sym 加 R 是币种位 半角英文敲美元 拼音全角敲人民币`() {
+        fun symTwice(r: Rig) {
+            r.key(KeyEvent.KEYCODE_SYM)
+            r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+            r.key(KeyEvent.KEYCODE_SYM)
+            r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁 L3
+        }
+
+        val full = rig()
+        symTwice(full)
+        full.key(kc('r'))
+        assertEquals("拼音全角态 Sym+R", listOf("￥"), full.h.commits)
+
+        val half = rig()
+        half.c.fullWidthSymbolsInCn = false
+        symTwice(half)
+        half.key(kc('r'))
+        assertEquals("半角态 Sym+R", listOf("$"), half.h.commits)
+
+        val en = rig()
+        en.key(KeyEvent.KEYCODE_SPACE, shift = true) // 切英文
+        symTwice(en)
+        en.key(kc('r'))
+        assertEquals("英文态 Sym+R", listOf("$"), en.h.commits)
+
+        // 币种归物理键,状态行就不该再摆一把(拼音态两态都不摆)
+        for (fw in listOf(true, false)) {
+            val c = rig()
+            c.c.fullWidthSymbolsInCn = fw
+            val labels = c.c.l4Keys().map { it.label }
+            assertFalse("全角开关=$fw 时状态行都不该有币种键", labels.contains("￥"))
+            assertFalse("全角开关=$fw 时状态行都不该有币种键", labels.contains("$"))
+        }
+    }
+
+    /**
+     * 丝印那个 ASCII 字符在中文态该敲出什么。
+     *
+     * 三个特例,其余 ASCII(0x21-0x7E)一律 +0xFEE0 落进全角区块:
+     * - `.` → `。`(**不是**全角句点 `｡`):中文句号是 U+3002,全角句点长得对但没人用;
+     * - `"` → `”`、`'` → `’`:**不是**全角引号 `＂` `＇`,中文引号是弯的(左引号在 L4);
+     * - **不是 ASCII 的原样不动** —— 全角区块只覆盖 U+FF01-U+FF5E(`©` 压根不在其中)。
+     */
+    private fun wideOf(c: Char): String = when {
+        c == '.' -> "。"
+        c == '"' -> "”"
+        c == '\'' -> "’"
+        c.code !in 0x21..0x7E -> c.toString()
+        else -> (c.code + 0xFEE0).toChar().toString()
+    }
+
+    private fun letterOf(code: Int): String =
+        if (code in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) ('a' + (code - KeyEvent.KEYCODE_A)).toString()
+        else "code=$code"
+
+    @Test
+    fun `中文态 L2 数字位原样 九宫格不动`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(kc('q')) // 0
+        r.key(kc('w')) // 1
+        // 数字位必须原样:数字类输入框锁 L2 直接输数字(见 FieldProfile.digitsOnly),
+        // 中文标点换了内容也不能把数字挪走
+        assertEquals(listOf("0", "1"), r.h.commits)
+    }
+
+    @Test
+    fun `全角态 L3 敲出丝印符号的全角形态`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁 L3
+        r.key(kc('e')) // 丝印 ~ → 全角 ～
+        assertEquals(listOf("～"), r.h.commits)
+        r.key(kc('z')) // 丝印 \ → 全角 ＼
+        assertEquals(listOf("～", "＼"), r.h.commits)
+    }
+
+    @Test
+    fun `半角态 L3 仍是出厂编程符号`() {
+        // 「全/半」开关切到半角,Sym 就回到键盘上印着的那一层
+        val r = rig()
+        r.c.fullWidthSymbolsInCn = false
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(kc('t')) // 丝印 <
+        r.key(kc('e')) // 丝印 ~
+        assertEquals(listOf("<", "~"), r.h.commits)
+    }
+
+    @Test
+    fun `中文态 L3 功能键位保留 Tab`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(kc('p')) // 出厂 L3 的 p = key:tab,中文标点表不能把它顶掉
+        assertEquals(listOf("${KeyEvent.KEYCODE_TAB}/false/false"), r.h.keys)
+    }
+
+    @Test
+    fun `英文态 L3 仍是编程符号`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_SPACE, shift = true)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(KeyEvent.KEYCODE_SYM)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        r.key(kc('t')) // 出厂 L3 的 t = <
+        assertEquals(listOf("<"), r.h.commits)
+    }
+
+    @Test
+    fun `关掉中文全角开关 拼音态 L2 退回半角`() {
+        val r = rig()
+        r.c.fullWidthSymbolsInCn = false
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(kc('t'))
+        // 设置里的「中文全角」说的就是"中文态标点要不要全角"。拼音表硬编码全角的话,
+        // 这个开关按了没反应 —— 死开关比没有更坏(用户以为生效了,打出的是全角)
+        assertEquals(listOf("("), r.h.commits)
+    }
+
+    @Test
+    fun `数字类输入框绕过中文表 照旧用出厂 ASCII 槽位`() {
+        // 数字类的合法字符集是照着**出厂 ASCII L2 槽位**定的(`- . + * # / :` 各占一键),
+        // 中文表把那些位换成了中文标点。日期框要是跟着换,就输不出 `/`;芯片上的 `0-9-/:`
+        // 也跟着说谎。数字框本来就没有"语言"可言 —— 必须走键位表出厂值。
+        val r = rig()
+        r.c.setFieldKind(FieldKind.DATETIME)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(kc('o')) // 出厂 L2 o = /
+        r.key(kc('p')) // 出厂 L2 p = :
+        assertEquals(listOf("/", ":"), r.h.commits)
+        r.c.setFieldKind(FieldKind.PHONE)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(kc('j')) // 出厂 L2 j = +
+        assertEquals(listOf("/", ":", "+"), r.h.commits)
     }
 
     @Test

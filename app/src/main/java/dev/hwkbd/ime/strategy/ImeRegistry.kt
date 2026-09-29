@@ -2,6 +2,7 @@ package dev.hwkbd.ime.strategy
 
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.L4Key
+import dev.hwkbd.ime.keymap.Layer
 
 /**
  * 策略注册表:语言 / 输入法 / 输入框表现三张表,加一种就 [register*] 一下,
@@ -72,18 +73,61 @@ class ImeRegistry {
      * 用户定案,推翻 2026-09-28"配置什么显示什么、程序不做筛选"——网址套手动去 `/` 的
      * "L2 键帽不进 L4"那把尺泛化到全部 L4)。L4 与 L5 共用本结果。
      */
-    fun l4Keys(layout: KeyLayout, kind: FieldKind, languageId: String): List<L4Key> {
+    fun l4Keys(
+        layout: KeyLayout,
+        kind: FieldKind,
+        languageId: String,
+        fullWidthSymbols: Boolean = true,
+    ): List<L4Key> {
         val profile = fieldProfile(kind)
         val combined = layout.l4Combined(profile.l4ProfileId)
+        val lang = language(languageId)
         val keys = LinkedHashMap<String, L4Key>()
         val list = profile.l4CoreKeys + combined
-        for (k in language(languageId).l4Extras + list) {
+        // 语言补差键跟核心键走**同一把合法性尺**:数字类的 [FieldProfile.l4CoreKeys] 是空的
+        // (核心键在该框全非法),补差键也该一起退场 —— 数字框里摆一把省略号是荒谬的。
+        // 核心键的合法性由各 profile 手圈([FieldKind] 按 RFC 3986/5322 圈网址/邮箱),
+        // 补差键是语言自己的,不在那把圈里,只能靠这档一起收。
+        val extras = if (profile.digitsOnly) emptyList() else lang.l4Extras(fullWidthSymbols)
+        // **固定核心键排最前,语言补差键排最后**(用户 2026-09-29 定案,推翻 2026-09-28
+        // 「这类由输入法注册的 L4 虚拟按键应该显示在最左侧」)。核心键是常驻的那一把分号,
+        // 该在第一眼的位置;补差键是**冷门符号**,排最后意味着行宽不够时它们先被推进 L5
+        // —— 常用键留在 L4,这是排序要的效果。
+        //
+        // 核心键**整把交给语言处置**([Language.coreKeys]:可换键帽与输出、可退场),且必须在
+        // 去重**之前**:核心键会同时出现在 [FieldProfile.l4CoreKeys] 和 [KeyLayout.l4Combined]
+        // 里(默认套 = 核心键 + 自定义键),处置晚了同一把会以两个不同身份各留一把。
+        val core = lang.coreKeys(profile.l4CoreKeys, fullWidthSymbols)
+        // `combined` 里也含核心键(默认套 = 核心键 + 自定义键),必须**过同一遍**处置 ——
+        // 只处置 profile 那份的话,原始那把会从 combined 溜进来,屏上并排两把同标签的键
+        val rest = lang.coreKeys(combined, fullWidthSymbols)
+        for (k in core + rest + extras) {
             keys.putIfAbsent("${k.label} ${k.out.format()}", k)
         }
-        // L1-L3 已有的取值不进 L4(2026-09-29 定案,producible 复活为显示前的统一筛)
-        val producible = layout.producible()
+        // L1-L3 已有的取值不进 L4(2026-09-29 定案,producible 复活为显示前的统一筛)。
+        // 算的是**当前语言 + 当前开关下真正敲得出的**那批(见 [producible]),不是出厂表的并集。
+        // 还要算上**当前语言专属层表**里的取值,否则拼音态 L2/L3 已经能敲出 `《》`，`
+        // L4 上再摆一把同字的键就是重复(屏上看着两把,只有其中一把是活的)。
+        // [fullWidthSymbols] 得跟物理键那条路取同一个开关:关了全角时若还按全角表筛,
+        // `；` 这类会被误判成"L2 已能敲出"而整个消失,而那时 L2 恰恰敲不出它。
+        val producible = producible(layout, lang, fullWidthSymbols)
         return keys.values.filterNot { it.out.format() in producible }
     }
+
+    /**
+     * 当前语言 + 当前全角开关下,L1-L3 三层**真正能敲出**的取值。
+     *
+     * 逐层看:该层被 [Language.layerMap] 接管了就用那张表,否则用键位表出厂值。
+     * [KeyLayout.producible] 是**无条件的出厂视图**,不认语言也不认开关,直接拿来筛会误判 ——
+     * 出厂 L3 的 R 位是 `$`、拼音全角态那张表把它换成了 `￥`,两张表并起来的话全角态会
+     * 判定"`$` L1-L3 敲得出"而把状态行那把 `$` 筛掉,可那恰恰是全角态**唯一**能敲出 `$`
+     * 的地方(物理键给的是 `￥`)。
+     */
+    private fun producible(layout: KeyLayout, lang: Language, fullWidth: Boolean): Set<String> =
+        Layer.values().flatMap { l ->
+            val over = lang.layerMap(l, fullWidth)
+            if (over != null) over.values else layout.mapFor(l).values
+        }.map { it.format() }.toSet()
 
     companion object {
 

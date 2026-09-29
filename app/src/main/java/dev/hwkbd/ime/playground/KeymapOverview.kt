@@ -40,7 +40,28 @@ object KeymapOverview {
             appendLine(if (pairs.isEmpty()) "(空)" else pairs.joinToString("  "))
         }
 
-        val producible = layout.producible()
+        val lang = registry.language(registry.primaryLanguageId)
+        val producible = layout.producible() + lang.layerSymbols()
+        // 语言的专属层表(拼音态 L2/L3 换成中文标点)会盖掉上面那几行的部分槽位,
+        // 不单独列出来的话这份总览看着跟实际敲出来的不一样
+        val langLines = buildString {
+            for (layer in Layer.values()) {
+                val over = lang.layerMap(layer) ?: continue
+                val pairs = QWERTY.mapNotNull { name ->
+                    val code = KeyNames.NAME_TO_CODE[name.toString()] ?: return@mapNotNull null
+                    val out = over[code] ?: return@mapNotNull null
+                    "$name=${render(out)}"
+                }
+                if (pairs.isNotEmpty()) {
+                    appendLine("── ${layerNames.getValue(layer)}·${lang.chipLabel}态覆盖 ──")
+                    appendLine(pairs.joinToString("  "))
+                }
+            }
+        }
+        if (langLines.isNotEmpty()) {
+            appendLine("── 语言专属层表(盖在上面的物理三层之上)──")
+            append(langLines)
+        }
         appendLine("── L4 状态行中区(按输入框类型;L1-L3 已有的键不显示)──")
         for (kind in FieldKind.values()) {
             val keys = registry.l4Keys(layout, kind, registry.primaryLanguageId)

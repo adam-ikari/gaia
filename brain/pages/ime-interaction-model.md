@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-29T17:02:10"
+updated: "2026-09-29T22:51:51"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -342,4 +342,16 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "实验场新增「键位总览」按钮(2026-09-29 用户定案在应用中把"
   source: "用户 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T22:51:51
+  kind: decision
+  summary: "候选行**横滑翻页改成跟手拖动**(用户定案「翻页阈值也需要调整 …… 横向滑动没有到阈值的之后是跟手的动画,跟上滑动画一致,松手或者反向滑动可以反向动画」)。旧的是写死 24dp 的**抬手**判据:既不跟手,又在 598dp 宽的行上只占 4%、随手一碰就翻。新模型与上滑飞字同构:死区 = 行宽 6% → 跟手(位移 1:1,pageU)→ 松手过**行宽 1/3** 才提交,否则反向动画收回原页;正在播的动画可被下一次横滑**接管**(同向接着走、反向把旧页/新页对调且进度取镜像,画面不跳)。换算抽成纯函数 pageDragProgress/pageCommitPoint,单测 CandidateBarPageDragTest 钉住。相邻页槽由新增的 ImeState.pageSlotsAt(p) 提供(越界=那一侧没页)"
+  source: "用户定案 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T22:51:51
+  kind: decision
+  summary: "输入法隐藏时**大写/Alt(L2)/Sym(L3) 全部回到初始态**(用户定案)。新增 ImeController.resetLayers():lock/oneShot/hold 清空、shift 回 OFF、shiftHeld 清掉,连同长按与连击那套内部状态(holdMod/snapLock/snapOneShot/holdTapN/shift*/symDown/suppress*)一起清——那些记的是本次长按/连击的前置状态,跨过一次隐藏就该丢弃,否则下次长按 Alt 会去恢复一份过期快照。挂在 **onWindowHidden**(不是只挂收起三角),App 主动收键盘这条路径同样覆盖。语言与输入框类型不动(换框/换语言是 resetForNewInput / onStartInput 那套)"
+  source: "用户定案 2026-09-29"
   affects: [ime-interaction-model]

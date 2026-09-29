@@ -422,8 +422,13 @@ class ImeController(
      * 状态行 L4 中区的键序 = **当前语言注册的补差键排最左**(空则直接是键位套;拼音没有——
      * 分节符走 `v` 键,不占屏)**接输入类型选的键位套**(网址框 → http:// 等)。
      * UI 按 [l4Signature] 变化才重建面板。
+     *
+     * 「中文全角」开关一并传下去:拼音态的 L2/L3 层表随它整体切到中文标点或退回 ASCII
+     * ([Language.layerMap]),L4 那把"L1-L3 敲不出就不显示"的筛必须用同一份表,
+     * 否则关了全角会把 `；` 这类误判掉、屏上一个分号都敲不出。
      */
-    fun l4Keys(): List<L4Key> = registry.l4Keys(layout, state.fieldKind, state.languageId)
+    fun l4Keys(): List<L4Key> =
+        registry.l4Keys(layout, state.fieldKind, state.languageId, fullWidthSymbolsInCn)
 
     /**
      * [l4Keys] 是否要重建键帽的判定依据 = **键序内容的 hash**(2026-09-29 用户定案)。
@@ -503,6 +508,41 @@ class ImeController(
         host.render()
     }
 
+    /**
+     * **大写 / Alt(L2) / Sym(L3) 全部回到初始态**(2026-09-29 用户定案,输入法隐藏时调用):
+     * L1、无锁定、无一次性、长按层解除、大写关,连同长按/连击那套内部状态一起清干净。
+     *
+     * 与 [resetForNewInput] 的分工:那个刻意**保留**模式与层(换一个输入框不该丢用户选的层);
+     * 这个是给"窗口都收起来了"用的——锁定过的 L2、开着的大写若原样留着,下次弹出来会莫名其妙
+     * 还停在那个态,状态芯片也会显示一个用户根本没在用的层。语言与输入框类型不动。
+     *
+     * 内部那些 hold/snap/suppress 字段必须一起清:它们记的是"这次长按/连击的前置状态",
+     * 跨过一次隐藏就该丢弃,否则下一次长按 Alt 会去恢复一份早已过期的快照。
+     */
+    fun resetLayers() {
+        state.lock = null
+        state.oneShot = null
+        state.hold = null
+        state.shift = ShiftState.OFF
+        state.shiftHeld = false
+        holdMod = null
+        holdCode = 0
+        holdAt = 0L
+        holdUsed = false
+        snapLock = null
+        snapOneShot = null
+        holdTapN = 0
+        shiftHolding = false
+        shiftHeldCode = 0
+        shiftHeldAt = 0L
+        shiftUsedAsModifier = false
+        symDown = false
+        symProducedKey = false
+        suppressNextTap = null
+        suppressUntil = 0L
+        host.render()
+    }
+
     /** onUpdateSelection 发现组词区被外部破坏时调用。 */
     fun abandonComposition() {
         clearComposition()
@@ -578,11 +618,22 @@ class ImeController(
             } else false
         }
 
-        val out = layout.lookup(layer, code) ?: return false
+        // 层键表:先问**当前语言的专属表**([Language.layerMap],拼音态的 L2/L3 换成中文标点),
+        // 没有再用键位表的出厂值。没这一层时语言切换只影响字母与 L4,固定键的符号还是 ASCII。
+        //
+        // **数字类绕过语言表**([FieldProfile.digitsOnly]):那一档的合法字符集是**照着出厂
+        // ASCII L2 的槽位**定的(数字位 + `- . + * # / :` 各占一键),芯片上的 `0-9-/:`
+        // 也是照它标的。中文表把那些槽位换成了《》（》,再套上去日期框就输不出 `/`、电话框
+        // 输不出 `+`,芯片也跟着说谎。数字框本来就没有"语言"可言,走键位表出厂值。
+        //
+        // 「中文全角」开关一并传下去:关掉时拼音的整张层表退回出厂 ASCII,那个开关才不是
+        // 死开关(见 [Language.layerMap])。
+        val lang = language()
+        val layerMap = if (digitsOnly) null else lang.layerMap(layer, fullWidthSymbolsInCn)
+        val out = layerMap?.get(code) ?: layout.lookup(layer, code) ?: return false
 
         when (out) {
             is KeyOut.Text -> {
-                val lang = language()
                 // 策略先改写按键文本(拼音:组词中的 v → 分隔符 `'`),再走组词/上屏两条路
                 val text = lang.mapText(out.text, state)
                 // 数字类限定合法字符(0-9 + 该类型放行的单字符 + L4 显示的键输出):其余吞掉,

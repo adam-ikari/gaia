@@ -3,8 +3,9 @@
   输入法根视图:48dp 单行两态(FrameLayout 叠放,按输入状态二选一显示)
   - 组词中:候选行(整行候选)——飞字/选字目标尽量大,状态行(含 L4)整行让位;
     上方浮一条拼音(部分 App 自己不渲染 composing 区),拼音条不占 insets
-  - 空闲时:状态行三区——左=状态芯片(拼/En + 大写占位 + 常显的 alt/sym 层芯片),中=L4(固定核心键+
-    自定义键,不滚动、填满中区、左右各 6dp 对称边距),右=按钮(宽≥高)
+  - 空闲时:状态行三区——左=状态芯片(语言 拼/En + 大写「A」+ 层芯片 alt/sym,只显已触发的),
+    中=L4(固定核心键+自定义键,不滚动、填满中区、左右各 6dp 对称边距),右=按钮
+    (左右两区都定死 [dimen/bar_side_box] 且等宽,中区是唯一带权重的格子)
   组词中 touchable 区扩到全屏接飞字。
   高度取 48dp 而非更细的 36dp:芯片/键帽/按钮都要够得着(触摸目标 ≥34dp)。
 -->
@@ -42,22 +43,44 @@
 
     <!--
       L5 虚拟按键层:**状态栏上方**的独立键帽行(2026-09-29 用户定案)。
-      装 L4 一行自然宽放不下的溢出尾巴(键帽与状态行 L4 同款);**左侧对齐、键宽用自然宽**
-      (与 L4 的居中/两端对齐不同:尾行是 L4 的续页,靠左才读成同一条序列);
-      齿轮左侧键盘图标点按切显隐——无溢出时 GONE、组词态整行让位。背景与状态行同款(运行时同步主题色);
-      内边距对齐状态行**可见内容**左右缘:左 = 安全区 16dp + 芯片 4dp = 20dp(En 芯片左缘)、
-      右 = 安全区 16dp + 收起键 marginEnd 6dp = 22dp(收起三角右缘)。
-      键帽**贴行底**(tailMode 时 gravity 底对齐):与下方状态行键间距 12dp→6dp(2026-09-29);
-      行高 **42dp**(不是 48dp):键仍是 36dp 与状态行同款,贴底后上边正好 6dp——
-      原 48dp 行会空出 12dp 上边距,用户嫌太宽(2026-09-29)。上下留白因此都是 6dp。
+      装 L4 一行自然宽放不下的溢出尾巴(键帽与状态行 L4 同款),由齿轮左侧键盘图标切显隐;
+      无溢出时 GONE、组词态整行让位。**版式与 L4 中区完全一致**(等宽槽:间距 4dp、
+      槽宽 = min(填充值, 72dp 封顶),铺满则两端对齐、封顶则整组居中)——**居中**是 2026-09-29
+      用户定案(推翻当天的"左对齐 + 自然宽"):左右内边距取**相等**的 [dimen/l5_side_inset],
+      行中线因此正好落在屏幕中点上,也就是 L4 中区的中线(左右两区等宽 + L4 自身对称 6dp ⇒
+      那个中线 = 屏幕中线)。等宽槽 ⇒ **要么相邻两键的边缘接在中点(偶数把)、要么正中一把键的
+      中心对在中点(奇数把)**,和 L4 读成同一个版式。
+      背景是**薄底色**(`[ImeService.applyPrefs]` 按主题同步):底下 App 的颜色透上来,
+      于是 L5 看着和应用背景一致(2026-09-29 用户定案「L5 从应用取色」)。严格意义的"取色"
+      做不到——输入法与 App 跨进程拿不到背后像素,只能"透过来"。透得很彻底而字仍可读,是因为
+      **键帽自带不透明底**,文字压在键帽上,透出来的只有键间与行边缘的空隙。
+      键帽**上下居中**,行高 **48dp**:键 36dp 上下各 6dp,**到状态行键帽净距 12dp**。
     -->
     <dev.hwkbd.ime.ui.L4PanelView
         android:id="@+id/l5_panel"
         android:layout_width="match_parent"
-        android:layout_height="42dp"
-        android:background="@color/status_bg"
-        android:paddingStart="20dp"
-        android:paddingEnd="22dp"
+        android:layout_height="48dp"
+        android:background="@color/l5_tint"
+        android:paddingStart="@dimen/l5_side_inset"
+        android:paddingEnd="@dimen/l5_side_inset"
+        android:visibility="gone" />
+
+    <!--
+      L5 行与状态行之间的**分割线**(1dp,主题分隔线色,运行时同步,见 [ImeService.applyPrefs]):
+      2026-09-29 用户定案「L5 和状态栏之间加一条分割线」。之前两排同色实心、只靠 12dp 键帽间距
+      分开,读起来还是"一整条黑带",看不出 L5 是临时多出来的一排——这条线把"键盘的第二排"
+      和"常驻状态行"分开。
+      **通栏、不留左右外边距**:原先缩在 [dimen/bar_safe_edge] 以内,两端各露 16dp 底色
+      (用户报障「没有延伸到屏幕边缘,导致两侧漏出了底层颜色」)——线是**分隔整条带子**的,
+      两头断在半空反而像没画完。底部两角是物理圆角,但分割线离屏幕底边还有 48dp,
+      不在圆角影响的范围,通栏不会��裁。
+      显隐与 L5 行同步(见 [ImeService.syncL5]):L5 GONE 时这条线也 GONE,不留一道孤线。
+    -->
+    <View
+        android:id="@+id/l5_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/candidate_divider"
         android:visibility="gone" />
 
     <FrameLayout
@@ -77,30 +100,35 @@
             android:paddingEnd="@dimen/bar_safe_edge">
 
             <!--
-              左区:状态芯片。**宽度由权重固定**(0dp + weight),不随内容伸缩——
-              与右区按钮盒**等权重 0.4**(2026-09-29 用户定案,此前 0.6):芯片改成
-              "只显示已触发的状态"后最坏情况只有 语言+层+大写 三颗 34dp,右区固定三键 48dp,
-              两边都不需要那么宽 —— 压到 0.4/0.4/1.2 后 **L4 中区拿到约 60% 宽度**
-              (此前 45%),一行能多放一把键、少溢出到 L5。
-              **左右必须等宽**:chip_row 与 btn_row 的 weight 相等 ⇒ L4 到屏幕左右两侧距离相等;
-              L4 自己再留对称的 6dp 外边距(见 l4_panel 的 marginStart/End)。
+              左区:状态芯片。**宽度定死 [bar_side_box]**,不随内容伸缩、也不用权重——
+              与右区按钮盒**等宽**(两者相等 ⇒ 中区 L4 到屏幕左右两侧距离相等,这是用户 2026-09-29
+              复核过的硬要求,见该 dimen 的注释)。**定死而不是权重**:权重的份额随屏宽漂移,
+              窄屏上必然装不下内容而反向外溢压住中区(Titan 2 上就撞过,见 btn_row 注释)。
+              装得下:最坏 3 颗 = 4(内边距)+34(语言)+3+20(大写「A」)+2+34(层)= 97dp ≤ 120dp
+              ——层芯片 alt/sym **互斥**(`effectiveLayer` 单值,只显生效的那个),数字态又同时
+              藏掉语言芯片和大写芯片,所以恒显最多三颗,不会变成四颗。
+              **第四颗 `chip_fullwidth`(全/半开关,仅拼音态)**:拼音态 `showShiftChip = false`,
+              大写芯片恒隐,它顶的是那颗的位置 —— 4+34+2+40+2+34 = 116dp,仍 ≤ 120dp。
               **只显示已触发的状态**:语言芯片恒显,层/大写没触发就 GONE。
               **芯片不可触摸**:切换一律走物理键(Alt / Sym / Shift / Shift+Space),
-              这排芯片是纯状态显示。文字芯片 34×34、间距 2dp、此内边距 4dp;
-              大写状态是 48dp 的 **Shift 上箭头图标**(与右区三键同款线稿,无背景);
+              这排芯片是纯状态显示 —— **例外是 `chip_fullwidth`**,它本来就是按钮(见该 View 注释)。
+              文字芯片 34×34、间距 2dp、此内边距 4dp;
               第一颗可见芯片不留起始间距(否则数字态的 `0-9` 比 `拼`/`En` 多 2dp)。
             -->
             <LinearLayout
                 android:id="@+id/chip_row"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/bar_side_box"
                 android:layout_height="match_parent"
-                android:layout_weight="0.4"
                 android:baselineAligned="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="4dp">
 
-                <!-- 芯片:34dp 见方起(minWidth=height,宽不小于高,用户 2026-09-28 定案)——EN 态四颗 = 4×34 + 3×2 + 4 = 146dp ≤ 安全区挤压后的左盒 ~148dp -->
+                <!--
+                  语言芯片:34dp 见方起(minWidth = height,宽不小于高,用户 2026-09-28 定案)。
+                  恒显(数字类藏掉,数字框没有语言可切),纯字符样式无背景块:主语言=主色字、
+                  非主语言=前景色字。
+                -->
                 <TextView
                     android:id="@+id/chip_mode"
                     android:layout_width="wrap_content"
@@ -116,10 +144,36 @@
                     android:textStyle="bold" />
 
                 <!--
-                  大写状态:**Shift 上箭头图标**,不是文字按钮(2026-09-29 用户定案
-                  "大小写状态标识改为shift上箭头符号 状态改为图标而不是带背景的按钮样式
-                  与状态栏右侧风格统一"):48dp 见方、无背景,scaleType=center 按 24dp 原尺寸画,
-                  和右区齿轮/键盘/收起三键同一套线稿。一次大写=描边,Caps 锁定=叠加实心底杆。
+                  **中文全角/半角开关**(2026-09-29 用户定案「拼音模式增加一个全角半角的切换
+                  按钮放在拼的右侧」)。左区其余芯片一律**不可触摸**(切换走物理键),这颗是
+                  例外:硬件键盘上没有"全角/半角"这个物理键,状态行是唯一的入口。
+
+                  文字标签「全」/「半」,标的是**当前状态**(不是"按了会变成什么"),
+                  跟右区齿轮/收起同一套按钮语言。宽度 40dp:拼音态 `showShiftChip = false`,
+                  大写芯片恒隐,左区最坏是 `拼(34) + 开关(40) + alt(34)` + 内边距/间距 = 116dp,
+                  装得进 [bar_side_box] 120dp —— 不必动 bar_side_box(动它等于同时改左右两区,
+                  见该 dimen 注释)。**只在拼音态显示**:英文态没有全角概念,数字类直接绕过
+                  语言表([ImeController] 的 digitsOnly 分支),两种情况下这颗都是死开关。
+                -->
+                <TextView
+                    android:id="@+id/chip_fullwidth"
+                    android:layout_width="40dp"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="2dp"
+                    android:clickable="true"
+                    android:focusable="false"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <!--
+                  大写状态:**文字标签「A」**,不是图标(2026-09-29 用户定案「大小写状态标识改为…状态改为
+                  文字而不是带背景的按钮样式,与状态栏右侧风格统一」),与层芯片同一视觉语言:
+                  Caps 锁定 = 主色 + 底部下划线,大写一次/按住中 = 主色/前景色无下划线。
+                  文字在 [ImeService.renderChips] 里设,这里只定盒子:20dp 见方(比 34dp 的语言/层
+                  芯片小一号,它不是可点的入口,大写是状态的一部分),左侧留 3dp 间距。
                   **大写生效才显示**;切换走物理 Shift 键,不可触摸。
                 -->
                 <TextView
@@ -138,8 +192,11 @@
                     android:visibility="gone" />
 
                 <!--
-                  层芯片:**该层生效才显示**,没触发就 GONE(2026-09-29 用户定案,此前两颗常显灰芯片)。
-                  锁定=实心,一次性/按住=描边;数字框里 alt 这颗文字换成实际可输字符集(0-9、0-9+*#…)。
+                  层芯片:**生效的那个才显示**,没触发就 GONE(2026-09-29 用户定案,此前两颗常显灰芯片),
+                  **alt 与 sym 互斥**(`effectiveLayer` 是单值,只显当前那一层)。
+                  锁定=加下划线,一次性/按住=无下划线(见 [ImeService.renderChip]);
+                  数字框里 alt 这颗文字换成实际可输字符集(`0-9`、`0-9+*#`、`0-9-/:` 等),
+                  比 34dp 见方宽也装得进 [bar_side_box]——数字态只剩这一颗。
                 -->
                 <TextView
                     android:id="@+id/chip_alt"
@@ -176,9 +233,9 @@
               中区:L4 键(**等宽槽**单行不滚动;间距固定 4dp,槽宽 = min(填充值, 72dp 封顶):
               键多/行窄 → 恰好铺满=两端对齐;键少/行宽 → 封顶收窄、整组居中;等宽+等距 ⇒
               中线恒过中心键心(奇数把)或中缝(偶数把))。横滑让给手势。
-              **到屏幕左右两侧距离相等**:靠 chip_row 与 btn_row 这两个**等权重 0.4** 的盒,
-              L4 自己再留对称的 6dp 外边距(和状态行两端 6dp 齐)——权重相等是等距的前提,
-              改任一侧的 weight 必须同时改另一侧。中区因此拿到约 60% 宽度。
+              **全条状态行唯一带权重的格子**(weight 1):左右两区都定死 [bar_side_box] 且等宽
+              ⇒ 中区拿到剩余宽度,**到屏幕左右两侧距离相等**——等宽是等距的前提,
+              改任一侧的宽度必须同时改另一侧(改 [dimen/bar_side_box] 一处即可)。
               内容 = 语言补差键 + 固定核心键 + 键位套,**只显示 L1-L3 敲不出的键**
               (L1-L3 已有的按键一律不进 L4,含数字态合法单字符——默认 L2 全有)。
               L4 必显(设置页开关已删、数字态也不隐藏):数字框显示键位套里的**短语组合**
@@ -194,18 +251,21 @@
                 android:visibility="visible" />
 
             <!--
-              右区:按钮(宽 ≥ 高 = 48dp 见方,和条同高,点击目标不小于高)。
-              齿轮用 scaleType=center 只按 24dp 原始尺寸画(24dp 线稿的墨迹 ≈16dp),
-              不再被 fitCenter 放大到 48dp——否则齿轮墨迹 ≈32dp,和 34dp 的芯片一样大,太抢眼。
-              这个盒子同样 **0dp + weight 0.4**,和左区 chip_row **等权重**(两者相等 →
-              中区 L4 到屏幕左右两侧距离相等,这是用户 2026-09-29 复核过的硬要求);
-              按钮靠 gravity=end 贴屏幕右缘,盒子多出来的部分挪到最左的键盘图标左侧。
+              右区:按钮。**宽度定死 [bar_side_box] = 3 × [btn_size] = 120dp**,和左区 chip_row
+              **等宽**(等宽 ⇒ 中区 L4 到屏幕左右两侧距离相等,用户 2026-09-29 复核过的硬要求)。
+              **盒宽必须 ≥ 三键自然宽**,否则 LinearLayout 在 gravity=end 下把 childLeft 算成负数、
+              三个键整体向左反向外溢压住中区键帽——这正是 2026-09-29 用户报障的
+              「邮箱输入模式 L4 和右侧按钮重叠」:当时这个盒是 0.4 权重,Titan 2(598dp 宽)上只分到
+              123dp,却要装 3×48dp = 144dp,左溢 21dp;btn_l5 只在有溢出时显示,一显示就压住
+              L4 末键(实测键帽右缘 1087px、该键触摸框从 1052px 起)。**根因是盒装不下内容**,
+              调权重调更小只会外溢更多,正解是把键宽收到 [btn_size] 让内容正好装满盒子。
+              按钮靠 gravity=end 贴屏幕右缘:btn_l5 无溢出时 GONE,多出来的 40dp 挪到它左侧,
+              **齿轮/收起位置不跳**。
             -->
             <LinearLayout
                 android:id="@+id/btn_row"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/bar_side_box"
                 android:layout_height="match_parent"
-                android:layout_weight="0.4"
                 android:baselineAligned="false"
                 android:gravity="end"
                 android:orientation="horizontal">
@@ -217,7 +277,7 @@
             -->
             <ImageButton
                 android:id="@+id/btn_l5"
-                android:layout_width="48dp"
+                android:layout_width="@dimen/btn_size"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/btn_l5"
@@ -226,15 +286,14 @@
                 android:tint="@color/status_fg" />
 
             <!--
-              右区三键**同款 48dp 见方**(2026-09-29 用户定案"状态栏左侧和右侧统一风格"):
-              与左区芯片一样是等大方块、一样 48dp 行高、字形都按 scaleType=center 原尺寸画
-              (齿轮 24dp 线稿 ≈16dp 墨迹、键盘图标同理、收起三角 16dp)。
-              收起键原来 wrap_content + paddingEnd 6dp 的"三角贴右缘"做法一并去掉——
-              三角不再比另两个键窄,三个键等宽等高,右区视觉重量与左区一致。
+              右区三键**同款宽度 [btn_size] = 40dp**,行高与状态行同高(48dp)。
+              宽度从 48dp 收到 40dp 是 2026-09-29 用户定案:3 × 48dp = 144dp 装不进
+              [bar_side_box],在窄屏上会把 L4 末键压住(见 btn_row 注释);3 × 40 = 120dp 正好装满。
+              scaleType=center,字形按原始尺寸画(齿轮 24dp 线稿 ≈16dp 墨迹)不被拉伸。
             -->
             <ImageButton
                 android:id="@+id/btn_settings"
-                android:layout_width="48dp"
+                android:layout_width="@dimen/btn_size"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/app_name"
@@ -244,7 +303,7 @@
 
             <ImageButton
                 android:id="@+id/btn_hide_ime"
-                android:layout_width="48dp"
+                android:layout_width="@dimen/btn_size"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/btn_hide"

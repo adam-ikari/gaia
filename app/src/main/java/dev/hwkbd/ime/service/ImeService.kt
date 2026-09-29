@@ -49,6 +49,7 @@ class ImeService : InputMethodService() {
     private var chipAlt: TextView? = null
     private var chipSym: TextView? = null
     private var chipShift: android.widget.TextView? = null
+    private var chipFullWidth: TextView? = null
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
@@ -60,6 +61,9 @@ class ImeService : InputMethodService() {
     private var l5RowShown = false
     private var l5Composing = false
     private var l5Panel: dev.hwkbd.ime.ui.L4PanelView? = null
+
+    /** L5 行与状态行之间的 1dp 分割线:显隐跟 L5 行同步,颜色跟主题(见 [syncL5] 与 [applyPrefs])。 */
+    private var l5Divider: View? = null
     private var btnL5: ImageButton? = null
 
     private var candidateBar: CandidateBarView? = null
@@ -179,6 +183,7 @@ class ImeService : InputMethodService() {
         imeRoot?.flyHandler = { ev -> handleFlyMotion(ev) }
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
+        l5Divider = root.findViewById(R.id.l5_divider)
         chipMode = root.findViewById<TextView>(R.id.chip_mode).apply {
             // 语言芯片点击 = 切换拼音/En(锁定层时也能切;层芯片不响应触摸是另一套约定)
             setOnClickListener { controller.cycleLanguage() }
@@ -186,22 +191,47 @@ class ImeService : InputMethodService() {
         chipAlt = root.findViewById(R.id.chip_alt)
         chipSym = root.findViewById(R.id.chip_sym)
         chipShift = root.findViewById(R.id.chip_shift)
+        // 「全/半」开关:硬件键盘上没有这个物理键,状态行是唯一的入口(左区其余芯片不可触摸)。
+        // 写的是**同一个偏好**设置页那个开关在用 —— 一处改两处都跟着变,不存在两个真相。
+        chipFullWidth = root.findViewById<TextView>(R.id.chip_fullwidth).apply {
+            setOnClickListener {
+                val next = !controller.fullWidthSymbolsInCn
+                ImeRuntime.prefs.edit().putBoolean(PREF_FULLWIDTH, next).apply()
+                // 偏好监听器会回调 applyPrefs(),但 SharedPreferences 的 apply() 是异步落盘的,
+                // 立刻改内存值 + 走一遍渲染,点下去当场就变,不等回调
+                controller.fullWidthSymbolsInCn = next
+                updateUi()
+            }
+        }
         preeditRow = root.findViewById(R.id.preedit_row)
         l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
             tailMode = true // L5 行 = L4 装不下的尾巴([tailFrom] 起)+ 用户短语(排在后面)
             onL4Key = { controller.commitL4Key(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
+            onPageChange = { p, total ->
+                // 页数可能随输入类型/主题变少,夹一下免得指到不存在的页
+                if (p >= total) page = (total - 1).coerceAtLeast(0)
+            }
+            // 横滑翻页(2026-09-29 用户定案选方案 2,和候选行手感统一):
+            // 页码**夹住不循环** —— 与候选行一致(候选行到头就停),横滑也该有头有尾。
+            // 键盘图标仍是循环前进(见 btnL5),两条路各按各的直觉。
+            onSwipePage = { delta -> stepL5Page(delta) }
         }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
             onL4Key = { controller.commitL4Key(it) }
             onOverflowChange = { hasL5, cut ->
                 l5HasOverflow = hasL5
                 if (!hasL5) l5RowShown = false // 没溢出了就收回,避免下次出现时自动弹开
-                l5Panel?.tailFrom = cut
-                l5Panel?.requestLayout()
+                l5Panel?.apply {
+                    tailFrom = cut
+                    page = 0 // 键序变了(换输入框/换语言)→ 回到第 0 页,否则停在旧的第 N 页
+                    requestLayout()
+                }
                 syncL5()
             }
         }
-        // 齿轮左侧键盘图标:点按切换**状态栏上方 L5 行**的显隐(无溢出时不出现)
+        // 齿轮左侧键盘图标:**只**控制 L5 行的显示/隐藏(2026-09-29 用户定案)。
+        // 翻页一律走 L5 行上的横滑(见 [stepL5Page]),图标不再兼做翻页——两件事分开,
+        // 图标的语义就只有一个,不用猜"我现在是展开着还是翻到第几页"。
         btnL5 = root.findViewById<ImageButton>(R.id.btn_l5).apply {
             setOnClickListener {
                 l5RowShown = !l5RowShown
@@ -263,6 +293,21 @@ class ImeService : InputMethodService() {
     override fun onFinishInput() {
         ImeRuntime.saveUserDict(this)
         super.onFinishInput()
+    }
+
+    /**
+     * 输入法窗口被收起(收起三角 / App 主动 `hideSoftInput` / 焦点离开)时,**大写与 Alt/Sym
+     * 全部回到初始态**(2026-09-29 用户定案):L1、无锁定、无一次性、大写关。
+     * 窗口都不在了还留着个锁定的 L2 或开着的大写,下次弹出来会停在一个用户没在用的态上,
+     * 状态芯片也会显示它。语言与输入框类型保持不变(换框/换语言是另一套逻辑,见
+     * [dev.hwkbd.ime.ime.ImeController.resetForNewInput] 与 [onStartInput])。
+     *
+     * 挂在 `onWindowHidden` 而不是只在收起三角那一下清:App 自己收键盘是同样常见的路径,
+     * 只挂按钮会漏掉它。
+     */
+    override fun onWindowHidden() {
+        controller.resetLayers()
+        super.onWindowHidden()
     }
 
     // ------------------------------------------------------------------ 键事件
@@ -338,6 +383,25 @@ class ImeService : InputMethodService() {
         outInsets.contentTopInsets = loc[1]
         outInsets.visibleTopInsets = loc[1]
         outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_FRAME
+    }
+
+    /**
+     * L5 行翻页(**只由横滑触发**,2026-09-29 用户定案「键盘图标只控制 L5 的显示和隐藏」):
+     * `delta = +1` 下一页 / `-1` 上一页,**夹住不循环**——到头就停,并给一次轻震,
+     * 和候选行翻页的手感对齐(那边也是 [ImeController.pageStep] 里的 `coerceIn`)。
+     */
+    private fun stepL5Page(delta: Int) {
+        val p = l5Panel ?: return
+        val total = p.pageCount
+        if (total <= 1) return
+        val next = (p.page + delta).coerceIn(0, total - 1)
+        if (next == p.page) {
+            // 已在首/末页还往那个方向滑:给一次轻震,和候选行"翻不动"的手感对齐
+            p.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+            return
+        }
+        p.page = next
+        p.requestLayout()
     }
 
     private fun applyWindowMode(composing: Boolean) {
@@ -549,7 +613,15 @@ class ImeService : InputMethodService() {
         candidateBar?.setTheme(theme)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
-        l5Panel?.setBackgroundColor(theme.barBg)
+        // L5 行是**薄底色**,不是实心:底下 App 的颜色透上来,看起来和应用背景一致
+        // (2026-09-29 用户定案「L5 从应用取色」)。严格意义的"取色"做不到——输入法与 App
+        // 跨进程,拿不到背后的像素,`EditorInfo` 也没有背景色字段,所以这里只能是"透过来"。
+        // **能做到很透而字仍可读**,是因为键帽自带不透明底(见 [dev.hwkbd.ime.ui.L4PanelView.refresh]
+        // 的两路键帽色),文字压在键帽上,透出来的只有键与键之间、键与行边缘的空隙。
+        l5Panel?.setBackgroundColor(
+            (theme.barBg and 0x00FFFFFF) or (dev.hwkbd.ime.ui.L4PanelView.L5_TINT_ALPHA shl 24),
+        )
+        l5Divider?.setBackgroundColor(theme.divider) // 分割线取主题分隔线色
         l4PanelSig = null // 主题可能变了,下次渲染重建键帽
         updateUi()
     }
@@ -601,7 +673,8 @@ class ImeService : InputMethodService() {
      * 切换**全部走物理按键**(Alt / Sym / Shift),芯片不再响应触摸。
      * - 语言芯片(拼/En):恒显(数字类藏掉,数字只认 Alt 芯片);
      * - 层芯片:目标层生效才出现——锁定=实心、一次性/按住=描边;数字框里文字是实际可输字符集;
-     * - 大写芯片:大写生效才出现(CAPS 实心 `AB`,一次/按住描边 `Ab`)。
+     * - 大写芯片:大写生效才出现(CAPS 实心 `AB`,一次/按住描边 `Ab`);
+     * - 全/半开关:**拼音态恒显**(硬件键盘没这个物理键,状态行是唯一入口),点按即翻。
      */
     private fun renderChips(s: ImeState) {
         val t = theme
@@ -651,6 +724,23 @@ class ImeService : InputMethodService() {
                 } else {
                     background = null
                 }
+            }
+        }
+        // 「全/半」开关:**只在拼音态**显 —— 英文态没有全角概念,数字类直接绕过语言表
+        // ([ImeController] 的 digitsOnly 分支),这两种情况下它都是按了没反应的死开关。
+        // 文字标的是**当前状态**而不是"按了会变成什么",跟右区齿轮/收起同一套按钮语言。
+        if (digitsOnly || s.languageId != "zh") {
+            hideChip(chipFullWidth)
+        } else {
+            val fw = controller.fullWidthSymbolsInCn
+            chipFullWidth?.apply {
+                visibility = View.VISIBLE
+                text = if (fw) "全" else "半"
+                // 当前生效的那一面用主色,像层芯片的"锁定"那样一眼看出是哪个状态
+                setTextColor(if (fw) t.accent else t.fg)
+                contentDescription = context.getString(
+                    if (fw) R.string.fullwidth_on else R.string.fullwidth_off,
+                )
             }
         }
         alignFirstVisibleChip()
@@ -712,6 +802,8 @@ class ImeService : InputMethodService() {
         val rowVisible = enabled && l5RowShown && !l5Composing
         val cur = l5Panel?.visibility == View.VISIBLE
         l5Panel?.visibility = if (rowVisible) View.VISIBLE else View.GONE
+        // 分割线跟 L5 行同生共死:L5 GONE 时也 GONE,否则底部会留一道孤零零的横线
+        l5Divider?.visibility = if (rowVisible) View.VISIBLE else View.GONE
         if (rowVisible != cur) {
             notifyInsetsChanged()
             // 框架收 insets 后自己还会走一遍窗口尺寸更新,这里补一次**延迟**重排:

@@ -159,6 +159,9 @@ class KeyLayout(
          * 组合串要去就去 L3 或键位编辑器 [L4] 段自定义,状态行中区只留单字符标点。
          */
         val L4_CORE: List<L4Key> = listOf(
+            // 键帽是**出厂**的(键位表与语言无关),画全角 `；`。实际显示/输出哪一把由
+            // [dev.hwkbd.ime.strategy.Language.l4Replace] 按语言换:拼音态换全角 `；`、
+            // 英文态换半角 `;` —— 换的是整把键(标签+输出),所以两边键帽都不骗人。
             L4Key("；", KeyOut.Text(";")),
             L4Key("$", KeyOut.Text("\$")),
         )
@@ -180,14 +183,32 @@ class KeyLayout(
         val L4_CORE_EMAIL: List<L4Key> = L4_CORE.filter { it.label == "\$" }
 
         /**
-         * 出厂网址键位套:输入框是网址时的一键短语。量过状态行中区约 264dp、键宽下限 36dp,
-         * 这里只放最常用的三把(再加就该压键宽了),`[L4 url]` 段可整段改写。
+         * 出厂网址键位套:输入框是网址时的一键短语,**按常用度排序**(同 [L4_PROFILE_EMAIL_KEYS] 的思路):
+         * 前 5 把左右留在 L4 中区,装不下的尾巴落到 L5 行(齿轮左侧键盘图标翻页)。
+         *
+         * 2026-09-29 用户定案「给网址模式添加更多的扩展词组确保溢出到L5」:原来只有 3 把
+         * (`http://` `https://` `.com`),连同核心键 `； $` 一共 5 把,在中区 314dp 里**恰好铺满**
+         * (实测键帽 5×144px),于是**不溢出、键盘图标不出现**——L5 那套机制在网址框里等于没有出口。
+         * 扩充到 13 把(核心 2 + 这里 11)后必溢出。
+         *
          * **不放 `/`**——那是 L2 的键帽(Alt+o),L4 不重复(2026-09-28 用户定案)。
+         * 多字符短语天然 L1-L3 按不出,所以一定能过 [producible] 那把筛(见 [L4PanelView] 注释)。
+         * 后缀选的是真正常用的,`.xyz`/`.top` 那类垃圾后缀不收;`[L4 url]` 段可整段改写。
          */
         val L4_PROFILE_URL_KEYS: List<L4Key> = listOf(
             L4Key("http://", KeyOut.Text("http://")),
             L4Key("https://", KeyOut.Text("https://")),
+            L4Key("www.", KeyOut.Text("www.")), // 最常敲的裸域前缀
+            L4Key("localhost", KeyOut.Text("localhost")), // 本机调试/内网直连
+            L4Key("127.0.0.1", KeyOut.Text("127.0.0.1")), // 配 localhost 最常跟的一段
             L4Key(".com", KeyOut.Text(".com")),
+            L4Key(".cn", KeyOut.Text(".cn")),
+            L4Key(".net", KeyOut.Text(".net")),
+            L4Key(".org", KeyOut.Text(".org")),
+            L4Key(".io", KeyOut.Text(".io")),
+            L4Key(".dev", KeyOut.Text(".dev")),
+            L4Key(".app", KeyOut.Text(".app")),
+            L4Key(".co", KeyOut.Text(".co")),
         )
 
         /**
@@ -357,10 +378,16 @@ class KeyLayout(
                 "n" to ",", "m" to "?",
             )) l2[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.Text(s)
 
-            // L3 编程层(Sym):与可可扩展字符默认布局完全一致(功能键+成对括号相邻)
+            // L3 编程层(Sym):**本输入法自定义,没有丝印可对**——Titan 的 Sym 键官方说法是
+            // "弹出特殊符号列表,requires IME support",这一层的内容由输入法自己定。
+            // 早期版本照搬可可的扩展字符布局,连 `©` 也带了过来;`©` 既不是 Titan 键帽上的东西、
+            // 中文写作也几乎不用,2026-09-29 用户定案换成 `$`(用户原话:半角和英文态输 `$`)。
+            // **中文全角态这一格由 [dev.hwkbd.ime.strategy.ChineseLanguage] 改成 `￥`**
+            // ——同一个"钱"的位置,两态各给各的形态。
+            // 成对括号相邻是有意排的(< > 相邻、[ ] 相邻、{ } 相邻),写代码时顺手。
             val l3 = mutableMapOf<Int, KeyOut>()
             for ((k, s) in listOf(
-                "q" to "key:esc", "w" to "key:up", "e" to "~", "r" to "©",
+                "q" to "key:esc", "w" to "key:up", "e" to "~", "r" to "$",
                 "t" to "<", "y" to ">", "u" to "^", "i" to "key:pgup",
                 "o" to "key:pgdn", "p" to "key:tab",
                 "a" to "key:left", "s" to "key:down", "d" to "key:right", "f" to "%",

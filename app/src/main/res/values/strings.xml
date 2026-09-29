@@ -11,6 +11,9 @@
     <string name="shift_state">大写</string>
     <string name="shift_state_once">大写一次</string>
     <string name="shift_state_caps">大写锁定</string>
+    <!-- 状态行「拼」右侧那颗开关:文字标的是当前状态,这两个是给读屏用的说明 -->
+    <string name="fullwidth_on">中文标点：全角</string>
+    <string name="fullwidth_off">中文标点：半角</string>
     <!-- 上下文输入框:验"输入类型决定 L4 键位套 / 数字类锁定放行"用;提示精简,避免同排互相裁字 -->
     <string name="playground_url_hint">网址 textUri → L4 http://</string>
     <string name="playground_number_hint">数字 number → 锁 0-9</string>
@@ -40,7 +43,12 @@
     <string name="pref_swipe_select">候选栏上滑选字</string>
     <string name="pref_swipe_page">候选栏左右滑翻页</string>
     <string name="pref_keyboard_swipe">屏幕键盘上滑选字 / 左右滑翻页</string>
-    <string name="pref_theme">界面主题</string>
+    <!--
+      这一项改的是**键盘**的 7 套色板(见 ui/ImeTheme.kt),不是应用外壳的深浅色;
+      外壳跟着系统深色模式自动走(见 values/app_colors.xml + values-night/)。
+      所以文案要说"输入法主题",别叫"界面主题"——那会让人以为改的是设置页自己的颜色。
+    -->
+    <string name="pref_theme">输入法主题</string>
     <string name="pref_fly_threshold">飞字触发滑动距离</string>
     <string name="titan2_fn_hint_title">Titan 2 用户必读：Fn 键需设为 Ctrl</string>
     <string name="titan2_fn_hint_body">五键选字里的「Ctrl 单击」以及 Ctrl 组合键（Ctrl+C 等）依赖 Fn 键。\n\n请先在系统设置中把 Fn 键指派为 Ctrl：\n设置 → 快捷键与手势（或键盘设置）→ Fn 键 → 选「Ctrl」。\n\nAlt / Sym / Shift 无需设置，直接可用。</string>

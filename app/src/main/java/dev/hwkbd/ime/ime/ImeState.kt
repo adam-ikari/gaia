@@ -61,17 +61,40 @@ class ImeState {
      * 五键 Shift/Sym/空格/Ctrl/Alt 对应显示槽 0..4——紧邻空格的 Sym/Ctrl 拿 2/3,外侧拿 4/5。
      * (2026-09-28 用户定案,取代此前的"可可实测排列 2 5 1 4 3"。)
      */
-    fun currentPageLogical(): List<Candidate> {
+    fun currentPageLogical(): List<Candidate> = logicalAt(page)
+
+    /** 指定页号的候选(页号自动夹到有效范围)。 */
+    fun logicalAt(p: Int): List<Candidate> {
         if (candidates.isEmpty() || totalPages == 0) return emptyList()
-        val p = page.coerceIn(0, totalPages - 1)
-        val from = p * pageSize
-        val to = minOf((p + 1) * pageSize, candidates.size)
+        val pc = p.coerceIn(0, totalPages - 1)
+        val from = pc * pageSize
+        val to = minOf((pc + 1) * pageSize, candidates.size)
         return candidates.subList(from, to)
     }
 
-    /** 页内显示槽(固定 5 槽;空槽为 null)。满 5 用 4-2-1-3-5 排列,不足时同规则从中位向两侧紧凑补位。 */
+    /**
+     * 页内显示槽(固定 5 槽;空槽为 null)。满 5 用 4-2-1-3-5 排列,不足时同规则从中位向两侧紧凑补位。
+     *
+     * **页号要夹到有效范围**(走 [currentPageLogical]):候选集变小(又敲了一个字母)时 `page` 可能
+     * 暂时越界,这里必须兜住——直接越界返回空表会让候选行画出**五个空槽**而翻页箭头还亮着。
+     * 预览相邻页的 [pageSlotsAt] 才是"越界即没有那一页"的严格语义,两者别混。
+     */
     fun pageSlots(): List<Candidate?> {
         val pageList = currentPageLogical()
+        if (pageList.isEmpty()) return emptyList()
+        val order = displayOrder(pageList.size)
+        return Array(pageSize) { d ->
+            pageList.getOrElse(order[d]) { null }
+        }.toList()
+    }
+
+    /**
+     * **指定页**的显示槽——翻页拖动预览相邻页用(跟手翻页要提前把下一页/上一页的词摆出来,
+     * 见 [dev.hwkbd.ime.ui.CandidateBarView] 的翻页拖动);越界返回**空表**(那一侧就没有页)。
+     */
+    fun pageSlotsAt(p: Int): List<Candidate?> {
+        if (p < 0 || p >= totalPages) return emptyList()
+        val pageList = logicalAt(p)
         if (pageList.isEmpty()) return emptyList()
         val order = displayOrder(pageList.size)
         return Array(pageSize) { d ->

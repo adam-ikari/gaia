@@ -36,11 +36,14 @@ class KeyLayoutTest {
     }
 
     @Test
-    fun `L3 编程层默认映射与可可一致`() {
+    fun `L3 编程层默认映射 功能键成对括号相邻 R 位是币种`() {
         assertEquals(KeyOut.Special("esc"), d.lookup(Layer.L3, KeyEvent.KEYCODE_Q))
         assertEquals(KeyOut.Special("up"), d.lookup(Layer.L3, KeyEvent.KEYCODE_W))
         assertEquals(KeyOut.Text("~"), d.lookup(Layer.L3, KeyEvent.KEYCODE_E))
-        assertEquals(KeyOut.Text("©"), d.lookup(Layer.L3, KeyEvent.KEYCODE_R))
+        // R 位:出厂是 `$`(半角/英文态的币种符号),拼音全角态由 ChineseLanguage 换成 `￥`。
+        // 原先这里是从可可输入法搬来的 `©` —— 既不是 Titan 键帽上的东西、中文也几乎不用,
+        // 2026-09-29 用户定案换掉。
+        assertEquals(KeyOut.Text("$"), d.lookup(Layer.L3, KeyEvent.KEYCODE_R))
         assertEquals(KeyOut.Text("<"), d.lookup(Layer.L3, KeyEvent.KEYCODE_T))
         assertEquals(KeyOut.Text(">"), d.lookup(Layer.L3, KeyEvent.KEYCODE_Y))
         assertEquals(KeyOut.Special("pgup"), d.lookup(Layer.L3, KeyEvent.KEYCODE_I))
@@ -114,7 +117,7 @@ class KeyLayoutTest {
             emptyMap(),
             listOf(
                 L4Key("foo", KeyOut.Text("foo")),
-                L4Key("；", KeyOut.Text(";")), // 与核心键重复
+                L4Key("$", KeyOut.Text("\$")), // 与核心键重复(标签+输出都相同才算重复)
             ),
         ).l4Combined()
         assertEquals(KeyLayout.L4_CORE.size + 1, combined.size)
@@ -129,9 +132,16 @@ class KeyLayoutTest {
 
     @Test
     fun `L4 上下文键位套按字面返回 核心键并入由注册表决定`() {
-        // 出厂网址套 = 字面三把(不带 `/`——那是 L2 的键帽);并入哪些核心键由 FieldProfile.l4CoreKeys 决定
+        // 出厂网址套 = 按常用度排的字面键序(不含 `/`——那是 L2 的键帽)。
+        // 2026-09-29 用户定案「给网址模式添加更多的扩展词组确保溢出到 L5」:原来只有 3 把,
+        // 连同核心键共 5 把恰好铺满中区 314dp ⇒ 不溢出、键盘图标不出现。
+        // 并入哪些核心键由 FieldProfile.l4CoreKeys 决定。
         assertEquals(
-            listOf("http://", "https://", ".com"),
+            listOf(
+                "http://", "https://", "www.", "localhost", "127.0.0.1",
+                ".com", ".cn", ".net", ".org",
+                ".io", ".dev", ".app", ".co",
+            ),
             d.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label },
         )
         // 邮件套 = 字面键序(短域名后缀优先在前、完整域名在后——L4 优先显示后缀;

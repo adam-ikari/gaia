@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用外壳的**深色**取值(2026-09-29 用户定案「设置页面需要适配深色模式和模式」)。
+  覆盖 `values/app_colors.xml` 的同名色;系统切到深色模式时,`Theme.HwKbd` 引用的
+  就是这一组,于是设置页/探测页/实验场/键位编辑页一起跟着变。
+
+  这组就是原先硬编码在 `themes.xml` 里的那几个值,只是搬到了按配置选资源的位置——
+  之前主题声明 `Theme.AppCompat.DayNight.*` 却写死深色,浅色模式下**不会**变,正是那个 bug。
+-->
+<resources>
+    <color name="app_window_bg">#FF16181D</color>
+    <color name="app_surface">#FF1E2127</color>
+    <color name="app_primary">#FF3F4650</color>
+    <color name="app_primary_dark">#FF0F1114</color>
+    <color name="app_on_primary">#FFEDF0F5</color>
+    <color name="app_accent">#FFB66B4A</color>
+
+    <color name="app_text_secondary">#FF9AA1AC</color>
+    <color name="app_divider">#FF2A2E36</color>
+</resources>

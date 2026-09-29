@@ -45,12 +45,13 @@ class ImeRegistryTest {
     private class BracketLanguage(
         override val id: String,
         override val methodId: String,
-        override val l4Extras: List<L4Key> = emptyList(),
+        private val extras: List<L4Key> = emptyList(),
         private val compose: Boolean = false,
     ) : Language {
         override val chipLabel = "[$id]"
         override val showShiftChip = false
         override val shiftTapsEnabled = false
+        override fun l4Extras(fullWidth: Boolean): List<L4Key> = extras
         override fun composes(text: String, state: ImeState): Boolean =
             compose && text.length == 1 && text[0] in 'a'..'z'
 
@@ -173,9 +174,14 @@ class ImeRegistryTest {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
-            // 核心键子集并入(网址框 = `； $`,非法的 `\` 不进网址键帽)+ 输入类型选的键位套;
-            // 拼音没注册补差键——分节符走 v 键,不占 L4(`/` 也不放,L2 的)
-            listOf("；", "$") + listOf("http://", "https://", ".com"),
+            // 拼音态:固定核心键排最前(分号;币种归物理键所以核心 `$` 退场),然后是输入类型
+            // 选的键位套,最后才是语言补差键(冷门符号,行宽不够时先被推进 L5)。
+            // 分节符不上屏(L1 的 v 键才是)。`/` 也不放(出厂 L2 的 O 位就有)。
+            listOf("；") + listOf(
+                "http://", "https://", "www.", "localhost", "127.0.0.1",
+                ".com", ".cn", ".net", ".org",
+                ".io", ".dev", ".app", ".co",
+            ) + listOf("…", "——", "、", "「", "」", "『", "』", "〔", "〕", "※"),
             r.c.l4Keys().map { it.label },
         )
         // 数字框:核心键全非法被滤;合法单字符全在 L2(被 producible 筛掉,不上 L4),
@@ -220,12 +226,15 @@ class ImeRegistryTest {
     @Test
     fun `邮件框出美元键 短后缀在前完整域名在后`() {
         val r = rig()
+        r.c.state.languageId = "en" // 邮箱框默认英文态(见 FieldProfile.defaultLanguageId)
         r.c.state.fieldKind = FieldKind.EMAIL
         assertEquals(
-            // `$` 是 RFC 5322 atext 合法字符,进邮箱键帽(2026-09-29 定案);
+            // `$` 是 RFC 5322 atext 合法字符(2026-09-29 定案),但它是**物理键**——
+            // 出厂 L3 的 R 位就是它,按「L1-L3 敲不出的才上 L4」这把尺,它不上 L4;
+            // 邮箱框照样按 RFC 5322 的合法字符集放行它敲(见 FieldProfile.digitChars 那把尺的同源口径)。
             // 短域名后缀优先级高排前(占 L4),完整域名排后(L4 装不下的尾巴进 L5,同日定案)
             listOf(
-                "\$", ".com", ".net", ".org", ".cn", ".edu",
+                ".com", ".net", ".org", ".cn", ".edu",
                 "@gmail.com", "@hotmail.com", "@outlook.com",
             ),
             r.c.l4Keys().map { it.label },
@@ -235,6 +244,120 @@ class ImeRegistryTest {
         assertTrue(sigEmail == r.c.l4Signature())
         r.c.state.fieldKind = FieldKind.URL
         assertTrue(sigEmail != r.c.l4Signature())
+        // 切到拼音:多出「L1-L3 敲不出」的那批冷门符号,币种归物理键所以状态行没有它
+        r.c.state.languageId = "zh"
+        r.c.state.fieldKind = FieldKind.EMAIL
+        val zh = r.c.l4Keys().map { it.label }
+        assertTrue(zh.contains("…"))
+        assertFalse(zh.contains("￥"))
+        assertFalse(zh.contains("$"))
+    }
+
+    @Test
+    fun `核心键按语言换 键帽与输出始终一致`() {
+        val r = rig()
+        // 拼音态:核心分号换成全角输出(键帽画的也是全角,原先键帽全角却输出半角是骗人)
+        val zh = r.c.l4Keys()
+        assertTrue(zh.any { it.label == "；" && it.out == KeyOut.Text("；") })
+        // 英文态:半角 `;` + `$`,键帽与输出都对得上(出厂核心键键帽画的是全角,
+        // 英文态必须连键帽一起换,否则又是一把"画归正字敲出半角"的键)。
+        // `$` 两态都**不在** L4 —— 它是物理键:出厂 L3 的 R 位就是它(见 `Sym 加 R 是币种位`),
+        // 按「L1-L3 敲不出的才上 L4」这把尺,它两态都被筛掉。
+        r.c.state.languageId = "en"
+        val en = r.c.l4Keys()
+        assertTrue(en.any { it.label == ";" && it.out == KeyOut.Text(";") })
+        assertFalse("`$` 是物理键(Sym+R),不该在 L4", en.any { it.label == "\$" })
+        assertFalse(en.any { it.label == "；" })
+    }
+
+    @Test
+    fun `L4 装 L1-L3 敲不出的 成对符号在物理键 冷门符号在这儿`() {
+        val r = rig()
+        val labels = r.c.l4Keys().map { it.label }
+        // `《》【】` 上了物理键(Sym+T/Y/G/H),所以**不该**在状态行重复出现
+        for (k in listOf("《", "》", "【", "】")) {
+            assertFalse("Sym 就能敲出 $k,L4 不该重复摆", labels.contains(k))
+        }
+        // 真正没着落的都在这儿:省略号、破折号、顿号 + 冷门的 CJK 括号/引号那一族
+        for (k in listOf("…", "——", "、", "「", "」", "『", "』", "〔", "〕", "※", "；")) {
+            assertTrue("L1-L3 敲不出 $k,该在 L4", labels.contains(k))
+        }
+        // 引号有两把物理键(Alt+K / Alt+L)就够,不在状态行再摆
+        for (k in listOf("“", "‘", "”", "’")) {
+            assertFalse("引号 Alt+K/L 敲得出,L4 不该摆", labels.contains(k))
+        }
+        // 反证:能敲出的一个都不该上来,否则屏上两把同义的键、只有一把是活的
+        for (sym in listOf("（", "）", "：", "。", "，", "？", "！", "～", "＼", "＝")) {
+            assertFalse("L2/L3 已经能敲出 $sym,L4 不该重复摆", labels.contains(sym))
+        }
+    }
+
+    @Test
+    fun `半角态状态行上没有全角符号`() {
+        val r = rig()
+        r.c.fullWidthSymbolsInCn = true
+        val full = r.c.l4Keys().map { it.label }
+        assertTrue("全角态该有全角分号", full.contains("；"))
+        assertTrue(full.contains("…"))
+        // 切到半角:状态行上的字形必须跟着换 —— 摆一把全角符号在半角态是自相矛盾
+        // (用户 2026-09-29「半角的时候不应该有全角符号显示在 L4-L5 上」)
+        r.c.fullWidthSymbolsInCn = false
+        val half = r.c.l4Keys().map { it.label }
+        assertEquals("半角态分号是半角,且排最前", ";", half.first())
+        for (fw in listOf("…", "——", "、", "「", "」", "『", "』", "〔", "〕", "※", "；")) {
+            assertFalse("半角态不该摆全角的 $fw", half.contains(fw))
+        }
+        // 同一批符号的半角写法在位上
+        assertTrue("半角态省略号是三个点", half.contains("..."))
+        assertTrue("半角态破折号是两个连字符", half.contains("--"))
+    }
+
+    @Test
+    fun `币种归物理键 状态行两态都不摆`() {
+        val r = rig()
+        // Sym+R 承担币种(半角/英文 `$`、拼音全角 `￥`),状态行那把核心 `$` 在拼音态退场 ——
+        // 屏上不出现第二把币种键(用户 2026-09-29:「`￥` 符号 L3 的 R 已经映射了」)
+        for (fw in listOf(true, false)) {
+            r.c.fullWidthSymbolsInCn = fw
+            val labels = r.c.l4Keys().map { it.label }
+            assertFalse("全角开关=$fw 状态行都不该有 `￥`", labels.contains("￥"))
+            assertFalse("全角开关=$fw 状态行都不该有 `$`", labels.contains("$"))
+        }
+        // 分号那把两态都在(丝印上本来就没有分号,任何一态都敲不出),字形跟着开关走
+        r.c.fullWidthSymbolsInCn = true
+        assertTrue(r.c.l4Keys().any { it.label == "；" })
+        r.c.fullWidthSymbolsInCn = false
+        assertTrue(r.c.l4Keys().any { it.label == ";" })
+        // 英文态:币种同样归物理键(出厂 L3 的 R 位就是 `$`,Sym+R 敲得出)→ 不上屏;
+        // 分号是半角。英文没有全角概念,不看那个开关。
+        r.c.state.languageId = "en"
+        assertEquals(listOf(";"), r.c.l4Keys().map { it.label })
+    }
+
+    @Test
+    fun `全角开关翻两次 L4 完全复原`() {
+        val r = rig()
+        // 翻过去再翻回来必须一模一样 —— 状态行的键帽按 [ImeController.l4Signature] 决定重建,
+        // 翻回来若键序不一致就会重建一次、还可能停在错的那份上
+        val full = r.c.l4Keys().map { "${it.label}=${it.out.format()}" }
+        r.c.fullWidthSymbolsInCn = false
+        assertFalse("半角与全角该有差别(字形不同)", full == r.c.l4Keys().map { "${it.label}=${it.out.format()}" })
+        r.c.fullWidthSymbolsInCn = true
+        assertEquals(full, r.c.l4Keys().map { "${it.label}=${it.out.format()}" })
+    }
+
+    @Test
+    fun `数字框里没有语言补差键`() {
+        val r = rig()
+        // 核心键在数字类全非法、被 [FieldProfile.l4CoreKeys] 圈掉;语言的补差键该走同一把尺,
+        // 不然数字框里会摆一把 `￥`
+        for (kind in listOf(
+            FieldKind.NUMBER, FieldKind.NUMBER_SIGNED, FieldKind.NUMBER_DECIMAL,
+            FieldKind.NUMBER_SIGNED_DECIMAL, FieldKind.DATETIME,
+        )) {
+            r.c.state.fieldKind = kind
+            assertFalse("数字框 $kind 不该出 `￥`", r.c.l4Keys().any { it.label == "￥" })
+        }
     }
 
     @Test

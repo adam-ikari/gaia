@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用外壳配色(设置页/探测页/实验场/键位编辑页共用 `Theme.HwKbd`)。
+  这里放**浅色**取值;深色取值在 `values-night/colors.xml` 里覆盖同名色——
+  主题本身只引用色名,于是系统切深色模式时自动跟着变,不必给主题再分一份文件。
+
+  注意:**输入法窗口**(`ImeTheme`)不在这套里,它的配色走 `ImeTheme` 那 7 套自选主题色板
+  (见 `ui/ImeTheme.kt`),由设置页的"主题"项手动切换,与系统深浅色无关。
+-->
+<resources>
+    <!-- 外壳:窗口底色 / 卡片与列表底色 / 主色 / 主色上的文字 / 强调色 -->
+    <color name="app_window_bg">#FFF4F5F7</color>
+    <color name="app_surface">#FFFFFFFF</color>
+    <color name="app_primary">#FFDFE3E9</color>
+    <color name="app_primary_dark">#FFC9CFD8</color>
+    <color name="app_on_primary">#FF1B1E23</color>
+    <color name="app_accent">#FFB66B4A</color>
+
+    <!-- 文字次级色:说明文字、当前值等 -->
+    <color name="app_text_secondary">#FF5B6270</color>
+    <!-- 分隔线:与输入法分割线同一观感 -->
+    <color name="app_divider">#1F000000</color>
+</resources>

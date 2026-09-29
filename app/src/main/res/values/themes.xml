@@ -1,13 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      应用外壳主题(设置页/探测页/实验场/键位编辑页)。
+      2026-09-29 用户定案「设置页面需要适配深色模式和模式」:此前这里写死了深色值,虽然 parent
+      已经是 DayNight,浅色模式下**不会**跟着变。现在只引用色名,深浅两套取值分别在
+      `values/app_colors.xml`(浅)与 `values-night/app_colors.xml`(深),系统切模式时自动换。
+
+      **输入法窗口不用这个主题**(`ImeTheme`):它的配色是用户手动选的 7 套主题色板
+      (见 `ui/ImeTheme.kt`),与系统深浅色无关——键盘是纯黑底是既定审美,别让系统深色模式
+      去改它。
+    -->
     <style name="Theme.HwKbd" parent="Theme.AppCompat.DayNight.DarkActionBar">
-        <item name="colorPrimary">#FF3F4650</item>
-        <item name="colorPrimaryDark">#FF16181D</item>
-        <item name="colorAccent">#FFB66B4A</item>
-        <item name="android:windowBackground">#FF16181D</item>
+        <item name="colorPrimary">@color/app_primary</item>
+        <item name="colorPrimaryDark">@color/app_primary_dark</item>
+        <item name="colorAccent">@color/app_accent</item>
+        <item name="android:windowBackground">@color/app_window_bg</item>
+        <item name="android:colorBackground">@color/app_window_bg</item>
+        <!-- 列表/详情页底色:偏好页面用它铺底,不改的话浅色下会一块深色 -->
+        <item name="colorControlNormal">@color/app_text_secondary</item>
     </style>
 
-    <!-- 输入法窗口：不参与动画、不获得焦点，避免 Android 15 上候选框闪现 -->
+    <!--
+      输入法窗口:不参与动画、不获得焦点,避免 Android 15 上候选框闪现。
+      底色必须透明(insets 契约的一部分,见 `ImeService.onCreate`),深浅色都不改。
+    -->
     <style name="ImeTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>
