@@ -122,13 +122,19 @@
                   和右区齿轮/键盘/收起三键同一套线稿。一次大写=描边,Caps 锁定=叠加实心底杆。
                   **大写生效才显示**;切换走物理 Shift 键,不可触摸。
                 -->
-                <ImageView
+                <TextView
                     android:id="@+id/chip_shift"
-                    android:layout_width="48dp"
-                    android:layout_height="match_parent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="20dp"
+                    android:layout_marginStart="3dp"
                     android:contentDescription="@string/shift_state"
-                    android:scaleType="center"
-                    android:src="@drawable/ic_shift"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:minWidth="20dp"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
                     android:visibility="gone" />
 
                 <!--

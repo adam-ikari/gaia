@@ -48,7 +48,7 @@ class ImeService : InputMethodService() {
     private var chipMode: TextView? = null
     private var chipAlt: TextView? = null
     private var chipSym: TextView? = null
-    private var chipShift: android.widget.ImageView? = null
+    private var chipShift: android.widget.TextView? = null
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
@@ -634,19 +634,26 @@ class ImeService : InputMethodService() {
             renderChip(chipSym, "sym", t.chipL3, locked = s.lock == Layer.L3)
         } else hideChip(chipSym)
 
-        // 大写状态:Shift 上箭头图标(与右区三键同款线稿,无背景);
-        // 一次大写/按住 = 描边箭头,Caps 锁定 = 箭头 + 实心底杆
+        // 大写状态:文字标签「A」,与层芯片同一视觉语言(色彩区分状态,锁定=底部下划线)
+        // Caps 锁定 = 主色「A」+ 下划线;大写一次/按住中 = 主色/灰色「A」无下划线
         if (digitsOnly || !lang.showShiftChip || (s.shift == ShiftState.OFF && !s.shiftHeld)) {
             hideChip(chipShift)
         } else {
             val capsLock = s.shift == ShiftState.CAPS
-            chipShift?.apply {
+            val shift = chipShift as? android.widget.TextView
+            shift?.apply {
                 visibility = View.VISIBLE
-                val tint = if (capsLock) t.accent else t.fg
-                setImageResource(if (capsLock) R.drawable.ic_shift_lock else R.drawable.ic_shift)
-                imageTintList = android.content.res.ColorStateList.valueOf(tint)
-                contentDescription =
-                    context.getString(if (capsLock) R.string.shift_state_caps else R.string.shift_state_once)
+                text = "A"
+                setTextColor(if (capsLock || s.shift == ShiftState.ONCE) t.accent else t.fg)
+                contentDescription = context.getString(
+                    if (capsLock) R.string.shift_state_caps else R.string.shift_state_once,
+                )
+                if (capsLock) {
+                    background = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.chip_lock_underline)
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(t.accent)
+                } else {
+                    background = null
+                }
             }
         }
         alignFirstVisibleChip()
