@@ -14,8 +14,11 @@ import android.text.InputType
  * - **TEXT 变体**:只有 URI(网址)与 EMAIL_ADDRESS(邮箱)值得专属键位套,其余
  *   (短信/姓名/地址/主题…)走默认套即可;密码变体(含**数字密码**)见 [isPassword]。
  *
- * 数字类(digitsOnly)的表现:聚焦即锁 L2 数字层、只放行 [FieldProfile.digitChars]+数字、
- * 状态芯片只留标着实际字符集的 Alt(`0-9` + 各类型放行字符)、L4 整块隐藏。新增类型要同时在 [from] 里识别并注册一份 [FieldProfile]。
+ * 数字类(digitsOnly)的表现:聚焦即锁 L2 数字层、只放行 [FieldProfile.digitChars]+数字,
+ * 状态芯片只留标着实际字符集的 Alt(`0-9` + 各类型放行字符);**L4 不隐藏**(2026-09-29 用户定案):
+ * 滤掉全非法的核心键,键位套里只显**L1-L3 敲不出**的键(数字态 = 短语组合 `+86` 这类),
+ * 白名单另并入 L4 显示的键输出。
+ * 新增类型要同时在 [from] 里识别并注册一份 [FieldProfile]。
  */
 enum class FieldKind {
     TEXT,

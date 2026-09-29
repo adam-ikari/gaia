@@ -458,9 +458,15 @@ class ImeController(
      */
     fun l4Keys(): List<L4Key> = registry.l4Keys(layout, state.fieldKind, state.languageId)
 
-    /** [l4Keys] 的变化签名(键位套 id|语言 id):没变就不重建面板。 */
-    fun l4Signature(): String =
-        "${registry.fieldProfile(state.fieldKind).l4ProfileId}|${state.languageId}"
+    /**
+     * [l4Keys] 是否要重建键帽的判定依据 = **键序内容的 hash**(2026-09-29 用户定案)。
+     * 不再手工拼"键位套 id|语言 id"那种签名:那种签名要靠人记得把每个影响键序的来源都列进去,
+     * 漏一个就出现"键换了但没重绘"(旧坑:键位表变了/核心键变了,签名没变 → 键帽不更新)。
+     * 直接对**最终键序**(标签 + 输出,逐把拼)取 hash:内容变 = hash 变 = 重建,内容没变就不重建。
+     */
+    fun l4Signature(): String = l4Keys().fold(1) { acc, k ->
+        acc * 31 + k.label.hashCode() * 31 + k.out.format().hashCode()
+    }.toString()
 
     /**
      * 输入框切换(服务在 onStartInput 调):**数字类(digitsOnly)直接锁定 L2 数字层**——
@@ -548,6 +554,19 @@ class ImeController(
         return true
     }
 
+    /**
+     * 数字类字符放行判定(只管物理键路径;L4 虚拟键走 [commitL4Key],原样上屏不过筛):
+     * `0-9` + 该类型的合法单字符 [dev.hwkbd.ime.strategy.FieldProfile.digitChars]
+     * (这些字符 L2 上都有键帽,物理键直接敲得出,**所以它们不上 L4**),
+     * **再并入当前 L4 面板显示的键的输出**——L4 放的是 L1-L3 敲不出的键或短语组合,
+     * 显示什么就放行什么,多字符组合键一并放行。
+     */
+    private fun digitAllowed(text: String): Boolean {
+        val fp = fieldProfile()
+        if (text.length == 1 && (text[0] in '0'..'9' || text[0] in fp.digitChars)) return true
+        return l4Keys().any { it.out is KeyOut.Text && it.out.text == text }
+    }
+
     private fun handleNormalKey(code: Int, shift: Boolean, caps: Boolean): Boolean {
         val layer = state.effectiveLayer
         val fp = fieldProfile()
@@ -597,8 +616,9 @@ class ImeController(
                 val lang = language()
                 // 策略先改写按键文本(拼音:组词中的 v → 分隔符 `'`),再走组词/上屏两条路
                 val text = lang.mapText(out.text, state)
-                // 数字类限定合法字符(0-9 + 该类型放行的):其余吞掉,不落屏也不消耗修饰态
-                if (digitsOnly && (text.length != 1 || (text[0] !in '0'..'9' && text[0] !in fp.digitChars))) return true
+                // 数字类限定合法字符(0-9 + 该类型放行的单字符 + L4 显示的键输出):其余吞掉,
+                // 不落屏也不消耗修饰态;多字符组合键(单字符规则拦掉的那些)由 L4 那一支放行
+                if (digitsOnly && !digitAllowed(text)) return true
                 if (lang.composes(text, state)) {
                     // 进组词缓冲(拼音字母;分隔符只在组词中被接纳)
                     state.raw += text

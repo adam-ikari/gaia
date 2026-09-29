@@ -169,7 +169,7 @@ class ImeRegistryTest {
     }
 
     @Test
-    fun `网址框出网址键 数字框走默认套 拼音 L4 不放分隔符`() {
+    fun `网址框出网址键 数字框只有电话有短语组合 拼音 L4 不放分隔符`() {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
@@ -178,13 +178,36 @@ class ImeRegistryTest {
             listOf("；", "$") + listOf("http://", "https://", ".com"),
             r.c.l4Keys().map { it.label },
         )
-        // 数字框没有自己的 L4 套(L4 面板在数字态整块隐藏,键计算仍是默认核心键)
+        // 数字框:核心键全非法被滤;合法单字符全在 L2(被 producible 筛掉,不上 L4),
+        // L4 放的是 L1-L3 敲不出的短语组合——出厂**只有电话**有(`+86` 等国际区号),
+        // 其余数字类型没有组合可放 → 出厂为空(不是被筛空的结果)
         r.c.state.fieldKind = FieldKind.NUMBER
-        assertEquals(
-            KeyLayout.L4_CORE.map { it.label },
-            r.c.l4Keys().map { it.label },
-        )
-        // 键位套换了,面板签名必须跟着变(service 据此决定要不要重建键帽)
+        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
+        r.c.state.fieldKind = FieldKind.NUMBER_SIGNED
+        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
+        r.c.state.fieldKind = FieldKind.NUMBER_DECIMAL
+        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
+        r.c.state.fieldKind = FieldKind.NUMBER_SIGNED_DECIMAL
+        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
+        r.c.state.fieldKind = FieldKind.DATETIME
+        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
+        r.c.state.fieldKind = FieldKind.PHONE
+        assertEquals(listOf("+86", "+1", "+81", "+44"), r.c.l4Keys().map { it.label })
+        // 回归:L4 显示的键必须 L1-L3 按不出(否则就该被筛掉,而不是"显示着却不按不出")
+        val producible = KeyLayout.default().producible()
+        for (kind in FieldKind.values()) {
+            val fp = r.c.registry.fieldProfile(kind)
+            if (!fp.digitsOnly) continue
+            r.c.state.fieldKind = kind
+            for (k in r.c.l4Keys()) {
+                assertTrue(
+                    "$kind 的 L4 键 ${k.label} 三层按得出,不该显示",
+                    k.out.format() !in producible,
+                )
+            }
+        }
+        // 键位套换了,签名(hash of 键序)必须跟着变(service 据此决定要不要重建键帽)
+        r.c.state.fieldKind = FieldKind.NUMBER
         val sigNumber = r.c.l4Signature()
         r.c.state.fieldKind = FieldKind.URL
         assertTrue(sigNumber != r.c.l4Signature())
@@ -207,7 +230,11 @@ class ImeRegistryTest {
             ),
             r.c.l4Keys().map { it.label },
         )
-        assertTrue(r.c.l4Signature().startsWith(KeyLayout.L4_PROFILE_EMAIL)) // 换套要触发键帽重建
+        // 签名 = 键序内容的 hash:换套必变;同样的键序重复取必须一样(否则每次按键都重建键帽)
+        val sigEmail = r.c.l4Signature()
+        assertTrue(sigEmail == r.c.l4Signature())
+        r.c.state.fieldKind = FieldKind.URL
+        assertTrue(sigEmail != r.c.l4Signature())
     }
 
     @Test

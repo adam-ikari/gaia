@@ -19,10 +19,10 @@ data class ImeTheme(
     companion object {
         fun byId(id: String?): ImeTheme = ALL.firstOrNull { it.id == id } ?: DEFAULT
 
-        /** 主题色板基于 R.color 现值生成,保证默认主题与既有视觉一致。 */
+        /** 主题色板基于 R.color 现值生成;输入条背景**纯黑**(2026-09-29 用户定案)。 */
         val DEFAULT: ImeTheme = ImeTheme(
             "obsidian", "曜石黑",
-            barBg = 0xFF16181D.toInt(),
+            barBg = 0xFF000000.toInt(),
             fg = 0xFFEDF0F5.toInt(),
             accent = 0xFFC44D3D.toInt(),
             hint = 0xFF7C838F.toInt(),

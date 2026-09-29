@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ime_bg">#F2121418</color>
+    <color name="ime_bg">#FF000000</color>
     <color name="ime_bg_light">#FFFFFFFF</color>
-    <color name="status_bg">#16181D</color>
+    <color name="status_bg">#000000</color>
     <color name="status_fg">#C8CDD6</color>
     <color name="status_active">#FFC44D3D</color>
-    <color name="candidate_bg">#1B1E24</color>
+    <color name="candidate_bg">#000000</color>
     <color name="candidate_pressed">#2C313A</color>
     <color name="candidate_fg">#EDF0F5</color>
     <color name="candidate_matched">#FFD77A3D</color>

@@ -199,6 +199,35 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `L4 与数字白名单都只认 L1-L3 按不出的键和短语组合`() {
+        val dict = PinyinDict()
+        dict.load(dictLines)
+        val h = RecHost()
+        val registry = ImeRegistry.builtin()
+            .registerMethod(PinyinInputMethod(PinyinEngine(dict, dev.hwkbd.ime.engine.UserDict())))
+        // 自定义布局:L1 q→"-."(L4 datetime 键的同文本)、e→"+"、v→"v"(拼音 mapText 改写成 `'`);
+        // [L4 datetime] 段两把:`-.` 三层按得出(q 键)→ 不进 L4,`'` 按不出 → 进 L4
+        val layout = KeyLayout.parseText("[L1]\nq=-.\ne=+\nv=v\n[L4 datetime]\n重复=-.\n分隔='").layout!!
+        val c = ImeController(h, layout, registry)
+        val r = Rig(c, h)
+        c.state.fieldKind = FieldKind.DATETIME
+        assertEquals(listOf("分隔"), c.l4Keys().map { it.label })
+        // 物理键的 "-." 不在 datetime 合法单字符集、L4 也没显示它 → 吞
+        assertTrue(r.key(kc('q')))
+        assertTrue(h.commits.isEmpty())
+        // `+` 同理(datetime 不放行)
+        assertTrue(r.key(kc('e')))
+        assertTrue(h.commits.isEmpty())
+        // 白名单并入 L4 显示的键:物理 v 被拼音 mapText 改写成 `'`,L4 正显示 `'` → 放行
+        assertTrue(r.key(kc('v')))
+        assertEquals(listOf("'"), h.commits)
+        // 换成 NUMBER(L4 为空):物理 v 的 `'` 也不再放行
+        c.state.fieldKind = FieldKind.NUMBER
+        assertTrue(r.key(kc('v')))
+        assertEquals(listOf("'"), h.commits)
+    }
+
+    @Test
     fun `数字框 Sym 敲击被吞 不进 L3`() {
         val r = rig()
         r.c.state.fieldKind = FieldKind.NUMBER

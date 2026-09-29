@@ -46,14 +46,26 @@ class KeyLayout(
         maps[layer]?.get(code) ?: if (layer != Layer.L1) maps[Layer.L1]?.get(code) else null
 
     /**
+     * L1/L2/L3 三层**已经能敲出来**的取值(文本与功能键都算,去重)。
+     * L4 只保留这些之外的键——**L1-L3 已有的按键不进 L4**(2026-09-29 用户定案,
+     * 推翻 2026-09-28"不做程序筛选":网址套手动去 `/` 的那把尺泛化到全部 L4)。
+     * 由 [dev.hwkbd.ime.strategy.ImeRegistry.l4Keys] 在显示前统一过筛。
+     */
+    fun producible(): Set<String> = Layer.values().flatMap { layer ->
+        maps[layer]?.values?.map { it.format() } ?: emptyList()
+    }.toSet()
+
+    /**
      * 状态行中区(L4)实际显示的键序,按键位套 [profile] 取:
      *
      * - **默认套**([L4_DEFAULT]):固定核心键([L4_CORE],L1-L3 敲不出的那几个)在前,
      *   键位编辑器 [L4] 段的自定义键在后,重复(标签+输出相同)的只留一个。核心键删不掉;
-     * - **上下文套**(如 [L4_PROFILE_URL]):该段的字面键,配置什么显示什么;
+     * - **上下文套**(如 [L4_PROFILE_URL]):该段的字面键;
      *   文件里没写这段时回落出厂预置(老 keymap.txt 也拿得到网址键)。
      *   **并入哪些核心键由注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 决定**
-     *   (网址框要、邮件框不要),这里只管字面。
+     *   (网址框要、邮件框不要),这里只管字面;
+     * - **最终显示前再过一道 L1-L3 筛**([producible],L1-L3 已有的按键不进 L4,
+     *   2026-09-29 定案)——筛在注册表 [dev.hwkbd.ime.strategy.ImeRegistry.l4Keys] 做,本函数不筛。
      */
     fun l4Combined(profile: String = L4_DEFAULT): List<L4Key> {
         val list = if (profile == L4_DEFAULT) {
@@ -103,6 +115,38 @@ class KeyLayout(
 
         /** 邮件键位套 id(编辑器 `[L4 email]` 段,[dev.hwkbd.ime.strategy.FieldKind.EMAIL] 选用)。 */
         const val L4_PROFILE_EMAIL = "email"
+
+        /** 数字类键位套 id(编辑器 `[L4 number]` 段,[dev.hwkbd.ime.strategy.FieldKind.NUMBER] 选用)。 */
+        const val L4_PROFILE_NUMBER = "number"
+
+        /** `[L4 signed]` 段,[dev.hwkbd.ime.strategy.FieldKind.NUMBER_SIGNED] 选用。 */
+        const val L4_PROFILE_SIGNED = "signed"
+
+        /** `[L4 decimal]` 段,[dev.hwkbd.ime.strategy.FieldKind.NUMBER_DECIMAL] 选用。 */
+        const val L4_PROFILE_DECIMAL = "decimal"
+
+        /** `[L4 signeddecimal]` 段,[dev.hwkbd.ime.strategy.FieldKind.NUMBER_SIGNED_DECIMAL] 选用。 */
+        const val L4_PROFILE_SIGNED_DECIMAL = "signeddecimal"
+
+        /** `[L4 phone]` 段,[dev.hwkbd.ime.strategy.FieldKind.PHONE] 选用。 */
+        const val L4_PROFILE_PHONE = "phone"
+
+        /** `[L4 datetime]` 段,[dev.hwkbd.ime.strategy.FieldKind.DATETIME] 选用。 */
+        const val L4_PROFILE_DATETIME = "datetime"
+
+        /**
+         * 各数字类型的合法单字符——白名单 [dev.hwkbd.ime.strategy.FieldProfile.digitChars] 与 Alt 芯片
+         * 文字的**单源**(按各输入类型的合法格式定,见 [dev.hwkbd.ime.strategy.FieldKind])。
+         * **只管物理键路径**:这些字符在 L2 上都有键帽、物理键直接敲得出,所以「L1-L3 已有的
+         * 不进 L4」一把尺之下它们**不上 L4**(数字态 L4 放的是短语组合,见 [L4_PROFILE_PHONE_KEYS])。
+         * NUMBER 只有 0-9,没有扩展字符。
+         */
+        const val DIGITS_NUMBER = ""
+        const val DIGITS_SIGNED = "-"
+        const val DIGITS_DECIMAL = "."
+        const val DIGITS_SIGNED_DECIMAL = "-."
+        const val DIGITS_PHONE = "+*#"
+        const val DIGITS_DATETIME = "-/:."
 
         /**
          * L4 **固定核心键**:默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来)。
@@ -167,10 +211,38 @@ class KeyLayout(
             L4Key("@outlook.com", KeyOut.Text("@outlook.com")),
         )
 
+        /** 数字类出厂键位套:一段短语即一把键(`[L4 number]` 等段可整段改写)。 */
+        private fun phrases(vararg outs: String): List<L4Key> =
+            outs.map { L4Key(it, KeyOut.Text(it)) }
+
+        /**
+         * 出厂数字类键位套 = **短语组合**(2026-09-29 用户定案:`+86` 这类)。为什么不是一字一键:
+         * 「L1-L3 已有的按键不进 L4」这把尺(见 [producible])按**单次按键的输出**判,而各数字类型的
+         * 合法单字符(`- / : . + * #`)在 L2 上全有键——一字一键会被整段筛空,数字态 L4 就空了。
+         * 物理键一次只能出一个单字符,**多字符组合天然 L1-L3 按不出**,所以数字态要 L4 有内容
+         * 就得放组合键。核心键 `； $ \` 在数字类全非法,由 `FieldProfile.l4CoreKeys = emptyList()` 滤掉。
+         *
+         * number / signed / decimal / signeddecimal / datetime 五个类型出厂为空:它们的合法字符
+         * 全在 L2,**没有任何 L1-L3 按不出的东西可放**(不是被筛空的结果);要放就在对应段
+         * (`[L4 datetime]` 等)里自写短语。
+         */
+        val L4_PROFILE_NUMBER_KEYS: List<L4Key> = emptyList()
+        val L4_PROFILE_SIGNED_KEYS: List<L4Key> = emptyList()
+        val L4_PROFILE_DECIMAL_KEYS: List<L4Key> = emptyList()
+        val L4_PROFILE_SIGNED_DECIMAL_KEYS: List<L4Key> = emptyList()
+        val L4_PROFILE_PHONE_KEYS: List<L4Key> = phrases("+86", "+1", "+81", "+44")
+        val L4_PROFILE_DATETIME_KEYS: List<L4Key> = emptyList()
+
         /** 上下文键位套的出厂预置(编辑器里没写该段时用它)。 */
         private fun builtinProfile(id: String): List<L4Key> = when (id) {
             L4_PROFILE_URL -> L4_PROFILE_URL_KEYS
             L4_PROFILE_EMAIL -> L4_PROFILE_EMAIL_KEYS
+            L4_PROFILE_NUMBER -> L4_PROFILE_NUMBER_KEYS
+            L4_PROFILE_SIGNED -> L4_PROFILE_SIGNED_KEYS
+            L4_PROFILE_DECIMAL -> L4_PROFILE_DECIMAL_KEYS
+            L4_PROFILE_SIGNED_DECIMAL -> L4_PROFILE_SIGNED_DECIMAL_KEYS
+            L4_PROFILE_PHONE -> L4_PROFILE_PHONE_KEYS
+            L4_PROFILE_DATETIME -> L4_PROFILE_DATETIME_KEYS
             else -> emptyList()
         }
 

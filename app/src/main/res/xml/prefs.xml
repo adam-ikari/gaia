@@ -50,11 +50,6 @@
         <Preference
             android:key="layer_reset"
             android:title="@string/pref_layer_reset" />
-        <SwitchPreferenceCompat
-            android:key="show_l4_panel"
-            android:defaultValue="true"
-            android:title="@string/pref_l4_panel"
-            android:summary="@string/pref_l4_panel_summary" />
         <Preference
             android:key="select_keys"
             android:title="@string/pref_select_keys"

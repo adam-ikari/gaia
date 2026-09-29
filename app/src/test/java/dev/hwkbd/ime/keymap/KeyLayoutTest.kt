@@ -2,6 +2,7 @@ package dev.hwkbd.ime.keymap
 
 import android.view.KeyEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -203,5 +204,19 @@ class KeyLayoutTest {
         val parsed = KeyLayout.parseText(kl.formatText())
         assertTrue(parsed.errors.isEmpty())
         assertEquals(kl.l4Combined(), parsed.layout!!.l4Combined())
+    }
+
+    @Test
+    fun `producible 收本机三层输出 键位表换了就跟着变`() {
+        val d = KeyLayout.default()
+        // 出厂键位:L2 的符号(`- / : . + * #`)与 L1 字母都算"L1-L3 已有的"
+        val p = d.producible()
+        for (s in listOf("-", "/", ":", ".", "+", "*", "#", "a")) assertTrue(s in p)
+        // 短语组合按不出(物理键一次只出一个单字符)
+        for (s in listOf("-/", "+86", "-.")) assertFalse(s in p)
+        // 自定义键位表:某层没有的键就不算 producible —— 筛随本机键位走(换手机自动适配)
+        val custom = KeyLayout.parseText("[L2]\nq=0").layout!!
+        assertFalse("-" in custom.producible())
+        assertTrue("a" in custom.producible()) // 缺 [L2]/[L3] 段时回落默认 L1
     }
 }

@@ -67,7 +67,10 @@ class ImeRegistry {
      * 状态行 L4 中区的键序:**语言补差键排最左**(语言注册的键;拼音没有——分节符走 `v` 键),
      * 其后是**固定核心键**(取 [FieldProfile.l4CoreKeys] 圈定的子集:网址框去 `\`、邮箱只留 `$`)
      * 接输入类型选的键位套(默认套自带核心键+自定义键,重复去重)。
-     * **配置什么显示什么,程序不做筛选**。
+     *
+     * **最后一道筛:L1-L3 已经能敲出的取值一律不显示**([KeyLayout.producible];2026-09-29
+     * 用户定案,推翻 2026-09-28"配置什么显示什么、程序不做筛选"——网址套手动去 `/` 的
+     * "L2 键帽不进 L4"那把尺泛化到全部 L4)。L4 与 L5 共用本结果。
      */
     fun l4Keys(layout: KeyLayout, kind: FieldKind, languageId: String): List<L4Key> {
         val profile = fieldProfile(kind)
@@ -77,7 +80,9 @@ class ImeRegistry {
         for (k in language(languageId).l4Extras + list) {
             keys.putIfAbsent("${k.label} ${k.out.format()}", k)
         }
-        return keys.values.toList()
+        // L1-L3 已有的取值不进 L4(2026-09-29 定案,producible 复活为显示前的统一筛)
+        val producible = layout.producible()
+        return keys.values.filterNot { it.out.format() in producible }
     }
 
     companion object {
@@ -85,11 +90,19 @@ class ImeRegistry {
         /**
          * 数字类表现:芯片文字 = "0-9" + 该类型额外放行的字符(如实标注可输字符集——
          * decimal/signed/phone/date 只显示 0-9 不恰当,用户 2026-09-29 定案)、锁 L2、只放行这些字符。
+         *
+         * L4(2026-09-29 用户定案):**不隐藏**——核心键 `； $ \` 在数字类全非法,按
+         * 「合法的留、非法的去」滤掉(`l4CoreKeys = emptyList()`);L4 显示 [FieldProfile.l4ProfileId]
+         * 键位套里**L1-L3 敲不出**的键(短语组合,见 [KeyLayout.L4_PROFILE_PHONE_KEYS]):
+         * 出厂键位 L2 自带全部合法单字符(`- . / : + * #`),它们由 [chars] 白名单放行物理键
+         * 直接敲,**不上 L4**;`[L4 datetime]` 等段可整段改写。
          */
-        private fun digits(extra: String) = FieldProfile(
-            altChipLabel = "0-9" + extra,
+        private fun digits(chars: String, profileId: String) = FieldProfile(
+            l4ProfileId = profileId,
+            altChipLabel = "0-9" + chars,
             digitsOnly = true,
-            digitChars = extra,
+            digitChars = chars,
+            l4CoreKeys = emptyList(),
         )
 
         /**
@@ -120,13 +133,32 @@ class ImeRegistry {
                         defaultLanguageId = EnglishLanguage.id,
                     ),
                 )
-                // 数字类:各自按合法格式放行(见 FieldKind 的调查),其余全吞
-                .registerFieldProfile(FieldKind.NUMBER, digits(""))
-                .registerFieldProfile(FieldKind.NUMBER_SIGNED, digits("-"))
-                .registerFieldProfile(FieldKind.NUMBER_DECIMAL, digits("."))
-                .registerFieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL, digits("-."))
-                .registerFieldProfile(FieldKind.PHONE, digits("+*#"))
-                .registerFieldProfile(FieldKind.DATETIME, digits("-/:."))
+                // 数字类:各自按合法格式放行(见 FieldKind 的调查),其余全吞;
+                // L4 = 该类型的合法扩展键位套(核心键全非法被滤,2026-09-29 用户定案)
+                .registerFieldProfile(
+                    FieldKind.NUMBER,
+                    digits(KeyLayout.DIGITS_NUMBER, KeyLayout.L4_PROFILE_NUMBER),
+                )
+                .registerFieldProfile(
+                    FieldKind.NUMBER_SIGNED,
+                    digits(KeyLayout.DIGITS_SIGNED, KeyLayout.L4_PROFILE_SIGNED),
+                )
+                .registerFieldProfile(
+                    FieldKind.NUMBER_DECIMAL,
+                    digits(KeyLayout.DIGITS_DECIMAL, KeyLayout.L4_PROFILE_DECIMAL),
+                )
+                .registerFieldProfile(
+                    FieldKind.NUMBER_SIGNED_DECIMAL,
+                    digits(KeyLayout.DIGITS_SIGNED_DECIMAL, KeyLayout.L4_PROFILE_SIGNED_DECIMAL),
+                )
+                .registerFieldProfile(
+                    FieldKind.PHONE,
+                    digits(KeyLayout.DIGITS_PHONE, KeyLayout.L4_PROFILE_PHONE),
+                )
+                .registerFieldProfile(
+                    FieldKind.DATETIME,
+                    digits(KeyLayout.DIGITS_DATETIME, KeyLayout.L4_PROFILE_DATETIME),
+                )
         }
     }
 }

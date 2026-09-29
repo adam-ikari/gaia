@@ -51,7 +51,6 @@ class ImeService : InputMethodService() {
     private var chipShift: TextView? = null
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
-    private var showL4Panel = false
 
     /** L4 面板当前键帽对应的签名([ImeController.l4Signature]);变了才重建键帽。 */
     private var l4PanelSig: String? = null
@@ -60,7 +59,6 @@ class ImeService : InputMethodService() {
     private var l5HasOverflow = false
     private var l5RowShown = false
     private var l5Composing = false
-    private var l4ShownNow = false
     private var l5Panel: dev.hwkbd.ime.ui.L4PanelView? = null
     private var btnL5: ImageButton? = null
 
@@ -197,7 +195,7 @@ class ImeService : InputMethodService() {
         chipShift = root.findViewById(R.id.chip_shift)
         preeditRow = root.findViewById(R.id.preedit_row)
         l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
-            tailMode = true // L5 行只显示 L4 装不下的尾巴([tailFrom] 起)
+            tailMode = true // L5 行 = L4 装不下的尾巴([tailFrom] 起)+ 用户短语(排在后面)
             onL4Key = { controller.commitL4Key(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
         }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
@@ -255,6 +253,8 @@ class ImeService : InputMethodService() {
         controller.layout = KeyLayoutStore.load(this)
         // **输入类型决定上下文**:网址/邮件框换 L4 键位套,数字类聚焦即锁数字层
         controller.setFieldKind(FieldKind.from(attribute?.inputType ?: InputType.TYPE_NULL))
+        // L5 行开着时换框:窗口高度要按新键序重算,否则 L5 顶会被裁(见 syncL5 注释)
+        if (l5Panel?.visibility == View.VISIBLE) notifyInsetsChanged()
         // 密码框置安全标志:框内禁止切语言(只能英文),见 ImeState.secure
         controller.state.secure = isPasswordField(attribute)
         l4PanelSig = null // 键位套变了,下次渲染重建 L4 面板
@@ -568,10 +568,7 @@ class ImeService : InputMethodService() {
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
         l5Panel?.setBackgroundColor(theme.barBg)
-        showL4Panel = p.getBoolean(PREF_SHOW_L4, true)
         l4PanelSig = null // 主题可能变了,下次渲染重建键帽
-        // INVISIBLE 占位:中区留着,右侧按钮位置不跳
-        l4Panel?.visibility = if (showL4Panel) View.VISIBLE else View.INVISIBLE
         updateUi()
     }
 
@@ -663,6 +660,14 @@ class ImeService : InputMethodService() {
             // 数字框:SYM/大写状态与数字无关,连同语言芯片一起藏掉
             chipSym?.visibility = View.GONE
             chipShift?.visibility = View.GONE
+            // Alt 芯片成了左区第一颗可见芯片 → 抹掉它的 2dp 起始间距,否则 `0-9` 标签
+            // 到屏幕左缘比 `拼`/`En` 多 2dp(2026-09-29 用户报障)
+            (chipAlt?.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let {
+                if (it.marginStart != 0) {
+                    it.marginStart = 0
+                    chipAlt?.layoutParams = it
+                }
+            }
         } else {
             renderLayerChip(chipSym, Layer.L3, "sym", t.chipL3, s, t, litChip == LitChip.SYM)
 
@@ -722,12 +727,12 @@ class ImeService : InputMethodService() {
     }
 
     /**
-     * L5 行 + 齿轮左侧键盘图标:无溢出/L4 整体隐藏时图标 GONE(右区 gravity=end 右贴,
+     * L5 行 + 齿轮左侧键盘图标:无溢出时图标 GONE(右区 gravity=end 右贴,
      * 齿轮/收起位置不跳);图标点开时**状态栏上方的 L5 行**出现并高亮;组词态整行让位。
      * L5 行会改变 contentTopInsets——切换后要通知窗口重算 insets,让 App 相应 resize。
      */
     private fun syncL5() {
-        val enabled = l4ShownNow && l5HasOverflow
+        val enabled = l5HasOverflow
         btnL5?.visibility = if (enabled) View.VISIBLE else View.GONE
         btnL5?.imageTintList = android.content.res.ColorStateList.valueOf(
             if (l5RowShown && enabled) theme.accent
@@ -736,7 +741,13 @@ class ImeService : InputMethodService() {
         val rowVisible = enabled && l5RowShown && !l5Composing
         val cur = l5Panel?.visibility == View.VISIBLE
         l5Panel?.visibility = if (rowVisible) View.VISIBLE else View.GONE
-        if (rowVisible != cur) notifyInsetsChanged()
+        if (rowVisible != cur) {
+            notifyInsetsChanged()
+            // 框架收 insets 后自己还会走一遍窗口尺寸更新,这里补一次**延迟**重排:
+            // 实测「L5 开着切输入框」时窗口没跟着长高,L5 行顶被裁掉一截
+            // (键只画出 54px,应为 36dp=86px),2026-09-29 修
+            mainHandler.post { notifyInsetsChanged() }
+        }
     }
 
     private fun updateUi() {
@@ -757,10 +768,9 @@ class ImeService : InputMethodService() {
             l4Panel?.refresh(keys, theme)
             l5Panel?.refresh(keys, theme) // 同一份键序,L5 取 L4 装不下的尾巴
         }
-        // 数字框限定 0-9:核心键对数字没有意义,整块隐藏(设置页开关只管非数字态)
-        val l4Shown = showL4Panel && !controller.registry.fieldProfile(s.fieldKind).digitsOnly
-        l4Panel?.visibility = if (l4Shown) View.VISIBLE else View.INVISIBLE
-        l4ShownNow = l4Shown
+        // L4 必显(2026-09-29 用户定案:设置页开关已删、数字态也不隐藏;数字框里显示的是
+        // 该类型的短语组合键位套,核心键与 L1-L3 已有的键已在注册表滤掉)
+        l4Panel?.visibility = View.VISIBLE
         syncL5()
 
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
@@ -825,7 +835,6 @@ class ImeService : InputMethodService() {
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
-        const val PREF_SHOW_L4 = "show_l4_panel"
 
         /** 飞字阈值默认档(更保守:需明显上滑才触发)。 */
         const val FLY_THRESHOLD_DEFAULT = "160"
