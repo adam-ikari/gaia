@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-29T15:35:42"
+updated: "2026-09-29T17:02:10"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -309,4 +309,37 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "L5 行高 48dp→42dp(2026-09-29 用户报障L5键盘的上边距太宽了):键仍是 36dp 与状态行 L4 同款、仍贴行底;行高缩到 42dp 后上边距 12dp→6dp,与下边(L5↔状态行 6dp)、L4 行自身上下留白三者一致。真机像素实测:行顶 y=1210→1224,键带 1239-1324(86px=36dp)不变。"
   source: "用户 2026-09-29 + 真机像素实测"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T17:02:09
+  kind: decision
+  summary: "状态栏左侧芯片改纯状态显示(只显示已触发的状态)+ 去掉触摸切换(改按键切换)(2026-09-29 用户定案)
+- 左区芯片:层芯片/大写状态**没触发就 GONE**(此前 ALT/SYM 两颗常显灰芯片、大写常显 ab);语言芯片 `拼/En` 恒显
+- **芯片不再响应触摸**:四个芯片的 click/longClick 全删,ImeController.tapLayerChip / longPressLayerChip / tapShiftChip 三个方法与 `LitChip` 三颗互斥状态机(及 litLayerPrev/litCapsPrev)整体删除
+- **切换一律走物理按键**:Alt 单击=一次性、双击=锁定;Sym 同;Shift 单击=大写一次、双击=Caps 锁定;Shift+Space=中英切换
+- 挖出并修一个真坑:触摸路径原本挡着「数字类的 L2 字段锁解不掉」(解锁后 L1 全被吞、没法打字),删掉触摸后物理 Alt 会解开 → 守卫挪进 `layerKeyTap`,对应测试改写成物理键
+- L4/L5 显示规则、数字态键位套、L2 丝印对齐等 2026-09-29 早先几条定案见本轮前几条 timeline 与两页 compiled_truth"
+  source: "用户 2026-09-29"
+  affects: [ime-interaction-model, ime-strategy-registry]
+
+- time: 2026-09-29T17:02:09
+  kind: decision
+  summary: "状态栏左右区统一风格 + L4 中区加宽 + 锁定统一下划线 + 大写改 Shift 箭头(2026-09-29 用户定案)
+- **左右统一风格**:右区三键(键盘/齿轮/收起)全改 **48dp 见方**、`scaleType=center` 按原尺寸画;收起三角不再用 wrap_content 窄盒 + paddingEnd 6dp(它比另两个键窄,右区视觉重量与左区不一致)
+- **L4 中区加宽**:chip_row 与 btn_row 权重 0.6/0.6 → **0.4/0.4**(中区别拿 45% → 约 60%),一行能多放一把键、少溢出到 L5。**两侧权重必须同步改**:权重相等是「L4 到屏幕左右两侧距离相等」这个硬要求的前提(用户复核过),改一侧不改另一侧就会破
+- **锁定统一下划线表示**:层芯片与大写状态锁定=底部一根 2dp 实线(新增 drawable `chip_lock_underline`),一次性/按住=无下划线。此前是「锁定=实心色块、一次性=描边色块」的按钮样式
+- **大写状态标识改 Shift 上箭头图标**(新增 `ic_shift` / `ic_shift_lock` 线稿,24dp 视口 1.5px 圆头描边,与 ic_settings/ic_keyboard 同一套语言),替代 `ab`/`Ab`/`AB` 文字芯片;48dp 见方无背景,与右区三键同款;Caps 锁定=箭头叠实心下划线(Android 键盘同一套语言)
+- 语言芯片(拼/En)恒显但不再是锁定/非锁定两态:主语言=实心主色、非主语言=普通前景色无背景"
+  source: "用户 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T17:02:10
+  kind: reversal
+  summary: "L4 固定核心键删掉 `\\`(2026-09-29 用户定案,推翻 2026-09-28点名固定显示"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T17:02:10
+  kind: decision
+  summary: "实验场新增「键位总览」按钮(2026-09-29 用户定案在应用中把"
+  source: "用户 2026-09-29"
   affects: [ime-interaction-model]
