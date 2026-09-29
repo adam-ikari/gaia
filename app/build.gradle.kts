@@ -17,7 +17,14 @@ android {
     }
 
     signingConfigs {
-        // CI/CD:环境变量注入签名(Release 工作流);本地无变量时保持未签名
+        // 项目密钥(提交在仓库,个人项目权衡:本地/CI 签名一致 > 私密性)。
+        create("project") {
+            storeFile = rootProject.file("hwkbd.keystore")
+            storePassword = "REDACTED-SIGNING-PASSWORD"
+            keyAlias = "gaia"
+            keyPassword = "REDACTED-SIGNING-PASSWORD"
+        }
+        // CI/CD:环境变量注入正式签名时优先于项目密钥
         val ksPath = System.getenv("SIGNING_KEYSTORE")
         val storePass = System.getenv("SIGNING_STORE_PASSWORD")
         if (!ksPath.isNullOrEmpty() && !storePass.isNullOrEmpty() && file(ksPath).exists()) {
@@ -31,11 +38,15 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // debug 也用项目密钥:本地与 CI 构建签名一致,install -r 不再冲突
+            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // CI 注入的正式签名优先;本地/无 Secret 时回退 debug 签名,保证 release 包可直接安装
-            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("debug")
+            // CI 注入的正式签名优先;否则项目密钥,保证 release 包可直接安装
+            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
         }
     }
 

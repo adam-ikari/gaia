@@ -29,3 +29,12 @@ node_modules/
 
 # AI 测试证据
 tools/aitest/evidence/
+
+# 并行会话调试残留
+_tmp_*
+_tmp_s1.png
+_tmp_s2.png
+_tmp_s3.png
+_tmp_sm.png
+_tmp_t1.png
+_tmp_lc.txt
