@@ -179,7 +179,7 @@ class ImeService : InputMethodService() {
         imeRoot?.flyHandler = { ev -> handleFlyMotion(ev) }
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
-        chipMode = root.findViewById(R.id.chip_mode).apply {
+        chipMode = root.findViewById<TextView>(R.id.chip_mode).apply {
             // 语言芯片点击 = 切换拼音/En(锁定层时也能切;层芯片不响应触摸是另一套约定)
             setOnClickListener { controller.cycleLanguage() }
         }
