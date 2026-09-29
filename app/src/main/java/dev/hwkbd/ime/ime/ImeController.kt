@@ -539,8 +539,10 @@ class ImeController(
         val fp = fieldProfile()
         val digitsOnly = fp.digitsOnly
 
-        // Shift+Space = 中英切换(可可语义);数字类锁着数字层,没有语言可切(芯片已隐藏)
-        if (shift && code == KeyEvent.KEYCODE_SPACE && layer == Layer.L1 && !digitsOnly) {
+        // Shift+Space = 中英切换(可可语义);**层锁定/一次性/长按按住时同样生效**
+        // (2026-09-29 用户要求:锁定状态下也要能切拼音和 En)。
+        // 数字类锁着数字层,没有语言可切(芯片已隐藏),维持排除。
+        if (shift && code == KeyEvent.KEYCODE_SPACE && !digitsOnly) {
             cycleLanguage()
             return true
         }

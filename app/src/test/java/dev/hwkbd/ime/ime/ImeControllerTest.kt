@@ -400,6 +400,18 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `层锁定时 shift 加空格仍可切换语言`() {
+        val r = rig()
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT) // 双击锁定 L2
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
+        r.key(KeyEvent.KEYCODE_SPACE, shift = true)
+        assertEquals("en", r.c.state.languageId) // 锁定态下仍可切换拼音/En
+        r.key(KeyEvent.KEYCODE_SPACE, shift = true)
+        assertEquals("zh", r.c.state.languageId)
+    }
+
+    @Test
     fun `英文态字母直接上屏并跟随大写`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
