@@ -217,7 +217,9 @@ class L4PanelView @JvmOverloads constructor(
         for (c in vis) if (c.measuredWidth > maxNat) maxNat = c.measuredWidth
         val n = vis.size
         val room = avail - (n - 1) * base
-        if (room < n) return // 连 1dp 都分不到的极端窄:维持自然宽,溢出由 gravity 对称裁切
+        // 极端窄(长标签键位套,如邮箱 @域名):压缩到最小槽宽 + 单行截字。
+        // 此前直接 return 维持自然宽 → 对称外溢压住右区按钮(用户报障);压缩后溢出有界。
+        val tooNarrow = room < n
         val fill = room / n
         val rest = room % n
         val cap = maxNat.coerceAtLeast(dip(MAX_KEY))
@@ -227,9 +229,12 @@ class L4PanelView @JvmOverloads constructor(
             // (首键 leftMargin 由 [applyBaseMargins] 置 0 = 贴行左缘)
             return
         }
-        val w = fill.coerceAtMost(cap)
+        val w = if (tooNarrow) {
+            for (c in vis) (c as? TextView)?.ellipsize = android.text.TextUtils.TruncateAt.END
+            dip(24)
+        } else fill.coerceAtMost(cap)
         for (c in vis) c.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), hSpec)
-        if (fill <= cap) distributeRest(vis, rest)
+        if (fill <= cap || tooNarrow) distributeRest(vis, if (tooNarrow) 0 else rest)
         // 居中:START 布局从首键左 margin 起步 → 给首键加 (avail-组宽)/2 的对称外边距
         // (1px 取整差自然落在右侧)。组铺满时余量为 0 = 贴边两端对齐。
         var groupW = 0
