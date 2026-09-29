@@ -48,7 +48,7 @@ class ImeService : InputMethodService() {
     private var chipMode: TextView? = null
     private var chipAlt: TextView? = null
     private var chipSym: TextView? = null
-    private var chipShift: TextView? = null
+    private var chipShift: android.widget.ImageView? = null
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
@@ -61,16 +61,6 @@ class ImeService : InputMethodService() {
     private var l5Composing = false
     private var l5Panel: dev.hwkbd.ime.ui.L4PanelView? = null
     private var btnL5: ImageButton? = null
-
-    /**
-     * 三颗互斥芯片(大写 ab / ALT / SYM):**同一时刻只亮一颗**,后亮起来的把先前那颗压灰。
-     * [litLayerPrev]/[litCapsPrev] 是上一次渲染时各自"是否生效",用来分辨这次是谁刚亮。
-     */
-    private var litChip = LitChip.NONE
-    private var litLayerPrev: Layer? = null
-    private var litCapsPrev = false
-
-    private enum class LitChip { NONE, CAPS, ALT, SYM }
 
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
@@ -229,19 +219,8 @@ class ImeService : InputMethodService() {
             }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
-        // 状态栏触摸切换:模式芯片 = 循环语言(注册表序);层芯片 ALT/SYM 单击=单次切换 / 长按=锁定切换;大写芯片 = Caps 开关
-        chipMode?.setOnClickListener { controller.cycleLanguage() }
-        chipAlt?.setOnClickListener { controller.tapLayerChip(Layer.L2) }
-        chipAlt?.setOnLongClickListener {
-            controller.longPressLayerChip(Layer.L2)
-            true
-        }
-        chipSym?.setOnClickListener { controller.tapLayerChip(Layer.L3) }
-        chipSym?.setOnLongClickListener {
-            controller.longPressLayerChip(Layer.L3)
-            true
-        }
-        chipShift?.setOnClickListener { controller.tapShiftChip() }
+        // 状态芯片**不再响应触摸**(2026-09-29 用户定案):只显示已触发的状态,
+        // 切换层/语言/大写一律走物理按键(Alt / Sym / Shift / Shift+Space)。
         applyPrefs()
         updateUi()
         return root
@@ -614,115 +593,103 @@ class ImeService : InputMethodService() {
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    /** 状态徽标:全部标签化。语言芯片=注册表策略(首个注册语言主色实心);层芯片 锁=实心 / 一次性=描边。 */
+    /**
+     * 状态徽标(2026-09-29 用户定案):**只显示已触发的状态**——没触发的层/大写一律不显示,
+     * 切换**全部走物理按键**(Alt / Sym / Shift),芯片不再响应触摸。
+     * - 语言芯片(拼/En):恒显(数字类藏掉,数字只认 Alt 芯片);
+     * - 层芯片:目标层生效才出现——锁定=实心、一次性/按住=描边;数字框里文字是实际可输字符集;
+     * - 大写芯片:大写生效才出现(CAPS 实心 `AB`,一次/按住描边 `Ab`)。
+     */
     private fun renderChips(s: ImeState) {
         val t = theme
         val lang = controller.registry.language(s.languageId)
-        // 数字框:状态按钮全部隐藏,只留 Alt 芯片(文字 = 实际字符集 0-9/0-9./0-9+*#…)——数字就靠它
         val digitsOnly = controller.registry.fieldProfile(s.fieldKind).digitsOnly
-        chipMode?.visibility = if (digitsOnly) View.GONE else View.VISIBLE
-        chipMode?.apply {
-            text = lang.chipLabel
-            setTextColor(0xFF16181D.toInt())
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = 4f * resources.displayMetrics.density
-                setColor(if (s.languageId == controller.registry.primaryLanguageId) t.accent else t.fg)
-            }
-        }
-        // 层芯片 alt/sym **常显**(打普通字母时没有"当前层"图标,只是两颗灰芯片):
-        // 未切到的层 = 灰描边;切到 = 该层主色(锁定=实心 / 单次=描边)。
-        // 谁亮着:**三颗互斥(大写/ALT/SYM),同一时刻只亮一颗**——
-        // 刚生效的那颗赢(后按的压过先前);两个都还生效就维持上次亮着的那颗;
-        // 亮着的那颗失效了就退给另一颗还生效的;全都没生效 = 全灰。
-        val layerNow: Layer? = s.effectiveLayer.takeIf { it == Layer.L2 || it == Layer.L3 }
-        val capsNow = s.shift != ShiftState.OFF || s.shiftHeld
-        val layerJustOn = layerNow != null && layerNow != litLayerPrev
-        val capsJustOn = capsNow && !litCapsPrev
-        litChip = when {
-            layerJustOn -> if (layerNow == Layer.L2) LitChip.ALT else LitChip.SYM
-            capsJustOn -> LitChip.CAPS
-            litChip == LitChip.ALT && layerNow == Layer.L2 -> LitChip.ALT
-            litChip == LitChip.SYM && layerNow == Layer.L3 -> LitChip.SYM
-            litChip == LitChip.CAPS && capsNow -> LitChip.CAPS
-            layerNow != null -> if (layerNow == Layer.L2) LitChip.ALT else LitChip.SYM
-            capsNow -> LitChip.CAPS
-            else -> LitChip.NONE
-        }
-        litLayerPrev = layerNow
-        litCapsPrev = capsNow
 
-        // 轮到它亮才上色(锁定=实心 / 单次=描边);没轮到就整颗灰描边(哪怕该层正生效)。
-        // Alt 芯片文字随**输入类型**变:数字框按实际可输字符集显示(0-9、0-9.、0-9+*#,只改这颗芯片的显示)。
-        val altLabel = controller.registry.fieldProfile(s.fieldKind).altChipLabel
-        renderLayerChip(chipAlt, Layer.L2, altLabel, t.chipL2, s, t, litChip == LitChip.ALT)
         if (digitsOnly) {
-            // 数字框:SYM/大写状态与数字无关,连同语言芯片一起藏掉
-            chipSym?.visibility = View.GONE
-            chipShift?.visibility = View.GONE
-            // Alt 芯片成了左区第一颗可见芯片 → 抹掉它的 2dp 起始间距,否则 `0-9` 标签
-            // 到屏幕左缘比 `拼`/`En` 多 2dp(2026-09-29 用户报障)
-            (chipAlt?.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let {
-                if (it.marginStart != 0) {
-                    it.marginStart = 0
-                    chipAlt?.layoutParams = it
-                }
-            }
+            chipMode?.visibility = View.GONE // 数字框没有语言可切(锁 L2)
         } else {
-            renderLayerChip(chipSym, Layer.L3, "sym", t.chipL3, s, t, litChip == LitChip.SYM)
-
-            // 大写状态:语言策略说不显示就 GONE(拼音不需要大小写,「拼」右边的 alt/sym 紧贴过来);
-            // 英文态用 ab / Ab / AB 直接表状态——小写 / 大写一次(或正按住) / 大写锁定(可触摸开关)。
-            // 中英切换时中区(L4)不挪,靠的是 chip_row 那个**权重定宽的盒子**(不再是这颗芯片占位)。
-            // 没轮到它亮(含大写根本没生效)= 灰描边——ab **不再常亮**。
-            when {
-                !lang.showShiftChip -> chipShift?.visibility = View.GONE
-                litChip == LitChip.CAPS && s.shift == ShiftState.CAPS ->
-                    renderChip(chipShift, "AB", t.accent, solid = true)
-                litChip == LitChip.CAPS ->
-                    renderChip(chipShift, "Ab", t.accent, solid = false)
-                s.shift == ShiftState.CAPS -> renderChip(chipShift, "AB", t.hint, solid = false)
-                s.shift == ShiftState.ONCE || s.shiftHeld -> renderChip(chipShift, "Ab", t.hint, solid = false)
-                else -> renderChip(chipShift, "ab", t.hint, solid = false)
+            // 语言芯片恒显:主语言=实心主色,非主语言=普通前景色(无背景按钮样式)
+            chipMode?.apply {
+                visibility = View.VISIBLE
+                text = lang.chipLabel
+                val on = s.languageId == controller.registry.primaryLanguageId
+                setTextColor(if (on) 0xFF16181D.toInt() else t.fg)
+                background = if (on) {
+                    android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        cornerRadius = 4f * resources.displayMetrics.density
+                        setColor(t.accent)
+                    }
+                } else null
             }
+        }
+
+        // 层芯片:哪个生效显哪个(数字类只看 Alt 那颗)。**锁定=加下划线**,一次性/按住=无下划线
+        val layerNow = s.effectiveLayer
+        if (layerNow == Layer.L2) {
+            val label = controller.registry.fieldProfile(s.fieldKind).altChipLabel
+            renderChip(chipAlt, label, t.chipL2, locked = s.lock == Layer.L2)
+        } else hideChip(chipAlt)
+        if (!digitsOnly && layerNow == Layer.L3) {
+            renderChip(chipSym, "sym", t.chipL3, locked = s.lock == Layer.L3)
+        } else hideChip(chipSym)
+
+        // 大写状态:Shift 上箭头图标(与右区三键同款线稿,无背景);
+        // 一次大写/按住 = 描边箭头,Caps 锁定 = 箭头 + 实心底杆
+        if (digitsOnly || !lang.showShiftChip || (s.shift == ShiftState.OFF && !s.shiftHeld)) {
+            hideChip(chipShift)
+        } else {
+            val capsLock = s.shift == ShiftState.CAPS
+            chipShift?.apply {
+                visibility = View.VISIBLE
+                val tint = if (capsLock) t.accent else t.fg
+                setImageResource(if (capsLock) R.drawable.ic_shift_lock else R.drawable.ic_shift)
+                imageTintList = android.content.res.ColorStateList.valueOf(tint)
+                contentDescription =
+                    context.getString(if (capsLock) R.string.shift_state_caps else R.string.shift_state_once)
+            }
+        }
+        alignFirstVisibleChip()
+    }
+
+    /**
+     * 第一颗**可见**芯片不留起始间距:数字态只剩 Alt(`0-9` 那颗)时,它到屏幕左缘
+     * 要和 `拼`/`En` 对齐(否则多 2dp,2026-09-29 用户报障)。
+     */
+    private fun alignFirstVisibleChip() {
+        val row = chipMode?.parent as? android.view.ViewGroup ?: return
+        for (i in 0 until row.childCount) {
+            val chip = row.getChildAt(i)
+            if (chip.visibility != View.VISIBLE) continue
+            val lp = chip.layoutParams as? android.view.ViewGroup.MarginLayoutParams ?: return
+            if (lp.marginStart != 0) {
+                lp.marginStart = 0
+                chip.layoutParams = lp
+            }
+            return // 只处理第一颗
         }
     }
 
-    /** 层芯片:目标层生效 → 该层主色(锁定实心 / 单次描边);没生效 → 整颗灰描边。 */
-    private fun renderLayerChip(
-        chip: TextView?,
-        target: Layer,
-        label: String,
-        color: Int,
-        s: ImeState,
-        t: dev.hwkbd.ime.ui.ImeTheme,
-        lit: Boolean,
-    ) {
-        if (lit && s.effectiveLayer == target) renderChip(chip, label, color, solid = s.lock == target)
-        else renderChip(chip, label, t.hint, solid = false)
+    private fun hideChip(chip: android.view.View?) {
+        chip ?: return
+        chip.visibility = View.GONE
     }
 
-    /** 芯片渲染:实心 = 锁定/持续状态,描边 = 一次性/临时状态。 */
-    private fun renderChip(chip: TextView?, label: String, color: Int, solid: Boolean) {
-        val density = resources.displayMetrics.density
+    /**
+     * 状态芯片渲染(2026-09-29 用户定案"状态锁定都采用下划线的方式表示"):
+     * **锁定 = 加底部下划线**,一次性/按住 = 无下划线。文字/图标本身不带背景按钮样式
+     * (此前锁定=实心块、一次性=描边块,与右区三键不统一)。
+     */
+    private fun renderChip(chip: TextView?, label: String, color: Int, locked: Boolean) {
         chip ?: return
         chip.text = label
         chip.visibility = View.VISIBLE
-        if (solid) {
-            chip.setTextColor(0xFF16181D.toInt())
-            chip.background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = 4f * density
-                setColor(color)
-            }
+        chip.setTextColor(color)
+        if (locked) {
+            chip.background = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.chip_lock_underline)
+            chip.backgroundTintList = android.content.res.ColorStateList.valueOf(color)
         } else {
-            chip.setTextColor(color)
-            chip.background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = 4f * density
-                setColor(android.graphics.Color.TRANSPARENT)
-                setStroke((1.2f * density).toInt(), color)
-            }
+            chip.background = null
         }
     }
 

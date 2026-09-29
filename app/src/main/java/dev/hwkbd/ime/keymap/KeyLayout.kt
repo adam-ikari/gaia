@@ -150,8 +150,9 @@ class KeyLayout(
 
         /**
          * L4 **固定核心键**:默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来)。
-         * `;`/`$` 是 L1/L2/L3 三层敲不出的**单个字符**;`\` 是点名固定的(2026-09-28:
-         * 前三层拿它不顺手,L4 按下就有,L4 也不做事后筛选)。
+         * `;`/`$` 是 L1/L2/L3 三层都敲不出的**单个字符**——L4 的存在意义就是补这些键。
+         * **`\` 已从固定键里删掉**(2026-09-29 用户定案):L3 编程层 `Sym+z` 就能敲出它,
+         * 按「L1-L3 已有的按键不进 L4」这把尺它不该占中区;L2 严格按 Titan 丝印,丝印上也没有它。
          * Tab/Esc/Home/End/PU/PD/Ins/方向键 L3 全有,不重复占用中区。
          *
          * **不放组合按键**——`-> => != ==` 这类多字符串键已按用户要求移除(2026-09-28):
@@ -160,22 +161,19 @@ class KeyLayout(
         val L4_CORE: List<L4Key> = listOf(
             L4Key("；", KeyOut.Text(";")),
             L4Key("$", KeyOut.Text("\$")),
-            L4Key("\\", KeyOut.Text("\\")),
         )
 
         /**
          * 网址框适用的核心键子集(注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 选用):
-         * `\` 剔除——RFC 3986 非法(unreserved/sub-delim/gen-delim 都不含它),WHATWG 对
-         * http/https 又把 `\` 归一成 `/`,在网址里敲它是错字符;
-         * `;` `$` 是合法 sub-delim(`?a=1;b=2`)且 L1/L2/L3 三层敲不出,**保留**
-         * (2026-09-29 用户定案:合法的留、非法的去)。
+         * `;` `$` 是合法 sub-delim(`?a=1;b=2`)且 L1/L2/L3 三层敲不出,**全留**
+         * (2026-09-29 用户定案:合法的留、非法的去;`\` 2026-09-29 已从固定键删除,不再需要剔除)。
          */
-        val L4_CORE_URL: List<L4Key> = L4_CORE.filter { it.label != "\\" }
+        val L4_CORE_URL: List<L4Key> = L4_CORE
 
         /**
          * 邮箱框适用的核心键子集(注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 选用):
          * 只留 `$`——RFC 5322 的 atext 集合(`!#$%&'*+-/=?^_`{|}~` + 字母数字)含它,
-         * `user$tag@example.com` 是合法地址;`;` `\` 不在 atext(只有引号形式才合法,供应商基本不收),
+         * `user$tag@example.com` 是合法地址;`;` 不在 atext(只有引号形式才合法,供应商基本不收),
          * domain 段更是只允许字母/数字/`-`/`.`——**不合法的不进邮箱键帽**
          * (2026-09-29 用户定案,与网址框同一把尺:合法的留、非法的去)。
          */

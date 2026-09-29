@@ -40,6 +40,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/playground_show_log" />
+
+        <Button
+            android:id="@+id/btn_play_keymap"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/playground_show_keymap" />
     </LinearLayout>
 
     <!-- 上下文输入框:2 列均匀网格(只在按钮行**下方**重排,主输入框 (700,400) 落点不变,aitest 不受影响)。

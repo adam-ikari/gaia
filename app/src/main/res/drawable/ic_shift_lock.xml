@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  大写**锁定**态下划线(实心横线,贴箭头底部):叠加在 ic_shift 上 = Caps 锁定。
+  一次大写只有箭头、没有这根线 —— 与 Android 键盘同一套语言(图标不变,底线 = 锁定)。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M6.6,20.2 L17.4,20.2"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="butt"
+        android:strokeWidth="2" />
+</vector>

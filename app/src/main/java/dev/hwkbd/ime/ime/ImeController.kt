@@ -298,50 +298,9 @@ class ImeController(
     }
 
     /**
-     * 状态栏层芯片(ALT/SYM)**单击** = 单次切换:切到该层并落 [ImeState.oneShot]
-     * (出下一个键后自动回 L1);已在该层时再点 = 取消回 L1。顺带清掉可能挂着的 lock,
-     * 单击永远只是"临时切一下"。
+     * 切到下一个语言(Shift+空格 / 语言芯片)。
+     * 2026-09-29 用户定案:状态芯片**不可触摸**,切换只走物理按键 —— `Shift+Space`。
      */
-    fun tapLayerChip(target: Layer) {
-        // 数字类锁着 L2:单击不解锁也不转一次性(解锁后 L1 全被吞,没法打字)
-        if (target == Layer.L2 && fieldProfile().digitsOnly) {
-            state.lock = Layer.L2
-            state.oneShot = null
-            host.render()
-            return
-        }
-        val active = state.effectiveLayer == target
-        state.oneShot = if (active) null else target
-        state.lock = null
-        host.render()
-    }
-
-    /**
-     * 状态栏层芯片(ALT/SYM)**长按** = 锁定切换:落 [ImeState.lock] 一直保持;
-     * 已在该层锁定时再长按 = 解锁回 L1。顺带清掉一次性层。
-     */
-    fun longPressLayerChip(target: Layer) {
-        // 数字类:长按也解不掉数字锁(同上,解锁即没法打字)
-        if (target == Layer.L2 && fieldProfile().digitsOnly) {
-            state.lock = Layer.L2
-            state.oneShot = null
-            host.render()
-            return
-        }
-        val locked = state.lock == target
-        state.lock = if (locked) null else target
-        state.oneShot = null
-        host.render()
-    }
-
-    /** 状态栏大写芯片触摸(英文态):小写 ⇄ Caps 锁定。 */
-    fun tapShiftChip() {
-        if (!language().shiftTapsEnabled) return
-        state.shift = if (state.shift == ShiftState.CAPS) ShiftState.OFF else ShiftState.CAPS
-        host.render()
-    }
-
-    /** 状态行语言芯片 / Shift+空格:循环到注册表里的下一个语言。 */
     fun cycleLanguage() = setLanguage(registry.nextLanguage(state.languageId))
 
     /**
@@ -361,6 +320,14 @@ class ImeController(
     }
 
     private fun layerKeyTap(mod: Layer, tracker: TapTracker) {
+        // 数字类的 L2 锁是**字段给的**(聚焦即锁,免按 Alt):解不掉,否则 L1 全被吞没法打字。
+        // 触摸切换已下线,这条守卫现在只挡物理 Alt 键。
+        if (mod == Layer.L2 && state.lock == Layer.L2 && fieldProfile().digitsOnly) {
+            state.lock = Layer.L2
+            state.oneShot = null
+            host.render()
+            return
+        }
         val now = System.currentTimeMillis()
         // 解锁/取消后的短窗内吸收同键连击(双击解除应保持解除,不重新武装)
         if (suppressNextTap == mod && now < suppressUntil) {

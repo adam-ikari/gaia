@@ -137,15 +137,14 @@ class ImeControllerTest {
     // ------------------------------------------------------------ 数字类(锁定数字层)
 
     @Test
-    fun `数字框聚焦直接锁定数字层 离开解锁 芯片解不掉锁`() {
+    fun `数字框聚焦直接锁定数字层 离开解锁`() {
         val r = rig()
         r.c.setFieldKind(FieldKind.NUMBER)
         assertEquals(Layer.L2, r.c.state.lock) // 聚焦即锁,免按 Alt(alt 锁定的数字变种)
         assertTrue(r.key(kc('q'))) // L2 的 q = 0,直接出数字
         assertEquals(listOf("0"), r.h.commits)
-        // 芯片单击/长按都解不掉锁(解锁后 L1 全被吞,没法打字)
-        r.c.tapLayerChip(Layer.L2)
-        r.c.longPressLayerChip(Layer.L2)
+        // 数字锁解不掉(解锁后 L1 全被吞,没法打字):物理 Alt 单击只落一次性,不碰字段加的 lock
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(Layer.L2, r.c.state.lock)
         // 离开数字类 → 解除字段加的锁
         r.c.setFieldKind(FieldKind.TEXT)
@@ -747,99 +746,38 @@ class ImeControllerTest {
         assertEquals("zh", r.c.state.languageId)
     }
 
-    // ---------------------------------------------------------------- 状态栏触摸切换
+    // ---------------------------------------------------------------- 状态栏(芯片只显示,切换走物理键)
 
     @Test
-    fun `层芯片 ALT SYM 单击是单次切换 再点回 L1`() {
+    fun `层切换只走物理键 Alt Sym 单击一次性 双击锁定`() {
         val r = rig()
         val L1 = dev.hwkbd.ime.keymap.Layer.L1
         val L2 = dev.hwkbd.ime.keymap.Layer.L2
         val L3 = dev.hwkbd.ime.keymap.Layer.L3
         assertEquals(L1, r.c.state.effectiveLayer)
 
-        r.c.tapLayerChip(L2) // 点 ALT
-        assertEquals(L2, r.c.state.effectiveLayer)
-        assertEquals(L2, r.c.state.oneShot) // 单击 = 一次性,不是锁定
-        assertEquals(null, r.c.state.lock)
-
-        r.c.tapLayerChip(L2) // 已在该层再点 = 回 L1
-        assertEquals(L1, r.c.state.effectiveLayer)
-        assertEquals(null, r.c.state.oneShot)
-
-        r.c.tapLayerChip(L3) // 点 SYM
-        assertEquals(L3, r.c.state.effectiveLayer)
-        r.c.tapLayerChip(L2) // 换层:一次性被顶掉
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // Alt 单击 = 一次性 L2
         assertEquals(L2, r.c.state.effectiveLayer)
         assertEquals(L2, r.c.state.oneShot)
         assertEquals(null, r.c.state.lock)
-    }
 
-    @Test
-    fun `层芯片长按是锁定切换 再长按解锁`() {
-        val r = rig()
-        val L1 = dev.hwkbd.ime.keymap.Layer.L1
-        val L2 = dev.hwkbd.ime.keymap.Layer.L2
-        val L3 = dev.hwkbd.ime.keymap.Layer.L3
-
-        r.c.longPressLayerChip(L2)
-        assertEquals(L2, r.c.state.effectiveLayer)
-        assertEquals(L2, r.c.state.lock) // 长按 = 锁定
+        Thread.sleep(350) // 出双击窗口,再敲才是**独立**单击
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 已是一次性 L2,窗口外再敲 = 取消回 L1
+        assertEquals(L1, r.c.state.effectiveLayer)
         assertEquals(null, r.c.state.oneShot)
 
-        r.c.longPressLayerChip(L3)
-        assertEquals(L3, r.c.state.lock)
-
-        r.c.longPressLayerChip(L3) // 再长按 = 解锁
-        assertEquals(null, r.c.state.lock)
-        assertEquals(L1, r.c.state.effectiveLayer)
-    }
-
-    @Test
-    fun `层芯片单击清掉锁定 长按清掉一次性`() {
-        val r = rig()
-        val L1 = dev.hwkbd.ime.keymap.Layer.L1
-        val L2 = dev.hwkbd.ime.keymap.Layer.L2
-        val L3 = dev.hwkbd.ime.keymap.Layer.L3
-
-        r.c.longPressLayerChip(L2) // 锁定 L2
-        r.c.tapLayerChip(L3) // 单击 → 一次性 L3,锁被清掉
-        assertEquals(L3, r.c.state.effectiveLayer)
-        assertEquals(null, r.c.state.lock)
-        assertEquals(L3, r.c.state.oneShot)
-
-        r.c.longPressLayerChip(L3) // 长按 → 锁定 L3,一次性清掉
-        assertEquals(L3, r.c.state.lock)
-        assertEquals(null, r.c.state.oneShot)
-
-        r.c.longPressLayerChip(L3) // 解锁回 L1
-        assertEquals(null, r.c.state.lock)
-        assertEquals(L1, r.c.state.effectiveLayer)
-    }
-
-    @Test
-    fun `层芯片单击覆盖物理键的一次性层`() {
-        val r = rig()
-        val L2 = dev.hwkbd.ime.keymap.Layer.L2
-        val L3 = dev.hwkbd.ime.keymap.Layer.L3
-        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 物理单击 = 一次性 L2
-        assertEquals(L2, r.c.state.effectiveLayer)
-        r.c.tapLayerChip(L3) // 触摸切到 L3 的一次性,原一次性被顶掉
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 一次性 L2
+        r.tap(KeyEvent.KEYCODE_SYM) // Sym 单击 = 一次性 L3,顶掉 L2 的一次性
         assertEquals(L3, r.c.state.effectiveLayer)
         assertEquals(L3, r.c.state.oneShot)
         assertEquals(null, r.c.state.lock)
-    }
 
-    @Test
-    fun `状态栏大写芯片在英文态开关 Caps 拼音态忽略`() {
-        val r = rig()
-        r.c.state.languageId = "en"
-        r.c.tapShiftChip()
-        assertEquals(ShiftState.CAPS, r.c.state.shift)
-        r.c.tapShiftChip()
-        assertEquals(ShiftState.OFF, r.c.state.shift)
-        r.c.state.languageId = "zh"
-        r.c.tapShiftChip()
-        assertEquals(ShiftState.OFF, r.c.state.shift) // 拼音态不动大小写
+        // 双击 = 锁定该层
+        Thread.sleep(350)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(L2, r.c.state.lock)
+        assertEquals(null, r.c.state.oneShot)
     }
 
     // ---------------------------------------------------------------- 透传

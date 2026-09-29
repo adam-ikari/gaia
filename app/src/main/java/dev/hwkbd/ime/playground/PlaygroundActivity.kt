@@ -6,6 +6,9 @@ import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import dev.hwkbd.ime.R
+import dev.hwkbd.ime.keymap.KeyLayoutStore
+import dev.hwkbd.ime.strategy.DirectInputMethod
+import dev.hwkbd.ime.strategy.ImeRegistry
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -28,6 +31,13 @@ class PlaygroundActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_play_clear).setOnClickListener { et.setText("") }
         findViewById<Button>(R.id.btn_play_paste_log).setOnClickListener {
             logView.text = readRecentImeLog()
+        }
+        // L1-L5 键位总览:三层物理映射 + L4 各输入框类型的实际显示键 + L5 说明
+        findViewById<Button>(R.id.btn_play_keymap).setOnClickListener {
+            logView.text = KeymapOverview.build(
+                KeyLayoutStore.load(this),
+                ImeRegistry.builtin().registerMethod(DirectInputMethod),
+            )
         }
     }
 

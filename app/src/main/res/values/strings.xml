@@ -7,6 +7,10 @@
     <string name="playground_hint">Titan 2 需先把系统 Fn 键设为 Ctrl（设置页顶部有说明）。在输入框里试：拼音组词 / 五键选字 / 层切换 / 上滑飞字</string>
     <string name="playground_hint2">在这里输入…</string>
     <string name="playground_show_log">查看输入法日志</string>
+    <string name="playground_show_keymap">键位总览</string>
+    <string name="shift_state">大写</string>
+    <string name="shift_state_once">大写一次</string>
+    <string name="shift_state_caps">大写锁定</string>
     <!-- 上下文输入框:验"输入类型决定 L4 键位套 / 数字类锁定放行"用;提示精简,避免同排互相裁字 -->
     <string name="playground_url_hint">网址 textUri → L4 http://</string>
     <string name="playground_number_hint">数字 number → 锁 0-9</string>

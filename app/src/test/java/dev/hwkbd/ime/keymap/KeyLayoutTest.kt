@@ -102,8 +102,8 @@ class KeyLayoutTest {
 
     @Test
     fun `L4 固定核心键永远在前 自定义键在后 重复去重`() {
-        // 核心键内容定点：； $ 以及点名固定的 \（L4 按下就有）
-        assertEquals(listOf("；", "\$", "\\"), KeyLayout.L4_CORE.map { it.label })
+        // 核心键内容定点:； 与 $(2026-09-29 用户定案:`\` 从固定键删除——L3 的 Sym+z 能敲出它)
+        assertEquals(listOf("；", "\$"), KeyLayout.L4_CORE.map { it.label })
         // 编辑器里 [L4] 段空/被删光,固定核心键照样显示
         assertEquals(
             KeyLayout.L4_CORE.map { it.label },

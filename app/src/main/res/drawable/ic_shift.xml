@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shift 上箭头(线稿):空心箭头 + **下划线**,与 ic_settings / ic_keyboard 同一套线稿语言
+  (1.5px 圆头描边、无填充、24dp 视口),放在状态行里与右侧三键视觉比重一致。
+  替代此前的 ab/Ab/AB 文字芯片(带背景的按钮样式,与右区不统一)。
+  **锁定态统一下划线表示**:一次大写=无下划线(纯箭头),Caps 锁定=箭头下加实心横线
+  (和 Android 键盘同一套语言:图标本身不变,底部一根线 = 已锁定)。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 空心箭头 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M12,3.6 L19.4,11 L15.3,11 L15.3,15.4 L8.7,15.4 L8.7,11 L4.6,11 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.5" />
+</vector>

@@ -78,17 +78,23 @@
 
             <!--
               左区:状态芯片。**宽度由权重固定**(0dp + weight),不随内容伸缩——
-              与右区按钮盒等宽 → 中区 L4 到屏幕左右距离相等;英文多出的大写芯片
-              只是这个盒子里多占一格,盒子宽度不变 → 中英切换 L4 不挪。
-              拼音态大写芯片是 GONE(见 chip_shift 注释),alt/sym 直接紧贴「拼」。
-              两端安全区(16dp)占掉后 EN 态四芯片(En|ab|alt|sym)要塞进这个盒子,
-              芯片保持 34×34(宽不小于高),空间靠间距挤:芯片间距 4→2dp、此内边距 6→4dp。
+              与右区按钮盒**等权重 0.4**(2026-09-29 用户定案,此前 0.6):芯片改成
+              "只显示已触发的状态"后最坏情况只有 语言+层+大写 三颗 34dp,右区固定三键 48dp,
+              两边都不需要那么宽 —— 压到 0.4/0.4/1.2 后 **L4 中区拿到约 60% 宽度**
+              (此前 45%),一行能多放一把键、少溢出到 L5。
+              **左右必须等宽**:chip_row 与 btn_row 的 weight 相等 ⇒ L4 到屏幕左右两侧距离相等;
+              L4 自己再留对称的 6dp 外边距(见 l4_panel 的 marginStart/End)。
+              **只显示已触发的状态**:语言芯片恒显,层/大写没触发就 GONE。
+              **芯片不可触摸**:切换一律走物理键(Alt / Sym / Shift / Shift+Space),
+              这排芯片是纯状态显示。文字芯片 34×34、间距 2dp、此内边距 4dp;
+              大写状态是 48dp 的 **Shift 上箭头图标**(与右区三键同款线稿,无背景);
+              第一颗可见芯片不留起始间距(否则数字态的 `0-9` 比 `拼`/`En` 多 2dp)。
             -->
             <LinearLayout
                 android:id="@+id/chip_row"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="0.6"
+                android:layout_weight="0.4"
                 android:baselineAligned="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
@@ -110,28 +116,24 @@
                     android:textStyle="bold" />
 
                 <!--
-                  大写状态芯片(EN 态显示):紧挨模式芯片 En|ab|alt|sym——
-                  锁定=实心,一次性/按住=描边。放在这里是为了贴着 EN,不被层芯片隔开。
-                  拼音态置 **GONE**:「拼」右边的 alt/sym 直接紧贴过来,不空一格;
-                  中英切换时 L4 不挪,靠的是 chip_row 的**权重定宽盒子**(不是这颗芯片占位)。
+                  大写状态:**Shift 上箭头图标**,不是文字按钮(2026-09-29 用户定案
+                  "大小写状态标识改为shift上箭头符号 状态改为图标而不是带背景的按钮样式
+                  与状态栏右侧风格统一"):48dp 见方、无背景,scaleType=center 按 24dp 原尺寸画,
+                  和右区齿轮/键盘/收起三键同一套线稿。一次大写=描边,Caps 锁定=叠加实心底杆。
+                  **大写生效才显示**;切换走物理 Shift 键,不可触摸。
                 -->
-                <TextView
+                <ImageView
                     android:id="@+id/chip_shift"
-                    android:layout_width="wrap_content"
-                    android:layout_height="34dp"
-                    android:layout_marginStart="2dp"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:minWidth="34dp"
-                    android:paddingStart="5dp"
-                    android:paddingEnd="5dp"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
+                    android:layout_width="48dp"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/shift_state"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_shift"
                     android:visibility="gone" />
 
                 <!--
-                  层芯片 alt/sym:两颗常显(打普通字母时也没有"当前层"图标,只是两颗灰芯片)。
-                  未切到的层 = 灰色描边;切到 = 该层主色(锁定实心 / 单次描边)。
+                  层芯片:**该层生效才显示**,没触发就 GONE(2026-09-29 用户定案,此前两颗常显灰芯片)。
+                  锁定=实心,一次性/按住=描边;数字框里 alt 这颗文字换成实际可输字符集(0-9、0-9+*#…)。
                 -->
                 <TextView
                     android:id="@+id/chip_alt"
@@ -146,7 +148,7 @@
                     android:text="alt"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:visibility="visible" />
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/chip_sym"
@@ -161,15 +163,16 @@
                     android:text="sym"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:visibility="visible" />
+                    android:visibility="gone" />
             </LinearLayout>
 
             <!--
               中区:L4 键(**等宽槽**单行不滚动;间距固定 4dp,槽宽 = min(填充值, 72dp 封顶):
               键多/行窄 → 恰好铺满=两端对齐;键少/行宽 → 封顶收窄、整组居中;等宽+等距 ⇒
               中线恒过中心键心(奇数把)或中缝(偶数把))。横滑让给手势。
-              **到屏幕左右两侧距离相等**:靠 chip_row 与 btn_row 这两个等宽权重盒,
-              L4 自己再留对称的 6dp 外边距(和状态行两端 6dp 齐)。
+              **到屏幕左右两侧距离相等**:靠 chip_row 与 btn_row 这两个**等权重 0.4** 的盒,
+              L4 自己再留对称的 6dp 外边距(和状态行两端 6dp 齐)——权重相等是等距的前提,
+              改任一侧的 weight 必须同时改另一侧。中区因此拿到约 60% 宽度。
               内容 = 语言补差键 + 固定核心键 + 键位套,**只显示 L1-L3 敲不出的键**
               (L1-L3 已有的按键一律不进 L4,含数字态合法单字符——默认 L2 全有)。
               L4 必显(设置页开关已删、数字态也不隐藏):数字框显示键位套里的**短语组合**
@@ -188,15 +191,15 @@
               右区:按钮(宽 ≥ 高 = 48dp 见方,和条同高,点击目标不小于高)。
               齿轮用 scaleType=center 只按 24dp 原始尺寸画(24dp 线稿的墨迹 ≈16dp),
               不再被 fitCenter 放大到 48dp——否则齿轮墨迹 ≈32dp,和 34dp 的芯片一样大,太抢眼。
-              这个盒子同样 **0dp + weight**,和左区 chip_row **等宽**(两者相等 → 中区 L4
-              到屏幕左右距离相等);按钮靠 gravity=end 贴屏幕右缘,盒子多出来的部分
-              挪到最左的键盘图标左侧(等距的代价从"齿轮左侧空隙"挪到这里)。
+              这个盒子同样 **0dp + weight 0.4**,和左区 chip_row **等权重**(两者相等 →
+              中区 L4 到屏幕左右两侧距离相等,这是用户 2026-09-29 复核过的硬要求);
+              按钮靠 gravity=end 贴屏幕右缘,盒子多出来的部分挪到最左的键盘图标左侧。
             -->
             <LinearLayout
                 android:id="@+id/btn_row"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="0.6"
+                android:layout_weight="0.4"
                 android:baselineAligned="false"
                 android:gravity="end"
                 android:orientation="horizontal">
@@ -216,33 +219,30 @@
                 android:src="@drawable/ic_keyboard"
                 android:tint="@color/status_fg" />
 
-                <ImageButton
-                    android:id="@+id/btn_settings"
+            <!--
+              右区三键**同款 48dp 见方**(2026-09-29 用户定案"状态栏左侧和右侧统一风格"):
+              与左区芯片一样是等大方块、一样 48dp 行高、字形都按 scaleType=center 原尺寸画
+              (齿轮 24dp 线稿 ≈16dp 墨迹、键盘图标同理、收起三角 16dp)。
+              收起键原来 wrap_content + paddingEnd 6dp 的"三角贴右缘"做法一并去掉——
+              三角不再比另两个键窄,三个键等宽等高,右区视觉重量与左区一致。
+            -->
+            <ImageButton
+                android:id="@+id/btn_settings"
                 android:layout_width="48dp"
                 android:layout_height="match_parent"
-                android:layout_marginEnd="12dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/app_name"
-                android:paddingEnd="3dp"
                 android:scaleType="center"
                 android:src="@drawable/ic_settings"
                 android:tint="@color/status_fg" />
 
-            <!--
-              收起按钮:宽 wrap_content(16dp 三角 + paddingEnd 6dp),三角贴按钮右缘——
-              按钮右缘 = 中区右缘,视觉右边距 = 安全区 16dp + 6dp = 22dp,与左侧对称;
-              齿轮 marginEnd(12dp)补三角从 48dp 盒收进来的空隙,使**三字形间距均匀**
-              (2026-09-29 重排:原 48dp + paddingStart 32dp 把三角硬推右缘,
-              字形间距 68/119px 不匀,且整组偏左)。
-            -->
             <ImageButton
                 android:id="@+id/btn_hide_ime"
-                android:layout_width="wrap_content"
+                android:layout_width="48dp"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
                 android:contentDescription="@string/btn_hide"
-                android:paddingEnd="6dp"
-                android:scaleType="fitCenter"
+                android:scaleType="center"
                 android:src="@drawable/ic_hide"
                 android:tint="@color/status_fg" />
             </LinearLayout>
