@@ -13,27 +13,26 @@ class KeyLayoutTest {
     private val d = KeyLayout.default()
 
     @Test
-    fun `L2 符号数字层默认映射与 TitanKey 一致`() {
-        // 九宫格数字:W=1 E=2 R=3 / S=4 D=5 F=6 / X=7 C=8 V=9,Q=0
-        assertEquals(KeyOut.Text("0"), d.lookup(Layer.L2, KeyEvent.KEYCODE_Q))
-        assertEquals(KeyOut.Text("1"), d.lookup(Layer.L2, KeyEvent.KEYCODE_W))
-        assertEquals(KeyOut.Text("2"), d.lookup(Layer.L2, KeyEvent.KEYCODE_E))
-        assertEquals(KeyOut.Text("3"), d.lookup(Layer.L2, KeyEvent.KEYCODE_R))
-        assertEquals(KeyOut.Text("4"), d.lookup(Layer.L2, KeyEvent.KEYCODE_S))
-        assertEquals(KeyOut.Text("5"), d.lookup(Layer.L2, KeyEvent.KEYCODE_D))
-        assertEquals(KeyOut.Text("6"), d.lookup(Layer.L2, KeyEvent.KEYCODE_F))
-        assertEquals(KeyOut.Text("7"), d.lookup(Layer.L2, KeyEvent.KEYCODE_X))
-        assertEquals(KeyOut.Text("8"), d.lookup(Layer.L2, KeyEvent.KEYCODE_C))
-        assertEquals(KeyOut.Text("9"), d.lookup(Layer.L2, KeyEvent.KEYCODE_V))
-        // 右区标点(本机无独立标点键)
-        assertEquals(KeyOut.Text("@"), d.lookup(Layer.L2, KeyEvent.KEYCODE_A))
-        assertEquals(KeyOut.Text("("), d.lookup(Layer.L2, KeyEvent.KEYCODE_T))
-        assertEquals(KeyOut.Text(")"), d.lookup(Layer.L2, KeyEvent.KEYCODE_Y))
-        assertEquals(KeyOut.Text(","), d.lookup(Layer.L2, KeyEvent.KEYCODE_N))
-        assertEquals(KeyOut.Text("."), d.lookup(Layer.L2, KeyEvent.KEYCODE_B))
-        assertEquals(KeyOut.Text("?"), d.lookup(Layer.L2, KeyEvent.KEYCODE_M))
-        assertEquals(KeyOut.Text("/"), d.lookup(Layer.L2, KeyEvent.KEYCODE_O))
-        assertEquals(KeyOut.Text(":"), d.lookup(Layer.L2, KeyEvent.KEYCODE_P))
+    fun `L2 符号数字层默认映射逐键对齐 TitanKey kcm 丝印`() {
+        // 2026-09-29 用户定案:L2 必须**严格按 Titan 2 物理键盘丝印**,即仓库根目录 `.TitanKey.kcm`
+        // 每个 key 的 `alt:` 值(该文件只有 A-Z + SPACE/ENTER,26 个字母键全列,逐键断言防再错)。
+        // 此前唯一的错项:`l` 印的是撇号,代码写成了反斜杠(2026-09-29 用户纠正)。
+        val kcmAlt = mapOf(
+            'A' to "@", 'B' to ".", 'C' to "8", 'D' to "5", 'E' to "2", 'F' to "6",
+            'G' to "*", 'H' to "#", 'I' to "_", 'J' to "+", 'K' to "\"", 'L' to "'",
+            'M' to "?", 'N' to ",", 'O' to "/", 'P' to ":", 'Q' to "0", 'R' to "3",
+            'S' to "4", 'T' to "(", 'U' to "-", 'V' to "9", 'W' to "1", 'X' to "7",
+            'Y' to ")", 'Z' to "!",
+        )
+        for ((letter, symbol) in kcmAlt) {
+            assertEquals(
+                "L2 的 $letter 键应按 kcm 丝印输出 $symbol",
+                KeyOut.Text(symbol),
+                d.lookup(Layer.L2, KeyEvent.KEYCODE_A + (letter - 'A')),
+            )
+        }
+        // 丝印上**没有反斜杠**:L2 全层 26 键都不该出现 `\`
+        assertFalse(kcmAlt.containsValue("\\"))
     }
 
     @Test

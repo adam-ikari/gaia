@@ -55,6 +55,7 @@ class L4PanelView @JvmOverloads constructor(
      * true = L5 行(显示 [tailFrom] 起的溢出尾巴 + 接在后面的用户短语);false = L4 行(显示装得下的前缀)。
      * L5 行键帽**贴行底**:两行键间距原为 12dp(两行 48dp 各取 6dp 居中边距之和),
      * 用户嫌大(2026-09-29),贴底后收到 6dp,贴近行内 4dp 键距;状态行本身不动。
+     * L5 行高 42dp(见 ime_root):键仍 36dp,贴底后上边 6dp——原 48dp 行上边空 12dp,用户嫌太宽。
      */
     var tailMode = false
         set(value) {

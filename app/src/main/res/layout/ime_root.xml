@@ -47,12 +47,14 @@
       齿轮左侧键盘图标点按切显隐——无溢出时 GONE、组词态整行让位。背景与状态行同款(运行时同步主题色);
       内边距对齐状态行**可见内容**左右缘:左 = 安全区 16dp + 芯片 4dp = 20dp(En 芯片左缘)、
       右 = 安全区 16dp + 收起键 marginEnd 6dp = 22dp(收起三角右缘)。
-      键帽**贴行底**(tailMode 时 gravity 底对齐):与下方状态行键间距 12dp→6dp(2026-09-29)。
+      键帽**贴行底**(tailMode 时 gravity 底对齐):与下方状态行键间距 12dp→6dp(2026-09-29);
+      行高 **42dp**(不是 48dp):键仍是 36dp 与状态行同款,贴底后上边正好 6dp——
+      原 48dp 行会空出 12dp 上边距,用户嫌太宽(2026-09-29)。上下留白因此都是 6dp。
     -->
     <dev.hwkbd.ime.ui.L4PanelView
         android:id="@+id/l5_panel"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="42dp"
         android:background="@color/status_bg"
         android:paddingStart="20dp"
         android:paddingEnd="22dp"

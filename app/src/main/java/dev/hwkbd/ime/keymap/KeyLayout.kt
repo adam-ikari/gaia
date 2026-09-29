@@ -354,7 +354,7 @@ class KeyLayout(
                 "q" to "0", "w" to "1", "e" to "2", "r" to "3", "t" to "(",
                 "y" to ")", "u" to "-", "i" to "_", "o" to "/", "p" to ":",
                 "a" to "@", "s" to "4", "d" to "5", "f" to "6", "g" to "*",
-                "h" to "#", "j" to "+", "k" to "\"", "l" to "\\",
+                "h" to "#", "j" to "+", "k" to "\"", "l" to "'",
                 "z" to "!", "x" to "7", "c" to "8", "v" to "9", "b" to ".",
                 "n" to ",", "m" to "?",
             )) l2[KeyNames.NAME_TO_CODE[k]!!] = KeyOut.Text(s)

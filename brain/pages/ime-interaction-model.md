@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-29T15:06:30"
+updated: "2026-09-29T15:35:42"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -297,4 +297,16 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
 - time: 2026-09-29T15:06:30
   kind: evidence
   summary: "纯黑背景 + L5 高度裁切修复真机通过(Titan 2,2.4x,像素扫描):输入条背景 ImeTheme.DEFAULT.barBg 与 status_bg/candidate_bg 全改 #000000(其余 6 套主题色板不动);L5 高度裁切(「L5 开着切输入框」时键只画出 54px、应为 86px)由 syncL5 补一次 mainHandler.post 延迟 notifyInsetsChanged + onStartInput 里 L5 可见时也通知,复测同场景键带恢复 1239-1324=86px;数字态 "
+  affects: [ime-interaction-model]
+
+- time: 2026-09-29T15:35:42
+  kind: decision
+  summary: "L2 出厂键位表改为**严格按 Titan 2 物理键盘丝印**(2026-09-29 用户定案L2的映射必须严格按照titan2物理键盘的丝印),基准是仓库根目录 .TitanKey.kcm(厂商键位表,只含 A-Z + SPACE/ENTER)每个 key 的 alt: 值。逐键核对后**唯一错项是 l**:丝印是撇号,代码写成了反斜杠 —— 已改(Alt+l 现在出撇号)。其余 25 键与 kcm 一致(Q=0 W=1 E=2 R=3 S=4 D=5 F=6 X=7 C=8 V=9;A=@ T=( Y=) U=- I=_ O=/ P=: G=* H=# J=+ K=双引号 Z=! B=. N=, M=?)。单测从抽查 20 键改成**26 键全量断言** + 断言丝印上没有反斜杠。附带结论:丝印上没有反斜杠,所以它只剩本项目自定的 L3 编程层(Sym+z)一处,L4 自然被筛掉。"
+  source: "用户 2026-09-29 纠正 + .TitanKey.kcm 逐键核对"
+  affects: [ime-interaction-model, ime-strategy-registry]
+
+- time: 2026-09-29T15:35:42
+  kind: decision
+  summary: "L5 行高 48dp→42dp(2026-09-29 用户报障L5键盘的上边距太宽了):键仍是 36dp 与状态行 L4 同款、仍贴行底;行高缩到 42dp 后上边距 12dp→6dp,与下边(L5↔状态行 6dp)、L4 行自身上下留白三者一致。真机像素实测:行顶 y=1210→1224,键带 1239-1324(86px=36dp)不变。"
+  source: "用户 2026-09-29 + 真机像素实测"
   affects: [ime-interaction-model]
