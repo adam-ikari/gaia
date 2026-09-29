@@ -608,19 +608,13 @@ class ImeService : InputMethodService() {
         if (digitsOnly) {
             chipMode?.visibility = View.GONE // 数字框没有语言可切(锁 L2)
         } else {
-            // 语言芯片恒显:主语言=实心主色,非主语言=普通前景色(无背景按钮样式)
+            // 语言芯片恒显:纯字符样式(无背景块)——主语言=主色字,非主语言=前景色字
             chipMode?.apply {
                 visibility = View.VISIBLE
                 text = lang.chipLabel
                 val on = s.languageId == controller.registry.primaryLanguageId
-                setTextColor(if (on) 0xFF16181D.toInt() else t.fg)
-                background = if (on) {
-                    android.graphics.drawable.GradientDrawable().apply {
-                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                        cornerRadius = 4f * resources.displayMetrics.density
-                        setColor(t.accent)
-                    }
-                } else null
+                setTextColor(if (on) t.accent else t.fg)
+                background = null
             }
         }
 
