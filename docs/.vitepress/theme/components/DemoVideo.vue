@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * 演示视频。视频文件由应用仓库的 e2e 流水线产出后放进 docs/public/media/。
- * 文件不存在时（还没录、或换了路径）就整块不渲染，不留空框。
+ * 演示视频。
+ *
+ * 文件由应用仓库的 E2E 工作流产出(模拟器 + screenrecord),落到
+ * `docs/public/media/` 之后这里才有东西可播。文件不在时整块不渲染 ——
+ * 空着一个黑框比不放更糟。
  */
-const src = '/media/cover.mp4'
-const poster = '/media/cover-poster.png'
+const src = '/media/gaia-demo.mp4'
+const poster = '/media/gaia-demo.jpg'
 </script>
 
 <template>
@@ -21,8 +24,7 @@ const poster = '/media/cover-poster.png'
       height="780"
     />
     <p class="gaia-video-cap">
-      真机形态下的完整流程：组词、五键选字、上滑飞字、L4 虚拟按键。录屏来自 CI 端到端测试，
-      未经剪辑。
+      从打开输入框到上屏的完整一段。录屏来自 CI 的自动测试，跑的就是发布包，没剪。
     </p>
   </div>
 </template>
@@ -51,5 +53,12 @@ const poster = '/media/cover-poster.png'
   line-height: 1.6;
   color: var(--vp-c-text-2);
   text-align: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gaia-video video {
+    /* 用户要求减少动效:不自动播放,交给手动点 */
+    pointer-events: auto;
+  }
 }
 </style>

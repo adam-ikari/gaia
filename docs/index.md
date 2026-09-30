@@ -35,6 +35,15 @@ actions:
 :::
 
 ::: band white
+<div class="gaia-band-head">
+<p class="gaia-eyebrow">每个细节</p>
+<h2>一处都不含糊。</h2>
+</div>
+
+<Shots />
+:::
+
+::: band white
 <div class="gaia-band-inner">
 <div class="gaia-band-copy">
 <p class="gaia-eyebrow">五个候选，五根手指</p>
