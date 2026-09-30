@@ -165,14 +165,90 @@ class CandidateBarView @JvmOverloads constructor(
         // 跟手翻页要预览相邻页,先备好(越界为空表 = 那一侧没有页,拖过去也不动)
         pageNextSlots = state.pageSlotsAt(state.page + 1)
         pagePrevSlots = state.pageSlotsAt(state.page - 1)
-        if (state.page != lastPage) onPageIndexChanged(state.page, newSlots)
+        val pageTurned = state.page != lastPage
+        if (pageTurned) onPageIndexChanged(state.page, newSlots)
         lastPage = state.page
+        // 变化动画要在 slots 换掉**之前**算:要对比新旧每一槽是不是同一个词
+        if (!pageTurned) startSwapAnim(slots, newSlots)
         slots = newSlots
         highlight = state.highlight
         page = state.page
         totalPages = state.totalPages
         invalidate()
     }
+
+    // ---------------------------------------------------------------- 候选词变化动画
+
+    /** 变化中的槽:index → 该槽的入场进度(0 = 还没进,1 = 到位)。空表 = 没有动画在跑。 */
+    private val swapSlots = HashMap<Int, Float>()
+    private var swapAnim: ValueAnimator? = null
+
+    /** 截图脚本与单测可关掉入场动画(它们要的是静止终态)。 */
+    @Volatile
+    var enterSwapDisabled = false
+
+    /**
+     * 候选词变化的入场动画(2026-09-30 用户「候选词变化需要有动画」)。
+     *
+     * 改组词、选中一个词、翻完页回来 —— 每一槽的词都可能在**同一次按键内**换掉,
+     * 此前是直接替换:字"啪"地跳过去。观感上像闪了一下,眼睛要重新找位置。
+     *
+     * 三条设计:
+     * 1. **只动真正变了的槽**:逐槽比 `word`,没变的原地不动 —— 否则每敲一个字母
+     *    五把键全抖一遍,比不动画更糟;
+     * 2. **从中心往外依次进场**(延迟按离中心的距离排),因为用户第一眼看的是中间那个;
+     * 3. **幅度克制**:轻微上移 + 缩放 + 淡入,不飞进飞出 —— 候选栏只有 48dp 高,
+     *    飞行的幅度会越界。
+     *
+     * 曲线走 [Fling.DECELERATE](与全应用一致的非线性缓动)。
+     * 翻页过渡与飞字拖动期间**不播**这个动画 —— 那两种已经在动同一个画面,叠加会打架。
+     */
+    private fun startSwapAnim(
+        oldSlots: List<dev.hwkbd.ime.engine.Candidate?>,
+        newSlots: List<dev.hwkbd.ime.engine.Candidate?>,
+    ) {
+        if (enterSwapDisabled || newSlots.isEmpty()) return
+        // 正在翻页/飞字就别叠动画了
+        if (pageFrom.isNotEmpty() || pageAnim != null || flyP >= 0f || flyAnim != null) return
+
+        val changed = ArrayList<Int>()
+        for (i in newSlots.indices) {
+            val a = oldSlots.getOrNull(i)?.word
+            val b = newSlots[i]?.word
+            if (a != null && b != null && a != b) changed.add(i)
+        }
+        if (changed.isEmpty()) return
+
+        swapAnim?.cancel()
+        changed.forEach { swapSlots[it] = 0f }
+        val total = SwapAnim.totalMs(changed.map { it }, CENTER_SLOT)
+        swapAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = total
+            interpolator = Fling.DECELERATE
+            addUpdateListener { a ->
+                val global = a.animatedValue as Float
+                for (i in changed) swapSlots[i] = SwapAnim.localProgress(global, i, total, CENTER_SLOT)
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    swapAnim = null
+                    swapSlots.clear()
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    /** 单槽的入场变换:返回 (上移 px, 缩放)。没在动的槽返回恒等,零开销。 */
+    private fun swapTransform(i: Int): Pair<Float, Float> {
+        val p = swapSlots[i] ?: return 0f to 1f
+        return SwapAnim.transform(p)
+    }
+
+    /** 单槽的入场透明度。 */
+    private fun swapAlpha(i: Int): Float = swapSlots[i]?.let { SwapAnim.alpha(it) } ?: 1f
 
     /**
      * 页号变了(controller 那边已经改完):把新页接进当前的翻页过渡。
@@ -855,14 +931,21 @@ private fun onTap(x: Float) {
             }
             // 中槽第一候选轻度强调:主色 + 略大一号。先定尺寸再测量,免得居中跑偏
             val first = i == CENTER_SLOT
+            // 变化动画的入场变换(没在动的槽返回恒等,零开销)
+            val (lift, scale) = swapTransform(i)
             wordPaint.textSize = base *
                 (if (c.word.length > 6) 0.7f else 1f) *
-                (if (first) FIRST_BOOST else 1f)
+                (if (first) FIRST_BOOST else 1f) *
+                scale
+            // 缩放只改 textSize,measureText 量出的就是缩放后的宽 —— 照常居中即可,
+            // 不需要额外补偿(试过"按比例反推中心"的写法,结果是字朝一侧漂)
             val w = wordPaint.measureText(c.word)
             val x = left + (cellWidth - w) / 2f
-            val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f
+            val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f - lift
             wordPaint.color = if (first) accentColor else savedColor
-            wordPaint.alpha = fadeAlpha // setColor 会覆盖 alpha,补回渐隐值
+            // setColor 会覆盖 alpha:取"渐隐 × 入场"两者的较小值
+            val a = (fadeAlpha * swapAlpha(i)).toInt().coerceIn(0, 255)
+            wordPaint.alpha = a
             canvas.drawText(c.word, x, y, wordPaint)
             wordPaint.textSize = base
         }
@@ -879,6 +962,8 @@ private fun onTap(x: Float) {
         /** 第一候选的强调幅度(尺寸)。 */
         const val FIRST_BOOST = 1.1f
 
+        // 候选词变化入场动画的参数在 [SwapAnim] 里(纯函数,可单测):幅度刻意小,
+        // 候选行只有 48dp 高,飞进飞出就越界了。
     }
 }
 

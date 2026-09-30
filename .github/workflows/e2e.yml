@@ -66,27 +66,37 @@ jobs:
           emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader_indirect -no-boot-anim
 
       # ---------------------------------------------------------------- 前置
+      # 这一步卡过一次(2026-09-30 首次跑挂了 24 分钟):`set -e` + 轮询里 adb 短暂不可用会直接
+      # 抛错退出,而 `set -euo pipefail` 在某些镜像上让 `adb wait-for-device` 也跟着挂住。
+      # 现在:不加 set -e(每步显式判错)、轮询限时、每条 adb 都带超时。
       - name: 等待开机 + 启用输入法
         run: |
-          set -euo pipefail
-          adb wait-for-device
-          # boot_completed 要轮询到 true,不是等设备出现就够了
-          for i in $(seq 1 60); do
-            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
-              echo "boot completed"; break
-            fi
+          set -uo pipefail
+          timeout 120 adb wait-for-device || echo "wait-for-device 超时,继续轮询"
+
+          booted=0
+          for i in $(seq 1 48); do
+            s=$(timeout 15 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n' || true)
+            if [ "$s" = "1" ]; then booted=1; break; fi
             sleep 5
           done
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
+          if [ "$booted" != "1" ]; then echo "::error::模拟器未在 4 分钟内报 boot_completed"; exit 1; fi
+          echo "boot completed after ${i} polls"
+
+          # 动画全关:截图要静止帧,动画开着会拍到中间态
+          timeout 20 adb shell settings put global window_animation_scale 0 || true
+          timeout 20 adb shell settings put global transition_animation_scale 0 || true
+          timeout 20 adb shell settings put global animator_duration_scale 0 || true
+
           # 解锁:模拟器可能锁在 keyguard 上,不解锁则输入框拿不到焦点
-          adb shell input keyevent 82 || true
-          adb shell wm dismiss-keyguard || true
-          adb install -r app/build/outputs/apk/debug/app-debug.apk
-          adb shell ime enable dev.hwkbd.ime/.service.ImeService
-          adb shell ime set dev.hwkbd.ime/.service.ImeService
-          adb shell ime list -s
+          timeout 20 adb shell input keyevent 82 || true
+          timeout 20 adb shell wm dismiss-keyguard || true
+
+          timeout 300 adb install -r -t app/build/outputs/apk/debug/app-debug.apk || {
+            echo "::error::安装失败"; exit 1; }
+          timeout 30 adb shell ime enable dev.hwkbd.ime/.service.ImeService || true
+          timeout 30 adb shell ime set dev.hwkbd.ime/.service.ImeService || true
+          echo "--- 已启用的输入法:"; timeout 30 adb shell ime list -s || true
 
       - name: 列表场景
         run: node tools/aitest/harness.mjs list
@@ -94,42 +104,45 @@ jobs:
       # ---------------------------------------------------------------- 素材:录屏包住整场
       # 录屏放在**场景之前**启动、之后停止,这样 mp4 里就是完整的一段交互,
       # 而不是"先录一段空屏再录一段操作"。
+      # 每条 adb 都带超时:`screenrecord` 在模拟器上偶发不返回,不设上限会把整步挂死。
       - name: 站点素材(截图 + 录屏)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.shots }}
         run: |
-          set -euo pipefail
-          adb shell rm -f /sdcard/e2e.mp4
-          adb shell screenrecord --time-limit 180 --bit-rate 6000000 --size 720x1440 /sdcard/e2e.mp4 &
+          set -uo pipefail
+          mkdir -p out/media
+          timeout 20 adb shell rm -f /sdcard/e2e.mp4 || true
+          # 后台起录屏,--time-limit 是兜底:即使 kill 没成功,到点它自己停
+          ( timeout 200 adb shell screenrecord --time-limit 170 --bit-rate 6000000 --size 720x1440 /sdcard/e2e.mp4 ) &
           REC=$!
-          node tools/aitest/shots.mjs docs-media || true
+          sleep 2
+          node tools/aitest/shots.mjs out/media/shots || echo "素材脚本有失败项,继续收尾"
           sleep 2
           kill $REC 2>/dev/null || true
           wait $REC 2>/dev/null || true
-          mkdir -p out/media
-          adb pull /sdcard/e2e.mp4 out/media/gaia-demo.mp4
-          cp -r docs-media out/media/shots 2>/dev/null || true
-          ls -la out/media out/media/shots 2>/dev/null || true
+          timeout 120 adb pull /sdcard/e2e.mp4 out/media/gaia-demo.mp4 || {
+            echo "::warning::录屏拉不下来,站点视频这轮不出"; }
+          echo "--- 产物:"; ls -la out/media out/media/shots 2>/dev/null || true
 
       # ---------------------------------------------------------------- 回归场景
       - name: 跑场景
         if: ${{ inputs.scenes != '' }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           for s in $(echo '${{ inputs.scenes }}' | tr ',' ' '); do
             echo "=== $s"
-            node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
+            timeout 300 node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
           done
 
       # ---------------------------------------------------------------- 收尾
       - name: 收集产物
         if: always()
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p out/evidence
           cp -r tools/aitest/evidence/* out/evidence/ 2>/dev/null || true
-          adb logcat -d -b crash > out/crash.log 2>/dev/null || true
-          adb logcat -d -s ImeService:* > out/ime.log 2>/dev/null || true
-          echo "--- crash 计数"; grep -c FATAL out/crash.log || true
+          timeout 60 adb logcat -d -b crash > out/crash.log 2>/dev/null || true
+          timeout 60 adb logcat -d -s ImeService:* > out/ime.log 2>/dev/null || true
+          echo "--- crash 计数"; grep -c FATAL out/crash.log 2>/dev/null || echo 0
 
       - name: 上传素材
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
