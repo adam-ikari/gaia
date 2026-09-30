@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-09-30T09:50:22"
+updated: "2026-09-30T09:57:18"
 ---
 
 <!-- compiled_truth -->
@@ -44,3 +44,9 @@ CI(yml 硬编码 `app-release.apk` / `app-debug.apk`)不读 tag 里的版本号,
   summary: "记录发布链路、签名现状与 runner 上 aliyun 502 导致的 lintVital 失败(重跑可解)"
   source: "2026-09-30 发布 v0.4.0"
   affects: [release-flow]
+
+- time: 2026-09-30T09:57:18
+  kind: reversal
+  summary: "仓库转私有后,'签名私钥公开'这个当初权衡的代价不再成立(改由 [[project-licensing]] 承载)"
+  source: "2026-09-30 用户定案项目闭源/私有"
+  affects: [project-licensing]

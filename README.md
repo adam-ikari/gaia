@@ -69,6 +69,10 @@
 
 安装:`adb install app-debug.apk` 或下载 Release 包手动安装,然后系统设置里启用并选择本输入法。首次打开任意输入框会后台加载词库(约 1-2 秒)。
 
+## 许可
+
+闭源专有软件，保留所有权利。完整条款见 [LICENSE](LICENSE)。第三方组件（AndroidX、Kotlin、jieba 词表、pinyin-pro）各自受其原始许可证约束。
+
 ## 真机调试
 
 - 设置 → 实验场:干净输入框试输入/飞字/层切换
