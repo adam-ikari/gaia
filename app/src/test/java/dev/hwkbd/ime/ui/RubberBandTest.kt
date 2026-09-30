@@ -15,7 +15,7 @@ import org.junit.Test
  */
 class RubberBandTest {
 
-    private val scale = 120f  // 阻尼长度,相当于 dip(50) @2.4x
+    private val scale = 120f  // 阻尼长度,相当于 dip(48) @2.5x
     private val limit = 134f  // 封顶 dip(56)
 
     @Test
@@ -59,7 +59,7 @@ class RubberBandTest {
 
     @Test
     fun `squash stays small so slots remain readable`() {
-        val q = Rubber.squash(Rubber.shift(100_000f, scale, limit), 1360f)
+        val q = Rubber.squash(Rubber.shift(100_000f, scale, limit), 1440f)
         assertTrue("形变量应克制:$q", q <= Rubber.MAX_SQUASH)
         assertTrue("也不该是 0(那就没有形变)", q > 0f)
     }

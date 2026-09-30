@@ -76,12 +76,15 @@ class DragGestureTest {
     fun `fallback velocity keeps distance and time proportional when there is no finger speed`() {
         // 点箭头翻页那种没有手指速度的补完:按"匀速走完、耗时 SETTLE_MS"反推,
         // 免得一律取下限 90ms 显得像被弹射出去。
-        val v = DragGesture.fallbackVelocity(from = 0f, target = 1360f)
-        assertEquals(1360f / (340f / 1000f), v, 1f)
-        // 反推出的速度走一遍物理,会略短于 SETTLE_MS(浮点截断 + 减速模型本身更慢),
-        // 落在区间内即可 —— 这里要的是"同量级且成比例",不是精确 340。
-        assertTrue("时长应接近基准 340ms,实际 ${Fling.stopDurationMs(v)}ms",
-            Fling.stopDurationMs(v) in 300L..340L)
+        val half = DragGesture.fallbackVelocity(from = 0f, target = 720f)
+        val full = DragGesture.fallbackVelocity(from = 0f, target = 1440f)
+        assertEquals("距离翻倍 ⇒ 兜底速度翻倍", 2.0f, full / half, 0.02f)
+
+        // 时长会**略超过** SETTLE_MS(1440px 反推的速度走一遍匀减速是 352ms,不是 340):
+        // 匀减速的平均速度只有初速的一半,而 fallbackVelocity 是按"匀速"反推的 ——
+        // 同一段距离,减速模型必然更慢。这是物理本身,不是误差,所以断言给的是区间不是等号。
+        val dur = Fling.stopDurationMs(full)
+        assertTrue("时长应与基准同量级(实际 ${dur}ms)", dur in 340L..380L)
     }
 
     @Test

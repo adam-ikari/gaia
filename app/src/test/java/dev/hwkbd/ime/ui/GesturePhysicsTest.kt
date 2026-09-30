@@ -10,11 +10,12 @@ import org.junit.Test
  * 2026-09-30 真机报「翻页不跟手」「翻页动画太短」修。这些断言就是为了把当时的根因
  * (画面位移被放大、死区静默、松手零动画)永久钉死。
  *
- * 行宽取 Titan 2 真机候选行 1360px(598dp)。
+ * 行宽取 Titan 2 真机候选行:面板 1440×1440、逻辑宽 576px ⇒ density 2.5,
+ * 候选行通栏(no 左右外边距,见 ime_root.xml),故 1440px。
  */
 class GesturePhysicsTest {
 
-    private val viewW = 1360f
+    private val viewW = 1440f
     private val threshold = viewW * PAGE_COMMIT_FRAC // ≈449px
 
     private fun slide(dxLeft: Float) =
