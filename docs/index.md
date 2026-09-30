@@ -57,6 +57,19 @@ actions:
 </div>
 :::
 
+::: band white
+<div class="gaia-band-inner gaia-band-split">
+<div class="gaia-band-copy">
+<p class="gaia-eyebrow">三层键盘</p>
+<h2>换的是层，不是键。</h2>
+<p>同一套键帽，三种意思。不按是字母，按住 Alt 出符号，按住 Sym 出编程里常用的那些符号。拖一拖看它们怎么叠在一起。</p>
+</div>
+<div class="gaia-band-visual">
+<KeyboardStack />
+</div>
+</div>
+:::
+
 ::: band stone
 <div class="gaia-band-inner">
 <div class="gaia-band-copy">

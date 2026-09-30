@@ -4,6 +4,7 @@ import Downloads from './components/Downloads.vue'
 import DemoVideo from './components/DemoVideo.vue'
 import ScrollFrames from './components/ScrollFrames.vue'
 import SwipeFeel from './components/SwipeFeel.vue'
+import KeyboardStack from './components/KeyboardStack.vue'
 import Home from './layouts/Home.vue'
 import '../styles/apple.css'
 import '../styles/home.css'
@@ -39,6 +40,7 @@ export default {
     app.component('DemoVideo', DemoVideo)
     app.component('ScrollFrames', ScrollFrames)
     app.component('SwipeFeel', SwipeFeel)
+    app.component('KeyboardStack', KeyboardStack)
     // 自定义布局。名字不能叫 'home' —— 那是 VitePress 内置首页布局的名字，
     // 同名会先被内置的 VPHome 接管，自定义布局根本不生效（踩过）。
     app.component('apple-home', Home)
