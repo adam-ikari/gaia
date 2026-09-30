@@ -29,6 +29,11 @@
             android:key="swipe_page"
             android:defaultValue="true"
             android:title="@string/pref_swipe_page" />
+        <SwitchPreferenceCompat
+            android:key="haptic"
+            android:defaultValue="true"
+            android:title="@string/pref_haptic"
+            android:summary="@string/pref_haptic_desc" />
         <ListPreference
             android:key="fly_threshold"
             android:defaultValue="40"

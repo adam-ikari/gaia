@@ -97,12 +97,15 @@ class CandidateBarView @JvmOverloads constructor(
 
     // ---- 翻页:横向**跟手**拖动(与上滑飞字同一套模型:死区 → 跟手 → 松手过阈值才提交)
     //
-    // [pageU] = 本次过渡的进度:0 = 整行停在 [pageFrom],1 = 完全换成 [pageTo]。
+    // [pageSlide] = 本次过渡的**画面位移(px)**,0 = 整行停在 [pageFrom],`width` = 完全换成 [pageTo]。
+    // **它是像素不是进度**(2026-09-30 真机报「翻页不跟手」「动画太短」修):此前这个量是归一化
+    // 进度,绘制时又乘整行宽,而提交线只有行宽 1/3 ⇒ 手指走 1/3、画走满整行,放大 3 倍。
+    // 跟手 = 画面位移 = 手指位移,所以这里存像素。提交判定另走 [DragGesture.progress]。
     // 稳态(没有过渡在跑)时 [pageFrom] 为空,直接画 [slots]。
-    // 一次手势内 [pageDir] 固定(定方向那一下就决定),手指往回拖只是让 pageU 变小(在收回);
+    // 一次手势内 [pageDir] 固定(定方向那一下就决定),手指往回拖只是让 pageSlide 变小(在收回);
     // 真要翻去反方向,靠**下一次**手势接管正在播的动画来表达([beginPageDrag] 的角色对调)。
     // [pageCommitted]:目标页是不是已经交给 controller 了——接管后又往回拖并松手时要用它撤销提交。
-    private var pageU = 0f
+    private var pageSlide = 0f
     private var pageDir = 1f                 // +1 下一页:旧页左出/新页右入;-1 相反
     private var pageFrom: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var pageTo: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
@@ -110,9 +113,28 @@ class CandidateBarView @JvmOverloads constructor(
     private var pageAnim: ValueAnimator? = null
     private var lastPage = 0
 
-    /** 翻页拖动的基线 x:手指从这里起算 [pageU];接管动画时按当前 pageU 重定基线,接着走不跳。 */
+    /** 翻页拖动的基线 x:手指从这里起算 [pageSlide];接管动画时按当前 pageSlide 重定基线,接着走不跳。 */
     private var pageDragBaseX = 0f
     private var pageDragging = false
+
+    /** 本次拖动沿 [pageDir] 的手指位移(px,已取正):提交判定用,不参与绘制。 */
+    private var pageDragTravel = 0f
+
+    /** 翻页指尖速度跟踪(px/s):松手时决定惯性滑多远、补完动画多长。 */
+    private val pageSpeed = SpeedTracker()
+
+    /** 飞字指尖速度跟踪(px/s):飞出去的速度与飞多远由它决定。 */
+    private val flySpeed = SpeedTracker()
+
+    /**
+     * 触感反馈。所有震动都收口在 [Haptics](一个总开关),这里只负责在"状态真的改变"时点一下。
+     * 由 service 注入,View 自己不去碰 Vibrator —— 否则开关控制不住(见 [setHaptics])。
+     */
+    private var haptics: dev.hwkbd.ime.ime.Haptics? = null
+
+    fun setHaptics(h: dev.hwkbd.ime.ime.Haptics?) {
+        haptics = h
+    }
 
     /** 相邻两页的显示槽(跟手拖动时提前摆出来预览),越界为空表;随 [setState] 刷新。 */
     private var pageNextSlots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
@@ -163,34 +185,35 @@ class CandidateBarView @JvmOverloads constructor(
     private fun onPageIndexChanged(newPage: Int, newSlots: List<dev.hwkbd.ime.engine.Candidate?>) {
         val dir = if (newPage > lastPage) 1f else -1f
         pageCommitted = true
+        val full = width.toFloat()
         if (pageFrom.isEmpty() || pageTo.isEmpty()) {
             pageFrom = slots
             pageTo = newSlots
             pageDir = dir
-            pageU = 0f
+            pageSlide = 0f
             if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                settlePage(1f)
+                settlePage(full)
             } else {
                 clearPageTurn()
             }
             return
         }
         if (newSlots == pageFrom && pageDir == -dir) {
-            // 往回翻:旧页↔新页对调、进度镜像 → 同一画面,换个方向继续
+            // 往回翻:旧页↔新页对调、位移镜像 → 同一画面,换个方向继续
             val f = pageFrom
             pageFrom = pageTo
             pageTo = f
             pageDir = -pageDir
-            pageU = 1f - pageU
-            settlePage(1f)
+            pageSlide = full - pageSlide
+            settlePage(full)
         } else {
             // 目标对不上:整页重切
             pageFrom = slots
             pageTo = newSlots
             pageDir = dir
-            pageU = 0f
+            pageSlide = 0f
             if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                settlePage(1f)
+                settlePage(full)
             } else {
                 clearPageTurn()
             }
@@ -202,35 +225,44 @@ class CandidateBarView @JvmOverloads constructor(
      * 正在播动画(上次松手后的正/反向)时接管:同向接着走,反向把两个角色对调、进度取镜像,
      * 手指基线按当前 [pageU] 重定 ⇒ 接管那一帧画面不跳,能直接接着拖。
      */
-    private fun beginPageDrag(dir: Float, x: Float) {
+    private fun beginPageDrag(dir: Float, x: Float, eventTimeMs: Long = 0L) {
+        val full = width.toFloat()
+        pageSpeed.reset()
+        if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
         if (pageFrom.isEmpty() || pageTo.isEmpty()) {
             pageDir = dir
             pageFrom = slots
             pageTo = if (dir > 0f) pageNextSlots else pagePrevSlots
-            pageU = 0f
+            pageSlide = 0f
         } else if (dir != pageDir) {
             val f = pageFrom
             pageFrom = pageTo
             pageTo = f
             pageDir = dir
-            pageU = 1f - pageU
+            pageSlide = full - pageSlide
         }
         pageAnim?.cancel()
         pageAnim = null
         pageDragging = pageFrom.isNotEmpty() && pageTo.isNotEmpty()
-        // 旧页当前停在 -pageU × 行宽(方向由 pageDir 带),把基线对齐到这个位移,手指接着走
-        pageDragBaseX = x + pageU * width * pageDir
+        // 旧页当前停在 -pageSlide(方向由 pageDir 带),把基线对齐到这个位移,手指接着走
+        pageDragBaseX = x + pageSlide * pageDir
     }
 
     /**
-     * 跟手:[pageU] = 手指横向位移扣掉死区后占行宽的比例(位移 1:1 变成进度 1:1,到行宽封 1)。
-     * 手指往回拖 [pageU] 就变小——那就是"在收回",松手不过线会反向动画退回原页。
+     * 跟手:**画面位移 = 手指位移**(死区内按 [DragGesture.DEAD_SLIP] 打折,上限整行宽)。
+     * 手指往回拖位移就变小——那就是"在收回",松手不过线会反向动画退回原页。
+     *
+     * 提交判定用的进度另存在 [pageDragTravel],绘制不掺它(否则又变成放大)。
      */
-    private fun setPageDrag(x: Float) {
+    private fun setPageDrag(x: Float, eventTimeMs: Long = 0L) {
         if (!pageDragging) return
-        val u = pageDragProgress(x, pageDragBaseX, pageDir, width.toFloat())
-        if (u != pageU) {
-            pageU = u
+        val w = width.toFloat()
+        if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
+        val travel = pageDragTravel(x, pageDragBaseX, pageDir)
+        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w)
+        pageDragTravel = travel
+        if (slide != pageSlide) {
+            pageSlide = slide
             invalidate()
         }
     }
@@ -239,49 +271,66 @@ class CandidateBarView @JvmOverloads constructor(
      * 松手:过提交线才真的翻页(**先把目标页交给 controller**,再补完剩下的位移);
      * 没过线就把这次过渡反向动画收回原页——若上一次松手已经提交过(接管后往回拖的情况),
      * 还要把那次提交也撤回来,否则 controller 的页号和画面会脱节。
+     *
+     * 补完动画按**惯性**走(2026-09-30):松手速度决定滑多远、补多久;速度够快时
+     * 还没过提交线也能"甩"过去 —— 这是真实物理里的甩动,此前只有死板的手指位移说了算。
      */
     private fun endPageDrag(x: Float) {
         if (!pageDragging) return
         setPageDrag(x) // 抬手前最后跟一次手指
         pageDragging = false
         val step = if (pageDir > 0f) 1 else -1
-        // 提交线恒为 1:进度走满 1 才提交(共用 DragGesture 的死区/跟手/阈值语义)
-        if (pageU >= 1f) {
-            if (!pageCommitted) onPage?.invoke(step)
+        val full = width.toFloat()
+        val threshold = full * PAGE_COMMIT_FRAC
+        // 速度取沿翻页方向的符号:往下一页(dir=+1)时手指向左,速度也要是"朝新页"才算甩
+        val v = pageSpeed.velocity() * pageDir
+        val landing = Fling.projectLanding(pageSlide, full, v)
+        // 提交线:手指位移过线 **或** 惯性落点在过线一侧(甩过去)
+        val byFinger = DragGesture.progress(pageDragTravel, threshold) >= 1f
+        val byFling = v > 0f && landing >= threshold
+        if (byFinger || byFling) {
+            if (!pageCommitted) {
+                onPage?.invoke(step)
+                haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义
+            }
             pageCommitted = true
-            settlePage(1f)
+            settlePage(landing.coerceAtLeast(pageSlide), v)
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
             pageCommitted = false
-            settlePage(0f)
+            settlePage(Fling.projectLanding(pageSlide, 0f, v).coerceAtMost(pageSlide), v)
         }
     }
 
     /**
-     * 把剩下的位移补完/收回:target 1 = 走到新页,0 = 回旧页。**时长按剩余距离缩放**,
-     * 所以接管动画时改 target 就能自然反向。播完即清过渡(稳态直接画 [slots])。
+     * 把剩下的位移补完/收回:**target 是像素**——`width` = 走到新页,0 = 回旧页。
+     * 播完即清过渡(稳态直接画 [slots])。
+     *
+     * **惯性时长**:松手速度决定滑多久([Fling.stopDurationMs]),所以轻轻推一下补完很快、
+     * 猛地一甩补很久,和真实滑动一致。此前是"剩余进度 × 固定基准时长",速度与手指快慢无关,
+     * 看着像被机器推走。曲线用 [Fling.DECELERATE](= 匀减速 `2p − p²`,与 [Fling] 的物理模型等价)。
      */
-    private fun settlePage(target: Float) {
+    private fun settlePage(target: Float, v0: Float = 0f) {
         pageAnim?.cancel()
         pageAnim = null
-        val from = pageU
+        val from = pageSlide
         if (from == target || pageFrom.isEmpty() || pageTo.isEmpty()) {
-            pageU = target
+            pageSlide = target
             clearPageTurn()
             invalidate()
             return
         }
-        val dur = DragGesture.settleDuration(kotlin.math.abs(target - from))
         pageAnim = ValueAnimator.ofFloat(from, target).apply {
-            duration = dur
+            duration = Fling.stopDurationMs(if (v0 != 0f) v0 else DragGesture.fallbackVelocity(from, target))
+            interpolator = Fling.DECELERATE
             addUpdateListener { a ->
-                pageU = a.animatedValue as Float
+                pageSlide = a.animatedValue as Float
                 invalidate()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     pageAnim = null
-                    pageU = target
+                    pageSlide = target
                     clearPageTurn()
                     invalidate()
                 }
@@ -293,7 +342,8 @@ class CandidateBarView @JvmOverloads constructor(
     private fun clearPageTurn() {
         pageFrom = emptyList()
         pageTo = emptyList()
-        pageU = 0f
+        pageSlide = 0f
+        pageDragTravel = 0f
     }
 
     /** 飞字拖动开始:冻结当前候选,后续 [setFlyDrag] 按手指进度实时驱动。可重入(拖回又拖上来时接管淡回)。 */
@@ -306,13 +356,25 @@ class CandidateBarView @JvmOverloads constructor(
         flyWord = slots.getOrNull(zone)?.word ?: ""
         flyOutSlots = slots
         flyP = 0f
+        flySpeed.reset()
         invalidate()
     }
 
-    /** 飞字拖动进度(0..1):词随手指上移,其余候选按比例渐隐。 */
-    fun setFlyDrag(progress: Float) {
+    /**
+     * 飞字拖动进度(0..1):词随手指上移,其余候选按比例渐隐。
+     *
+     * 顺带记录指尖速度(飞出去多远由它决定)与**过阈值的一次震动反馈**:
+     * 上滑越过阈值是"这次上屏定了"的确认点,给一下轻震让手指不用看屏幕也知道成了 ——
+     * 2026-09-30 用户要求。震动只在这一处触发(首次越过阈值那一下),拖动过程中不震,
+     * 免得一路嗡嗡。
+     */
+    fun setFlyDrag(progress: Float, eventTimeMs: Long = 0L) {
         if (flyP < 0f || flyAnim != null) return
-        flyP = progress.coerceIn(0f, 1f)
+        val p = progress.coerceIn(0f, 1f)
+        val crossed = flyP < 1f && p >= 1f // 本次拖动里第一次越过阈值
+        if (eventTimeMs > 0L) flySpeed.add(eventTimeMs, -p) // 上滑为正 ⇒ 取负号存成"向上速度"
+        flyP = p
+        if (crossed) haptics?.confirm() // 过阈值 = "这次上屏定了"
         invalidate()
     }
 
@@ -320,7 +382,9 @@ class CandidateBarView @JvmOverloads constructor(
     fun cancelFlyDrag() {
         if (flyP < 0f || flyAnim != null) return
         flyAnim = ValueAnimator.ofFloat(flyP, 0f).apply {
-            duration = 110
+            // 放弃时的淡回:按惯性退回(匀减速),曲线与飞出去一致,手感统一
+            duration = Fling.stopDurationMs(flyP * 1000f)
+            interpolator = Fling.DECELERATE
             addUpdateListener { a ->
                 flyP = a.animatedValue as Float
                 invalidate()
@@ -368,8 +432,14 @@ class CandidateBarView @JvmOverloads constructor(
         flyOutSlots = out
         flyP = from
         flyCompleting = true
+        // 惯性时长:松手速度决定飞多久(2026-09-30 用户「计算惯性质量和加速度」)。
+        // 速度不足时按"匀速飞完剩余段"兜底,免得轻轻一推却飞很久。
+        val remain = 2f - from
+        val v = -flySpeed.velocity() // 上滑为正,存的是 -p ⇒ 取负号还原向上的速度
         flyAnim = ValueAnimator.ofFloat(from, 2f).apply {
-            duration = ((2f - from) * 110).toLong().coerceAtLeast(60)
+            duration = if (remain <= 0f) Fling.MIN_MS
+            else Fling.stopDurationMs(if (kotlin.math.abs(v) >= Fling.MIN_VELOCITY) v else remain * 1000f)
+            interpolator = Fling.DECELERATE
             addUpdateListener { a ->
                 flyP = a.animatedValue as Float
                 invalidate()
@@ -413,6 +483,9 @@ class CandidateBarView @JvmOverloads constructor(
                 downY = event.y
                 downCell = cellIndexAt(downX)
                 longPressFired = false
+                // 越界橡皮筋的起点:从哪按下就从哪算(2026-09-30 用户「翻页到头要有拉伸变形动画」)
+                rubberRaw = 0f
+                rubberOn = false
                 postDelayed(longPressRunnable, 600L)
                 performClick()
             }
@@ -438,19 +511,25 @@ class CandidateBarView @JvmOverloads constructor(
                     if (flyP >= 0f && flyAnim == null) cancelFlyDrag()
                     val dir = if (dx < 0f) 1f else -1f
                     val neighbour = if (dir > 0f) pageNextSlots else pagePrevSlots
-                    // 那一侧没有页(首/末页往回拖)就不接管,留着给点按/上滑
+                    // 那一侧有页 → 跟手翻页;没有页 → **橡皮筋拉伸**(到头也有反馈,
+                    // 此前是整条拖动都不接管,手指在动屏幕纹丝不动,像卡了)
                     if (neighbour.isNotEmpty() && neighbour.any { it != null }) {
-                        beginPageDrag(dir, event.x)
+                        beginPageDrag(dir, event.x, event.eventTime)
+                        takeOverPage = true
+                    } else if (beginRubber(dir, event.x)) {
+                        rubberSpeed.add(event.eventTime, event.x)
                         takeOverPage = true
                     }
                 }
                 when {
+                    // 越界橡皮筋优先:到头的那一侧要给出拉伸反馈,不能跟翻页抢
+                    rubberOn -> setRubber(event.x, event.eventTime)
                     // 横滑翻页同样改成"拖动即反馈":整页跟手指走,松手过提交线才真的翻页
                     // (与上滑同一套模型:死区 → 跟手 → 松手判定 → 没过线反向动画收回)
-                    takeOverPage || pageDragging -> setPageDrag(event.x)
+                    takeOverPage || pageDragging -> setPageDrag(event.x, event.eventTime)
                     swipeSelectEnabled && downCell >= 0 && dy > flyDeadPx && dy > adx -> {
                         beginFlyDrag(downCell) // 自带防重入
-                        setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx))
+                        setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx), event.eventTime)
                     }
                     flyP >= 0f && flyAnim == null -> cancelFlyDrag()
                 }
@@ -463,7 +542,7 @@ class CandidateBarView @JvmOverloads constructor(
                         val dx = event.x - downX
                         val dy = downY - event.y
                         if (dy > 0f && dy > kotlin.math.abs(dx)) {
-                            setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx))
+                            setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx), event.eventTime)
                         }
                         if (flyP >= 1f) {
                             val zone = flyZone
@@ -478,6 +557,12 @@ class CandidateBarView @JvmOverloads constructor(
                 }
                 val dx = event.x - downX
                 val dy = event.y - downY
+                // 橡皮筋中 → 弹回边界(不翻页:那一侧本来就没有页)
+                if (rubberOn) {
+                    setRubber(event.x, event.eventTime)
+                    endRubber()
+                    return true
+                }
                 // 翻页拖动中 → 松手判定(过线提交 / 没过线反向收回)
                 if (pageDragging) {
                     endPageDrag(event.x)
@@ -492,11 +577,20 @@ class CandidateBarView @JvmOverloads constructor(
                         val i = cellIndexAt(downX)
                         if (i >= 0) onSelect?.invoke(i)
                     }
+                    // **候选词上横向滑动也能翻页**(用户 2026-09-30「在候选词上滑动一样也可以翻页」):
+                    // 抬手时若位移够大且横向占优,直接翻。之前只有点两侧箭头能翻,
+                    // 拖动必须过死区才接管,快速轻扫会落进 touchSlop 里什么都不发生。
+                    swipePageEnabled && kotlin.math.abs(dx) > flingDistance &&
+                        kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
+                        onPage?.invoke(if (dx < 0) 1 else -1)
+                    }
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(longPressRunnable)
                 cancelFlyDrag()
+                // 橡皮筋被打断:直接弹回,不弹震动(不是用户主动确认的动作)
+                cancelRubber()
                 // 翻页拖动被系统打断:当作松手,走同一套判定(过线提交/没过线收回)
                 if (pageDragging) endPageDrag(downX)
             }
@@ -504,7 +598,134 @@ class CandidateBarView @JvmOverloads constructor(
         return true
     }
 
-    private fun onTap(x: Float) {
+    // ---------------------------------------------------------------- 越界橡皮筋(拉伸变形)
+
+    /**
+     * 翻到头还继续拖时的**拉伸变形**(2026-09-30 用户「翻页到翻到头要有拉伸变形动画」)。
+     *
+     * 首/末页往回拖时没有相邻页,此前是**整条拖动都不接管**,于是手指在动、屏幕纹丝不动 ——
+     * 那不是"到头了"的反馈,是"卡了"。真实的边界手感是**弹性**:拉得动,有阻力,
+     * 松手弹回去,而且拉得越远越拉不动。
+     *
+     * 做法:
+     * - `rubberRaw` = 手指超出边界的那段位移(px),方向朝外为正;
+     * - 显示位移 = `rubberRaw × 阻尼系数`,越拉越沉,封顶 [rubberLimit];
+     * - 松手 → 弹回 0(动画,非瞬移),并给一次轻震说"到头了"。
+     *
+     * 只在**两侧都没有相邻页**时启用;还有页可翻时照常跟手翻页,不与之冲突。
+     */
+    private var rubberOn = false
+    private var rubberRaw = 0f
+    private var rubberDir = 1f // 越界方向:+1 拖向"没有下一页"那一侧
+    private var rubberAnim: ValueAnimator? = null
+    /** 橡皮筋松手瞬间的指尖速度(px/s):弹回时长由它决定,拉得快就弹得快。 */
+    private val rubberSpeed = SpeedTracker()
+
+    /**
+     * 橡皮筋阻尼长度(px):约 dip(50)。公式与封顶在 [Rubber] 里(纯函数、可单测)。
+     * 渐近于这个长度 ⇒ 拉多远都不会飞出去。
+     */
+    private fun rubberScale(): Float = dip(50).toFloat()
+
+    /** 橡皮筋位移封顶(px):dip(56),略大于阻尼长度但仍是"看得见的拉伸"。 */
+    private fun rubberLimit(): Float = dip(56).toFloat()
+
+    /** 开始橡皮筋(方向 dir:+1 拖向下一页方向,-1 上一)。@return 是否真的接管了 */
+    private fun beginRubber(dir: Float, x: Float): Boolean {
+        val atEnd = (dir > 0f && pageNextSlots.none { it != null }) || (dir < 0f && pagePrevSlots.none { it != null })
+        if (!atEnd) return false
+        rubberOn = true
+        rubberDir = dir
+        rubberRaw = 0f
+        pageDragBaseX = x
+        return true
+    }
+
+    /** 橡皮筋拖动进度。 */
+    private fun setRubber(x: Float, eventTimeMs: Long = 0L) {
+        if (!rubberOn) return
+        if (eventTimeMs > 0L) rubberSpeed.add(eventTimeMs, x)
+        val over = -(x - pageDragBaseX) * rubberDir
+        rubberRaw = kotlin.math.max(0f, over)
+        invalidate()
+    }
+
+    /** 松手:弹回边界。 */
+    private fun endRubber() {
+        if (!rubberOn) return
+        rubberOn = false
+        rubberAnim?.cancel()
+        val from = rubberRaw
+        if (from <= 0f) {
+            rubberRaw = 0f
+            invalidate()
+            return
+        }
+        haptics?.confirm() // 到头了:给一下震说"没下一页了"
+        rubberAnim = ValueAnimator.ofFloat(from, 0f).apply {
+            // 回弹时长按**松手速度**给(与翻页/飞字同一套惯性):拉得快弹得快。
+            // 速度样本不足时按"拉伸量 ∝ 12"折算,保证拉得越远弹得越慢。
+            val v = rubberSpeed.velocity()
+            duration = Fling.stopDurationMs(if (kotlin.math.abs(v) >= Fling.MIN_VELOCITY) v else from * 12f)
+            interpolator = Fling.DECELERATE
+            addUpdateListener { a ->
+                rubberRaw = a.animatedValue as Float
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    rubberAnim = null
+                    rubberRaw = 0f
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun cancelRubber() {
+        rubberOn = false
+        rubberAnim?.cancel()
+        rubberAnim = null
+        rubberRaw = 0f
+        invalidate()
+    }
+
+    /** 当前橡皮筋显示位移(px,已阻尼并封顶)。 */
+    private fun rubberShift(): Float = Rubber.shift(rubberRaw, rubberScale(), rubberLimit())
+
+    /**
+     * 越界拉伸的绘制:横向压缩 + 沿越界方向平移一点。
+     *
+     * 压缩是**围绕行中心**的,不是把整行推向某一侧 —— 推向一侧看着像"内容没对齐",
+     * 围绕中心压缩才像"这层被拽住变窄"。平移给出方向:往没有下一页的那侧拉。
+     */
+    private fun drawRubber(canvas: Canvas) {
+        val shift = rubberShift()
+        val scale = rubberSquash()
+        val savedAlpha = wordPaint.alpha
+        val savedColor = wordPaint.color
+        canvas.save()
+        // 围绕中心压缩
+        canvas.scale(scale, 1f, width / 2f, height / 2f)
+        // 再沿越界方向拉出(方向由 rubberDir 带)
+        canvas.translate(-rubberDir * shift, 0f)
+        drawSlots(canvas, slots, highlight, dividers = true)
+        canvas.restore()
+        wordPaint.alpha = savedAlpha
+        wordPaint.color = savedColor
+    }
+
+    /**
+     * 橡皮筋的**形变比例**:横向压缩(1 − 比例)并沿越界方向拉出一点。
+     *
+     * 只压不拉的形变看着像"卡住了被顶回来";配合横向拉伸才有"这层有弹性"的观感 ——
+     * 就像 iOS 列表到底时那样。比例取 [rubberShift] / 行宽,天然很小(封顶 56dp),
+     * 所以形变幅度也小,不会把 5 个槽挤到认不出。
+     */
+private fun rubberSquash(): Float = 1f - Rubber.squash(rubberShift(), width.toFloat())
+
+private fun onTap(x: Float) {
         when {
             x < arrowWidth -> onPage?.invoke(-1)
             x >= width - arrowWidth -> onPage?.invoke(1)
@@ -524,21 +745,25 @@ class CandidateBarView @JvmOverloads constructor(
         arrowPaint.alpha = dim
 
         // 翻页:旧页随手指/动画滑出,新页从另一侧滑入(等宽等距 ⇒ 中线恒过中心键心/中缝)
-        val showPageTurn = flyP < 0f && pageFrom.isNotEmpty() && pageTo.isNotEmpty() && pageU > 0f
+        val showPageTurn = flyP < 0f && pageFrom.isNotEmpty() && pageTo.isNotEmpty() && pageSlide > 0f
         val wordAlpha = wordPaint.alpha
         if (flyP >= 0f) {
             drawFly(canvas) // 飞字拖动/完成段:词起升,其余候选渐隐
+        } else if (rubberRaw > 0f) {
+            // 越界拉伸:整行横向压缩 + 沿越界方向拉出,键帽跟着变形(2026-09-30 用户要"拉伸变形动画")
+            drawRubber(canvas)
         } else if (showPageTurn) {
-            val u = pageU
-            val slide = pageDir * u * width // 旧页的位移:顺方向拖多远就移多远(跟手)
+            // 画面位移直接用 [pageSlide](px,= 手指位移),不再"进度 × 行宽"——那会放大 3 倍。
+            val slide = pageDir * pageSlide
+            val frac = (pageSlide / width).coerceIn(0f, 1f) // 只用于透明度过渡
             // 旧页:向翻页方向滑出
-            wordPaint.alpha = ((1f - u) * 255).toInt()
+            wordPaint.alpha = ((1f - frac) * 255).toInt()
             canvas.save()
             canvas.translate(-slide, 0f)
             drawSlots(canvas, pageFrom, highlightOf = -1, dividers = false)
             canvas.restore()
             // 新页:从翻页反方向滑入
-            wordPaint.alpha = (u * 255).toInt()
+            wordPaint.alpha = (frac * 255).toInt()
             canvas.save()
             canvas.translate(-slide + pageDir * width, 0f)
             drawSlots(canvas, pageTo, highlight, dividers = false)
@@ -558,7 +783,10 @@ class CandidateBarView @JvmOverloads constructor(
         val p = flyP
         val drag = if (p < 1f) p else 1f
         val s = if (p > 1f) p - 1f else 0f
-        val others = if (s <= 0f) 1f - 0.6f * drag else 0.4f * (1f - s * s)
+        // 完成段的快进慢停由 [Fling.DECELERATE] 这个**时间**维度的插值器负责,
+        // `s` 当线性比例用。此前在绘制里手乘 `s²` 造曲线,是把时间曲线混进空间计算:
+        // 时长、抬升、淡出三处各乘一遍,调任何一个都会牵动另外两个(2026-09-30 改)。
+        val others = if (s <= 0f) 1f - 0.6f * drag else 0.4f * (1f - s)
         val out = if (flyOutSlots.isNotEmpty()) flyOutSlots else slots
         drawSlots(canvas, out, highlightOf = -1, dividers = others > 0.02f, alpha = others, skip = flyZone)
 
@@ -659,7 +887,32 @@ internal fun pageDragProgress(
     dir: Float,
     viewW: Float,
 ): Float {
-    val travel = -(x - baseX) * dir // 顺着翻页方向为正
+    val travel = pageDragTravel(x, baseX, dir)
     return DragGesture.progress(travel, threshold = viewW * PAGE_COMMIT_FRAC)
 }
+
+/**
+ * 翻页的**跟手画面位移**(px):手指沿翻页方向走多少,画面就走多少,夹在 `[0, viewW]`。
+ *
+ * 这是绘制**唯一**该用的量(2026-09-30 真机报「翻页不跟手」「动画太短」修):
+ * 跟手的定义是画面位移 = 手指位移。此前绘制用的是 `pageDragProgress × width`,
+ * 而进度在**阈值**(行宽 1/3)就满了 ⇒ 手指走 1/3、画走满整行,放大 3 倍;
+ * 前 8% 行宽还在死区里画面零变化;拖过阈值后画面干等,松手时 from == target 直接零动画。
+ *
+ * 死区内仍有响应([DragGesture.DEAD_SLIP]),消掉"手指在动、屏幕不动"那段静默。
+ */
+internal fun pageDragSlide(
+    x: Float,
+    baseX: Float,
+    dir: Float,
+    viewW: Float,
+): Float = DragGesture.slide(
+    travel = pageDragTravel(x, baseX, dir),
+    threshold = viewW * PAGE_COMMIT_FRAC,
+    limit = viewW,
+)
+
+/** 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。 */
+internal fun pageDragTravel(x: Float, baseX: Float, dir: Float): Float =
+    -(x - baseX) * dir // dir=+1 下一页时手指向左移才为正
 

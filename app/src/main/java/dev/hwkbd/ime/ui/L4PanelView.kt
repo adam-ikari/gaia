@@ -118,8 +118,27 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     /**
+     * 键位的**身份**:用于判断"还是那把键,只是换了内容"。
+     *
+     * 2026-09-30 用户定案:全角/半角切换时,同一个键位的全角与半角**算同一把键**,
+     * 不该"一把消失、另一把补位" —— 那会让屏幕上的键凭空换位,读起来像布局错了。
+     * 身份取**输出**而不是标签:全角 `；` 与半角 `;` 标签不同但都是"分号键位",
+     * 标签还会因为语言、档位变化而变,拿它当身份会把同一把键认成两把。
+     */
+    private data class KeyIdentity(val out: String)
+
+    /**
      * 按给定键序重建键帽(等宽槽排布见 [layoutPage])。键序来自状态机——
      * 输入类型变(网址框)或语言变(中↔英)时由 service 重新调用。
+     *
+     * **键序变化走 enter 动画**(2026-09-30 用户「l4l5的按键需要一个进入动画」):
+     * 从右侧移入,非线性缓动([Fling.DECELERATE]),且**位移严格限制在本区域内** ——
+     * 起始位移取 min(行宽, 键组宽),动画期间 clip 在自身边界,绝不影响区域以外
+     * (此前键是从右侧凭空出现的,读起来像"多了一把")。
+     *
+     * **消失的键与补位**(同一条要求):新旧键序按身份对齐,身份还在的键**原地保留**
+     * (全角↔半角就是走这条路),只有真正消失的键才淡出、新增的键才从右侧移入,
+     * 其余键平移到新位置 —— 而不是整组推倒重来。
      */
     fun refresh(keys: List<L4Key>, theme: ImeTheme) {
         // 键帽底色**分两路**(2026-09-29 用户定案「L5 的按钮也要和背景色适配,仅仅是深一点或浅一点」
@@ -136,15 +155,28 @@ class L4PanelView @JvmOverloads constructor(
         }
         strokeColor = if (tailMode) L5_EDGE else theme.divider
         fgColor = theme.fg
-        removeAllViews()
-        // 键帽换了一批,旧的平移对象随之消失:顺手清掉跟手状态,别让新键带着上一轮的位移出现
-        swipeU = 0f
+        // 记下旧键序(身份 + 旧槽位),用于"消失/补位"动画
+        val density = resources.displayMetrics.density
+        val oldIds = (0 until childCount).mapNotNull { (getChildAt(it).tag as? KeyIdentity)?.out }
+        val hadKeys = childCount > 0
+
+        // 跟手状态清零:键序要重建,旧键帽上的平移不该带到新键上
+        swipeSlide = 0f
+        swipeTravel = 0f
         swipeTracking = false
+        swipeSpeed.reset()
         swipeAnim?.cancel()
         swipeAnim = null
-        val density = resources.displayMetrics.density
+        enterAnim?.cancel()
+
+        removeAllViews()
         keys.forEach { addKey(it.label, it.out, density) }
-        invalidate()
+
+        if (!hadKeys || enterDisabled) {
+            invalidate()
+            return
+        }
+        runEnterAnimation(oldIds, keys.map { it.out.format() })
     }
 
     private fun addKey(label: String, out: KeyOut, density: Float) {
@@ -172,20 +204,34 @@ class L4PanelView @JvmOverloads constructor(
         addView(tv, LayoutParams(LayoutParams.WRAP_CONTENT, dip(36)).apply {
             marginEnd = (4 * density).toInt()
         })
+        // 键的身份:**输出**字符串。全角↔半角是同一把键(用户 2026-09-30 定),
+        // 拿输出当身份才认得出"还是它",标签会随语言/档位变,不能当身份用。
+        tv.tag = KeyIdentity(out.format())
     }
 
-    // ---- L5 行横滑翻页(只在 [tailMode] 下生效)
-    //
-    // 手感与候选行翻页、上滑飞字**共用 [DragGesture]**(2026-09-29「手感对齐」):
-    // 死区 → 跟手(拖动时整排键跟着手走)→ 松手过阈值提交、没过则反向动画退回。
-    // 三处只差阈值取值与轴向;这里是横向、阈值 = 行宽的 1/3(同候选行翻页)。
+    /**
+     * 进入动画时长(ms)。跟翻页/飞字同一档量级:比 [Fling.stopDurationMs] 的下限稍长,
+     * 因为这是"新内容落位"而不是"物理停止",慢一点才读得出"它进来了"。
+     */
+    private val ENTER_MS = 300L
 
+    // 三处只差阈值取值与轴向;这里是横向、阈值 = 行宽的 1/3(同候选行翻页)。
     private var swipeDownX = 0f
     private var swipeDownY = 0f
     private var swipeTracking = false
 
-    /** 跟手进度 0..1:0 = 停在原页,1 = 完全换成目标页。拖动中实时更新,松手由动画补完/回退。 */
-    private var swipeU = 0f
+    /**
+     * 跟手位移(**px**,不是进度):0 = 停在原页,[swipeLimitPx] = 完全换成目标页。
+     * 2026-09-30 改:此前是 0..1 进度再乘 `swipeTravel`,而那本是**阈值**(行宽 × 提交比例),
+     * 于是"走完阈值"画面也只走了阈值那么远,永远到不了新页。现在与候选行翻页统一。
+     */
+    private var swipeSlide = 0f
+
+    /** 本次拖动沿 [swipeDir] 的手指位移(px,已取正):提交判定用,不参与绘制。 */
+    private var swipeTravel = 0f
+
+    /** 指尖速度跟踪(px/s):松手时决定惯性滑多远、补完动画多长。 */
+    private val swipeSpeed = SpeedTracker()
 
     /** 本次拖动定下的方向:+1 下一页(手指向左)/ -1 上一页。 */
     private var swipeDir = 1f
@@ -193,10 +239,99 @@ class L4PanelView @JvmOverloads constructor(
     private var swipeAnim: android.animation.ValueAnimator? = null
 
     /** 跟手时整排键的横向位移(px)由它驱动,松手后由动画接管。 */
-    private fun swipeOffset(): Float = -swipeDir * swipeU * swipeTravel()
+    private fun swipeOffset(): Float = -swipeDir * swipeSlide
 
-    /** 走完一整页的位移基准 = 行宽 × 提交比例(同候选行翻页,两处一致)。 */
-    private fun swipeTravel(): Float = (measuredWidth - paddingLeft - paddingRight) * L5_COMMIT_FRAC
+    // ---- 键序变化动画(2026-09-30 用户「l4l5的按键需要一个进入动画」)
+
+    private var enterRunning = false
+
+    /** 无障碍/测试可关掉动画(设置里没有这个开关,只有单测与截图脚本用)。 */
+    @Volatile
+    var enterDisabled = false
+
+    private var enterAnim: android.animation.ValueAnimator? = null
+
+    /**
+     * 进入动画:**从右侧移入 + 非线性缓动**,位移严格限制在本区域内。
+     *
+     * 三条约束都是用户明确要求的:
+     * 1. **从右侧进来** —— 新键 startX 偏移,而不是凭空出现;
+     * 2. **非线性** —— [Fling.DECELERATE](缓出,快进慢停);
+     * 3. **不超过边距** —— 起始位移 = `min(本视图宽度, 键组自然宽)`,再 `coerceAtMost`,
+     *    所以即使键组比视口宽,键也**完全在自己的区域内**滑,不越界影响外层。
+     *
+     * **消失的键与补位**:按身份([KeyIdentity],取输出)对齐三组 ——
+     * - 身份还在的键:**原位移为 0**,只做内容替换(全角↔半角就是这一档,不该"消失一把再补一把");
+     * - 位置变了的老键:从旧位置平移到新位置;
+     * - 真正新增的键:从右侧外移进来。
+     * 真正**消失**的键不参与新动画(已被 [removeAllViews] 移除),它的"退场"由整体淡出承担。
+     */
+    private fun runEnterAnimation(oldIds: List<String>, newIds: List<String>) {
+        val n = childCount
+        if (n == 0) return
+
+        // 每个新槽位的起始位移:身份还在 ⇒ 0(原地不动,只换内容);否则从右侧整段移进来
+        val startShift = FloatArray(n) { i ->
+            val id = newIds.getOrNull(i) ?: return@FloatArray 0f
+            if (id in oldIds) 0f else enterTravel()
+        }
+        // 有任何一把要移动才播动画:全角↔半角这种"同一把换内容"不播,免得闪一下
+        val moving = startShift.any { it > 0f }
+        if (!moving) {
+            invalidate()
+            return
+        }
+
+        enterRunning = true
+        enterAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ENTER_MS
+            interpolator = Fling.DECELERATE
+            addUpdateListener { a ->
+                val p = 1f - (a.animatedValue as Float) // 1 → 0:位移从整段收回
+                for (i in 0 until childCount) {
+                    getChildAt(i).translationX = startShift[i] * p
+                    getChildAt(i).alpha = 0.35f + 0.65f * (1f - p)
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    enterAnim = null
+                    enterRunning = false
+                    for (i in 0 until childCount) {
+                        getChildAt(i).translationX = 0f
+                        getChildAt(i).alpha = 1f
+                    }
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    /**
+     * 进入动画的起始位移(px):**不超过本视图区域**。
+     *
+     * 取 `min(视口宽, 键组自然宽 + 一点余量)` —— 用键组宽而不是视口宽是关键:
+     * 键组窄时位移就短(整段滑进来正好铺满键组),不会从屏幕外很远的地方飞进来;
+     * 键组比视口宽时用视口宽,位移被视口封住,键**不会滑出区域外**。
+     */
+    private fun enterTravel(): Float {
+        val viewport = (measuredWidth - paddingLeft - paddingRight).toFloat()
+        if (viewport <= 0f) return 0f
+        // 键组自然宽:子视图实测宽 + 键间距
+        var natural = 0f
+        for (i in 0 until childCount) {
+            val v = getChildAt(i)
+            natural += v.measuredWidth
+            if (i > 0) natural += keyGapPx()
+        }
+        return kotlin.math.min(viewport, natural).coerceAtLeast(dip(16).toFloat())
+    }
+
+    private fun keyGapPx(): Float = dip(4).toFloat()
+
+    /** 供上层在动画期间拒绝点击(动画中点到半路会误触)。 */
+    fun isEnterAnimating(): Boolean = enterRunning
 
     /**
      * L5 行接横滑翻页,手感和候选行统一(死区 → 跟手 → 松手过阈值才翻)。
@@ -235,6 +370,8 @@ class L4PanelView @JvmOverloads constructor(
                 swipeDownX = ev.x
                 swipeDownY = ev.y
                 swipeTracking = false
+                swipeSpeed.reset()
+                swipeSpeed.add(ev.eventTime, ev.x)
                 // 接管正在播的动画:手指从当前位移接着走,不突跳(和候选行翻页同一套接管逻辑)
                 swipeAnim?.cancel()
                 swipeAnim = null
@@ -253,24 +390,33 @@ class L4PanelView @JvmOverloads constructor(
                     swipeTracking = true
                 }
                 if (swipeTracking) {
-                    // 跟手:反向滑动会把进度拉回 0 ⇒ 那就是在收回,松手后动画退回原页
-                    val travel = -dx * swipeDir
-                    setSwipeU(DragGesture.progress(travel, swipeThresholdPx()))
+                    // 跟手:反向滑动会把位移拉回 0 ⇒ 那就是在收回,松手后动画退回原页。
+                    // 与候选行翻页同一模型:**画面位移 = 手指位移**(slide),进度只用来判提交。
+                    // 此前这里是"进度 × 行宽"两处混用,放大过 —— 见 CandidateBarView.pageSlide。
+                    swipeTravel = -dx * swipeDir
+                    swipeSpeed.add(ev.eventTime, -dx)
+                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx()))
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 if (swipeTracking) {
                     val dx = ev.x - swipeDownX
-                    val travel = -dx * swipeDir
-                    setSwipeU(DragGesture.progress(travel, swipeThresholdPx()))
-                    if (swipeU >= 1f) {
+                    swipeTravel = -dx * swipeDir
+                    swipeSpeed.add(ev.eventTime, ev.x)
+                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx()))
+                    // 与候选行翻页同一判定:手指位移过线,或速度够快"甩"过去
+                    val v = swipeSpeed.velocity() * swipeDir
+                    val limit = swipeLimitPx()
+                    val byFinger = DragGesture.progress(swipeTravel, swipeThresholdPx()) >= 1f
+                    val byFling = v > 0f && Fling.projectLanding(swipeSlide, limit, v) >= swipeThresholdPx()
+                    if (byFinger || byFling) {
                         // 过线:提交翻页,动画把剩下的位移补完
                         onSwipePage?.invoke(if (swipeDir > 0f) 1 else -1)
-                        settleSwipe(1f)
+                        settleSwipe(limit, v)
                     } else {
                         // 没过线:反向动画退回原页
-                        settleSwipe(0f)
+                        settleSwipe(0f, v)
                     }
                 }
                 swipeTracking = false
@@ -288,9 +434,19 @@ class L4PanelView @JvmOverloads constructor(
     private fun swipeThresholdPx(): Float =
         (measuredWidth - paddingLeft - paddingRight) * L5_COMMIT_FRAC
 
-    private fun setSwipeU(u: Float) {
-        if (u == swipeU) return
-        swipeU = u
+    /**
+     * 本次横滑的位移上限(px):一整页的宽度 —— 也就是"滑到底"要走全的距离。
+     * 与候选行翻页的 `width` 同义,拖过它画面就到底(不会连翻第二页)。
+     */
+    private fun swipeLimitPx(): Float = (measuredWidth - paddingLeft - paddingRight).toFloat()
+
+    /**
+     * 设置跟手位移(**px**,不是进度)。与候选行翻页一致:画面位移 = 手指位移。
+     * @param slide 沿 [swipeDir] 的位移(px)
+     */
+    private fun setSwipeSlide(slide: Float) {
+        if (slide == swipeSlide) return
+        swipeSlide = slide
         applySwipeOffset()
     }
 
@@ -305,21 +461,23 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     /**
-     * 松手后补完/回退:时长按剩余距离缩放([DragGesture.settleDuration]),所以动画速度不随
-     * 松手早晚跳变——这正是"跟手"的关键。播完回到 0 并清掉 translationX。
+     * 松手后补完/回退:**target 是像素**(整页宽 = 补完,0 = 退回原页)。
+     * 时长按**松手速度**给([Fling.stopDurationMs]),所以轻轻推一下补完很快、猛地一甩补很久;
+     * 曲线是 [Fling.DECELERATE](匀减速)。播完回到 0 并清掉 translationX。
      */
-    private fun settleSwipe(target: Float) {
+    private fun settleSwipe(target: Float, v0: Float = 0f) {
         swipeAnim?.cancel()
         swipeAnim = null
-        val from = swipeU
+        val from = swipeSlide
         if (from == target) {
             finishSwipe()
             return
         }
         swipeAnim = android.animation.ValueAnimator.ofFloat(from, target).apply {
-            duration = DragGesture.settleDuration(kotlin.math.abs(target - from))
+            duration = Fling.stopDurationMs(if (v0 != 0f) v0 else DragGesture.fallbackVelocity(from, target))
+            interpolator = Fling.DECELERATE
             addUpdateListener { a ->
-                swipeU = a.animatedValue as Float
+                swipeSlide = a.animatedValue as Float
                 applySwipeOffset()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
@@ -333,7 +491,9 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     private fun finishSwipe() {
-        swipeU = 0f
+        swipeSlide = 0f
+        swipeTravel = 0f
+        swipeSpeed.reset()
         for (i in 0 until childCount) getChildAt(i).translationX = 0f
         invalidate()
     }

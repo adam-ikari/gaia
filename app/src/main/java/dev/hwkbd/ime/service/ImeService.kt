@@ -18,6 +18,7 @@ import dev.hwkbd.ime.ImeRuntime
 import dev.hwkbd.ime.R
 import dev.hwkbd.ime.engine.PinyinDict
 import dev.hwkbd.ime.engine.PinyinEngine
+import dev.hwkbd.ime.ime.Haptics
 import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
 import dev.hwkbd.ime.ime.ImeState
@@ -74,6 +75,9 @@ class ImeService : InputMethodService() {
 
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
+
+    /** 触感反馈(全应用唯一实例):锁定/翻页/飞字共用,总开关 [PREF_HAPTIC]。 */
+    private var haptics: Haptics? = null
     private var lastComposingForInsets = false
     private var theme = dev.hwkbd.ime.ui.ImeTheme.DEFAULT
 
@@ -138,7 +142,10 @@ class ImeService : InputMethodService() {
         val engine = PinyinEngine(dict, ImeRuntime.userDict)
         // 策略注册表:出厂语言/输入框表现 + 本进程的拼音输入法(加语言/输入法只需注册)
         val registry = ImeRegistry.builtin().registerMethod(PinyinInputMethod(engine))
-        controller = ImeController(host, KeyLayoutStore.load(this), registry)
+        // 触感:全应用唯一的 [Haptics] 实例,控制器(锁定类)与候选行(翻页/飞字类)共用,
+        // 总开关从 PREF_HAPTIC 读(设置 → 常规 → 震动反馈)
+        haptics = Haptics(this).apply { enabled = ImeRuntime.prefs.getBoolean(PREF_HAPTIC, true) }
+        controller = ImeController(host, KeyLayoutStore.load(this), registry, haptics)
         renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
@@ -247,6 +254,7 @@ class ImeService : InputMethodService() {
             }
         }
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
+            setHaptics(haptics)
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
@@ -619,6 +627,8 @@ class ImeService : InputMethodService() {
 
         candidateBar?.swipeSelectEnabled = p.getBoolean(PREF_SWIPE_SELECT, true)
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
+        // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
+        haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
         migrateFlyThreshold(p)
         val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
             ?: FLY_THRESHOLD_DEFAULT.toFloat()
@@ -971,6 +981,11 @@ class ImeService : InputMethodService() {
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
+        /**
+         * 震动反馈开关(默认开)。四个反馈点:Caps 锁定/解锁、层锁定/解锁、翻页提交、飞字过阈值。
+         * 锁定类比确认类重一点(14ms vs 12ms)—— "锁住了"比"过了"更需要实感。
+         */
+        const val PREF_HAPTIC = "haptic"
 
         /** 飞字阈值默认档(更保守:需明显上滑才触发)。 */
         const val FLY_THRESHOLD_DEFAULT = "160"

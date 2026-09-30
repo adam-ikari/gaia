@@ -76,6 +76,11 @@ class ImeController(
     var layout: KeyLayout,
     /** 策略注册表:语言 / 输入法 / 输入框表现都从这里取。 */
     val registry: ImeRegistry = ImeRegistry.builtin(),
+    /**
+     * 触感反馈。**状态机本身不依赖它** —— 锁定/提交这些判定照跑,震动只是附带反馈,
+     * 所以测试里传 null 即可,不需要造一个假实现(2026-09-30)。
+     */
+    private val haptics: Haptics? = null,
 ) {
     val state = ImeState()
 
@@ -343,10 +348,14 @@ class ImeController(
         }
         val n = gestures.tap(key)
         val cur = state.shiftMode
-        state.shiftMode = when {
+        val next = when {
             n == 1 -> if (cur == ShiftMode.OFF) ShiftMode.ONCE else ShiftMode.OFF
             else -> if (cur == ShiftMode.CAPS) ShiftMode.OFF else ShiftMode.CAPS
         }
+        state.shiftMode = next
+        // 只在**进入 Caps 锁定**与**从 Caps 解锁**时震:这两处是"大写粘住了 / 不粘了"的确认点。
+        // ONCE↔OFF 的单击切换不震 —— 那是打字过程中的常态,震一下反而像误触(2026-09-30)。
+        if ((cur == ShiftMode.CAPS) != (next == ShiftMode.CAPS)) haptics?.lock()
         // **关掉大写就进吸收窗**:双击解除 Caps 后手抖再按一下,不会立刻又锁上
         // (原先层状态有这窗、大写没有,双击解除后第三击就重新锁上了)
         if (state.shiftMode == ShiftMode.OFF) gestures.suppress(key)
@@ -438,6 +447,9 @@ class ImeController(
             else -> LayerState.borrow(mod, cur)
         }
         state.layerState = next
+        // 只在"锁定态有/无"发生变化时震:双击锁上、再敲解锁这两个确认点。
+        // 借一层(单击)不震 —— 那是打字过程中的常态(2026-09-30)。
+        if ((cur is LayerState.Locked) != (next is LayerState.Locked)) haptics?.lock()
     }
 
     // ------------------------------------------------------------------ 候选与组词

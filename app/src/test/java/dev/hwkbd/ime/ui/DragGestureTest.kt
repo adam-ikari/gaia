@@ -52,24 +52,41 @@ class DragGestureTest {
         val near = DragGesture.settleDuration(0.9f)
         val far = DragGesture.settleDuration(0.1f)
         assertTrue("越接近目标补完越快", far > near)
-        assertTrue("下限 60ms", near >= 60L)
-        assertTrue("上限 260ms", far <= 260L)
+        assertTrue("下限 90ms", near >= 90L)
+        assertTrue("上限 340ms", far <= 340L)
     }
 
     @Test
     fun `settle duration is proportional to remaining distance between the clamps`() {
-        // 取两端都不撞夹取(60..260ms)的两组值,验证"同一速度"这个契约本身:
+        // 取两端都不撞夹取(90..340ms)的两组值,验证"同一速度"这个契约本身:
         // 剩余距离翻倍 ⇒ 时长也翻倍。撞上夹取的那段另有 [clamped ends] 那条测。
-        val d1 = DragGesture.settleDuration(0.7f) // 0.3 * 260 = 78ms
-        val d2 = DragGesture.settleDuration(0.4f) // 0.6 * 260 = 156ms
+        val d1 = DragGesture.settleDuration(0.7f) // 0.3 * 340 = 102ms
+        val d2 = DragGesture.settleDuration(0.4f) // 0.6 * 340 = 204ms
         assertEquals("剩余距离翻倍 ⇒ 时长翻倍", 2.0f, d2.toFloat() / d1.toFloat(), 0.02f)
     }
 
     @Test
     fun `settle duration is clamped at both ends so the tail never flashes`() {
-        // 快到终点:线性算出来只有 26ms,夹到 60ms,免得一闪而过看不清发生了什么
-        assertEquals(60L, DragGesture.settleDuration(0.9f))
-        assertEquals(260L, DragGesture.settleDuration(0.0f))
+        // 快到终点:线性算出来只有 34ms,夹到 90ms,免得一闪而过看不清发生了什么
+        assertEquals(90L, DragGesture.settleDuration(0.9f))
+        assertEquals(340L, DragGesture.settleDuration(0.0f))
+    }
+
+    @Test
+    fun `fallback velocity keeps distance and time proportional when there is no finger speed`() {
+        // 点箭头翻页那种没有手指速度的补完:按"匀速走完、耗时 SETTLE_MS"反推,
+        // 免得一律取下限 90ms 显得像被弹射出去。
+        val v = DragGesture.fallbackVelocity(from = 0f, target = 1360f)
+        assertEquals(1360f / (340f / 1000f), v, 1f)
+        // 反推出的速度走一遍物理,会略短于 SETTLE_MS(浮点截断 + 减速模型本身更慢),
+        // 落在区间内即可 —— 这里要的是"同量级且成比例",不是精确 340。
+        assertTrue("时长应接近基准 340ms,实际 ${Fling.stopDurationMs(v)}ms",
+            Fling.stopDurationMs(v) in 300L..340L)
+    }
+
+    @Test
+    fun `fallback velocity of a zero-length move is zero`() {
+        assertEquals(0f, DragGesture.fallbackVelocity(100f, 100f), 1e-6f)
     }
 
     @Test
