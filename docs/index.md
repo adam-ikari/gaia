@@ -1,41 +1,94 @@
 ---
-layout: home
-
-hero:
-  name: Gaia
-  text: 盖亚输入法
-  tagline: 为 Unihertz Titan 2 这类物理全键盘手机设计的硬件键盘拼音输入法——三层键盘、五键选字、上滑飞字，屏幕只负责展示候选
-  actions:
-    - theme: brand
-      text: 下载 APK
-      link: /guide/install
-    - theme: alt
-      text: 功能详解
-      link: /guide/features
-
-features:
-  - icon: ⌨️
-    title: 三层物理键盘
-    details: L1 字母 / L2 符号数字（键帽印字按厂商键位表对齐）/ L3 编程符号层，逐键可改。
+layout: apple-home
+title: 盖亚输入法
+eyebrow: 给 Titan 2 量身定做的拼音输入法
+tagline: 打字的时候，眼睛可以留在屏幕上。
+note: Unihertz Titan 2 专用
+actions:
+  - text: 下载
+    link: /guide/install
+    primary: true
+  - text: 进一步了解
     link: /guide/features
-  - icon: ✋
-    title: 五键选字
-    details: 首选居中占空格位，Shift / Sym / 空格 / Ctrl / Alt 一一对应候选 2/5/1/4/3，全程不用抬手。
-    link: /guide/features
-  - icon: 🖐️
-    title: 上滑飞字
-    details: 在键盘表面按区上滑选字，候选词随手指起升、越过阈值飞入；左右滑翻页。
-    link: /guide/features
-  - icon: 🧩
-    title: L4 虚拟按键
-    details: 状态行中区随输入框变化：网址出 http://、邮箱出域名、数字框放行 0-9 和国际区号。
-    link: /guide/features
-  - icon: 📚
-    title: 34.8 万内置词库
-    details: 词频加权排序，支持首字母检索（sm → 什么 / 生命 / 说明），也可导入自己的词库。
-    link: /guide/features
-  - icon: 🔒
-    title: 不申请任何权限
-    details: 安装包不声明任何系统权限，没有网络访问、没有数据上传，词库与用户词只留在本机。
-    link: /guide/faq
 ---
+
+::: band ink
+<div class="gaia-band-head">
+<p class="gaia-eyebrow">从第一个字母，到一句话</p>
+<h2>往下滚，看着它发生。</h2>
+</div>
+
+<ScrollFrames />
+:::
+
+::: band stone
+<div class="gaia-band-inner gaia-band-split">
+<div class="gaia-band-copy">
+<p class="gaia-eyebrow">真实流程</p>
+<h2>一镜到底。</h2>
+<p>输错的那次也留着。这是自动测试里录下来的，和你下载的是同一个包。</p>
+</div>
+<div class="gaia-band-visual">
+<DemoVideo />
+</div>
+</div>
+:::
+
+::: band white
+<div class="gaia-band-inner">
+<div class="gaia-band-copy">
+<p class="gaia-eyebrow">五个候选，五根手指</p>
+<h2>不用抬手，也不用点。</h2>
+<p>你最能用的那个词落在正中间，空格就是它。剩下四个按顺序分给 Shift、Sym、Ctrl、Alt。选哪个，手指都不用挪。</p>
+</div>
+</div>
+:::
+
+::: band ink
+<div class="gaia-band-inner gaia-band-split">
+<div class="gaia-band-copy">
+<p class="gaia-eyebrow">上滑 · 跟手</p>
+<h2>手指到哪，词到哪。</h2>
+<p>按住候选往上拖，词跟着手指走。拖到位松手才上屏，没到位它就不动。左右滑动键盘，候选词就跟着翻页。</p>
+</div>
+<div class="gaia-band-visual">
+<SwipeFeel />
+</div>
+</div>
+:::
+
+::: band stone
+<div class="gaia-band-inner">
+<div class="gaia-band-copy">
+<p class="gaia-eyebrow">换到邮箱框、网址框</p>
+<h2>该出现的键，会自己出现。</h2>
+<p>网址框给你网址开头，邮箱框给你常用后缀，数字框只留数字。不用切层，不用找符号。</p>
+</div>
+</div>
+:::
+
+::: band white
+<div class="gaia-band-inner">
+<div class="gaia-band-copy">
+<p class="gaia-eyebrow">三十多万个词</p>
+<h2>越打越顺手。</h2>
+<p>常用的词会自己往前挪。懒得记全拼就打首字母，nh 就是你好。</p>
+</div>
+</div>
+:::
+
+::: band ink
+<div class="gaia-band-head">
+<p class="gaia-eyebrow">下载</p>
+<h2>装上，切过去，就能用。</h2>
+</div>
+
+<Downloads />
+:::
+
+::: band stone
+<div class="gaia-band-inner gaia-band-narrow">
+<h2>它会收一点数据。</h2>
+<p>你选了哪个词、它排第几位、哪个功能被多点、崩溃在哪一步，这些会用来改词库。输入框里的内容和没上屏的草稿不收。设置里可以随时关掉。</p>
+</div>
+:::

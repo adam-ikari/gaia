@@ -1,0 +1,202 @@
+/**
+ * 首页分区样式。每个 section 一块独立底色，之间不留缝，
+ * 滚动时像一张长图 —— Apple 产品页的排法。
+ *
+ * 注意：这个文件是**纯 CSS**（不是 Vue SFC）。之前它带着 <script>/<template> 壳，
+ * 构建时 vite 会把 </style> 当成非法选择器报 css-syntax-error。
+ */
+
+.gaia-home {
+  margin: -32px -24px 0;
+  margin-top: calc(-1 * var(--vp-nav-height));
+  padding-top: var(--vp-nav-height);
+}
+
+.gaia-home .gaia-band {
+  padding: 112px 24px;
+}
+
+.gaia-band-white {
+  background: #fff;
+  color: #1d1d1f;
+}
+
+.gaia-band-stone {
+  background: #f5f5f7;
+  color: #1d1d1f;
+}
+
+.gaia-band-ink {
+  background: #0b0b0d;
+  color: #f5f5f7;
+}
+
+.dark .gaia-band-white {
+  background: #000;
+  color: #f5f5f7;
+}
+
+.dark .gaia-band-stone {
+  background: #1d1d1f;
+  color: #f5f5f7;
+}
+
+.dark .gaia-band-ink {
+  background: #000;
+  color: #f5f5f7;
+}
+
+/* --------------------------------------------------------------- hero */
+
+.gaia-hero {
+  background: #fff;
+  color: #1d1d1f;
+  padding: 128px 24px 104px;
+  text-align: center;
+}
+
+.dark .gaia-hero {
+  background: #000;
+  color: #f5f5f7;
+}
+
+.gaia-eyebrow {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--vp-c-text-2);
+}
+
+.gaia-hero-title {
+  margin: 0;
+  font-size: clamp(40px, 8vw, 76px);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+.gaia-hero-sub {
+  margin: 22px auto 0;
+  max-width: 620px;
+  font-size: clamp(19px, 2.4vw, 26px);
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-text-2);
+}
+
+.gaia-hero-actions {
+  margin-top: 38px;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.gaia-btn {
+  display: inline-block;
+  padding: 12px 28px;
+  border-radius: 980px;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  border: 1px solid var(--vp-c-border);
+  background: transparent;
+  color: var(--vp-c-text-1);
+  transition: background-color 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.gaia-btn-primary {
+  background: #0071e3;
+  border-color: #0071e3;
+  color: #fff;
+}
+
+.gaia-btn:hover {
+  background: var(--vp-c-bg-soft);
+}
+
+.gaia-btn-primary:hover {
+  background: #0077ed;
+  border-color: #0077ed;
+}
+
+.gaia-btn:active {
+  transform: scale(0.97);
+}
+
+.gaia-hero-note {
+  margin: 26px 0 0;
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+}
+
+/* --------------------------------------------------------------- 分区 */
+
+.gaia-band-inner,
+.gaia-band-narrow {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.gaia-band-narrow {
+  max-width: 720px;
+  text-align: center;
+}
+
+.gaia-band-head {
+  max-width: 720px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+
+.gaia-band-copy {
+  max-width: 620px;
+}
+
+.gaia-band-inner.gaia-band-split {
+  display: flex;
+  align-items: center;
+  gap: 64px;
+}
+
+.gaia-band-visual {
+  flex: 1 1 440px;
+  max-width: 520px;
+}
+
+.gaia-band h2 {
+  margin: 0 0 16px;
+  font-size: clamp(30px, 4.6vw, 48px);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.gaia-band p {
+  margin: 0;
+  font-size: clamp(17px, 1.6vw, 20px);
+  line-height: 1.65;
+  color: inherit;
+  opacity: 0.78;
+}
+
+.gaia-band-ink .gaia-eyebrow,
+.gaia-band-ink p {
+  color: #a1a1a6;
+}
+
+/* 下载表在深底上换配色 */
+.gaia-band-ink table {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.gaia-band-ink th,
+.gaia-band-ink td {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+}
+
+.gaia-band-ink th {
+  background: rgba(255, 255, 255, 0.06);
+}

@@ -1,25 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-// 取**本仓库**的 latest Release —— 应用仓库是私有的,那里的下载链接需要登录态,
-// 所以正式包挂在公开的站点仓库上。
+/**
+ * 下载表。数据源是**本仓库**的 latest Release —— 应用仓库是私有的，
+ * 那边的下载链接需要登录态，访客拿不到，所以包挂在公开的站点仓库上。
+ *
+ * 站点只提供正式版：调试包不进这张表（也不发布到本仓库）。
+ */
 const REPO = 'adam-ikari/gaia'
 
-type Asset = { name: string; size: number; browser_download_url: string }
+type Asset = { name: string; size: number; browser_download_url: string; download_count?: number }
 
 const state = ref<'loading' | 'ready' | 'none' | 'error'>('loading')
 const tag = ref('')
 const assets = ref<Asset[]>([])
 
-const rows = computed(() =>
-  assets.value.map((a) => ({ name: a.name, url: a.browser_download_url, fit: fit(a.name), size: mb(a.size) }))
-)
-
-function fit(name: string) {
-  if (/release/i.test(name)) return '正式版，推荐；与调试包同一签名，可直接覆盖安装升级'
-  if (/debug/i.test(name)) return '调试版，功能相同、体积略大；需要 adb 调试时用它'
-  return '盖亚输入法安装包'
-}
+const rows = computed(() => assets.value.map((a) => ({ ...a, size: mb(a.size) })))
 
 function mb(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
@@ -35,7 +31,8 @@ onMounted(async () => {
     if (!res.ok) throw new Error(String(res.status))
     const data = await res.json()
     tag.value = data.tag_name ?? ''
-    assets.value = data.assets ?? []
+    // 只认 release 包；防御性过滤，万一以后传错了也不会露出来
+    assets.value = (data.assets ?? []).filter((a: Asset) => /release/i.test(a.name))
     state.value = assets.value.length ? 'ready' : 'none'
   } catch {
     state.value = 'error'
@@ -47,47 +44,53 @@ onMounted(async () => {
   <div class="gi-dl">
     <p v-if="state === 'loading'">正在读取发布信息…</p>
 
-    <p v-else-if="state === 'none'">
-      公开下载包尚未发布。发布后这里会列出正式版与调试版两个包。
-    </p>
+    <p v-else-if="state === 'none'">下载包正在准备，稍后再来。</p>
 
     <p v-else-if="state === 'error'">无法连接 GitHub 获取发布信息，请稍后刷新重试。</p>
 
     <template v-else>
-      <p>当前版本 <strong>{{ tag }}</strong>，按需取用：</p>
+      <p>当前版本 <strong>{{ tag }}</strong>：</p>
       <table>
         <thead>
           <tr>
             <th>文件</th>
-            <th>说明</th>
             <th>大小</th>
+            <th>下载</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.name">
-            <td><a :href="r.url">{{ r.name }}</a></td>
-            <td>{{ r.fit }}</td>
+            <td>
+              <a class="gi-dl-btn" :href="r.browser_download_url">下载 {{ r.name }}</a>
+            </td>
             <td>{{ r.size }}</td>
+            <td>{{ r.download_count ?? 0 }} 次</td>
           </tr>
         </tbody>
       </table>
     </template>
-
-    <p class="gi-dl-note">
-      两个包由同一份源码构建、同一证书签名，<strong>可以互相覆盖安装</strong>，放心换包。
-      安装后需在系统设置里启用并切换为默认输入法，步骤见本页下方。
-    </p>
   </div>
 </template>
 
 <style scoped>
 .gi-dl {
-  margin: 24px 0;
+  margin: 0 auto;
+  max-width: 560px;
 }
 
-.gi-dl-note {
-  margin-top: 16px;
-  font-size: 13px;
-  color: var(--vp-c-text-2);
+.gi-dl-btn {
+  display: inline-block;
+  padding: 9px 20px;
+  border-radius: 980px;
+  background: var(--vp-c-brand-1);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.gi-dl-btn:hover {
+  background: var(--vp-c-brand-1);
+  opacity: 0.85;
 }
 </style>
