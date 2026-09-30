@@ -2,6 +2,8 @@
 
 为 Unihertz Titan 2 全键盘(TT2)设计的硬件键盘拼音输入法。Android 8.0+(minSdk 26)。
 
+官网与下载(公开站点 Gaia):<https://adam-ikari.github.io/gaia/>
+
 ## 功能
 
 - 三层键盘:L1 字母 / L2 符号数字(Alt,厂商 TitanKey.kcm 键帽)/ L3 编程(Sym,可可扩展字符表)
