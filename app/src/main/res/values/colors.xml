@@ -22,6 +22,6 @@
     <color name="key_fg">#E7EAF0</color>
     <color name="key_fn_fg">#FFB66B4A</color>
     <color name="arrow_fg">#9AA1AC</color>
-    <color name="chip_l2">#FF5B8DBE</color>
-    <color name="chip_l3">#FF7FA05A</color>
+    <color name="status_l2">#FF5B8DBE</color>
+    <color name="status_l3">#FF7FA05A</color>
 </resources>

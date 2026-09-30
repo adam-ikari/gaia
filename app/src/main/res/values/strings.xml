@@ -8,9 +8,12 @@
     <string name="playground_hint2">在这里输入…</string>
     <string name="playground_show_log">查看输入法日志</string>
     <string name="playground_show_keymap">键位总览</string>
+    <!--
+      大写状态的默认朗读文本(布局里的静态值);运行时的三种状态说明在
+      dev.hwkbd.ime.ui.StatusRow 的 CAPS_LABEL / ONCE_LABEL / OFF_LABEL
+      (那边是纯函数、不带 Context,所以文案跟 `ab`/`Ab`/`AB` 字形住在一起)。
+    -->
     <string name="shift_state">大写</string>
-    <string name="shift_state_once">大写一次</string>
-    <string name="shift_state_caps">大写锁定</string>
     <!-- 状态行「拼」右侧那颗开关:文字标的是当前状态,这两个是给读屏用的说明 -->
     <string name="fullwidth_on">中文标点：全角</string>
     <string name="fullwidth_off">中文标点：半角</string>

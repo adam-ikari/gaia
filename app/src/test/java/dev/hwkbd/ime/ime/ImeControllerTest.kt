@@ -62,6 +62,24 @@ class ImeControllerTest {
         }
     }
 
+    /**
+     * 熬过长按阈值:按住这么久算长按,不算敲击。
+     *
+     * **跟常量走,别写死毫秒数**——长按阈值改一次,写死 350 的地方会静默变成"其实没按够",
+     * 测试还过,断的却是语义(2026-09-30 敲击窗口 300→400 时踩过一次同款)。
+     */
+    private fun holdLongerThanThreshold() {
+        Thread.sleep(ModifierGestures.DEFAULT_HOLD_MS + 50)
+    }
+
+    /**
+     * 熬过双击窗口:下一击才算**独立**的一击(窗口内那一下会被算成第二击 = 锁定/Caps)。
+     * 同样跟常量走,见 [holdLongerThanThreshold]。
+     */
+    private fun exitTapWindow() {
+        Thread.sleep(ModifierGestures.DEFAULT_TAP_WINDOW_MS + 50)
+    }
+
     private fun rig(pageSize: Int = 5): Rig {
         val dict = PinyinDict()
         dict.load(dictLines)
@@ -142,15 +160,15 @@ class ImeControllerTest {
     fun `数字框聚焦直接锁定数字层 离开解锁`() {
         val r = rig()
         r.c.setFieldKind(FieldKind.NUMBER)
-        assertEquals(Layer.L2, r.c.state.lock) // 聚焦即锁,免按 Alt(alt 锁定的数字变种)
+        assertEquals(Layer.L2, r.c.state.lockedLayer) // 聚焦即锁,免按 Alt(alt 锁定的数字变种)
         assertTrue(r.key(kc('q'))) // L2 的 q = 0,直接出数字
         assertEquals(listOf("0"), r.h.commits)
         // 数字锁解不掉(解锁后 L1 全被吞,没法打字):物理 Alt 单击只落一次性,不碰字段加的 lock
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
-        assertEquals(Layer.L2, r.c.state.lock)
+        assertEquals(Layer.L2, r.c.state.lockedLayer)
         // 离开数字类 → 解除字段加的锁
         r.c.setFieldKind(FieldKind.TEXT)
-        assertNull(r.c.state.lock)
+        assertNull(r.c.state.lockedLayer)
     }
 
     @Test
@@ -234,7 +252,7 @@ class ImeControllerTest {
     fun `数字框 Sym 敲击被吞 不进 L3`() {
         val r = rig()
         r.c.state.fieldKind = FieldKind.NUMBER
-        // Sym 按下/松开都成对吞掉(SYM 芯片已隐藏),L3 进不去
+        // Sym 按下/松开都成对吞掉(SYM 状态项已隐藏),L3 进不去
         assertTrue(r.tap(KeyEvent.KEYCODE_SYM))
         assertTrue(r.key(kc('a'))) // 还在 L1,'a' 非数字 → 吞
         assertTrue(r.h.commits.isEmpty())
@@ -409,9 +427,9 @@ class ImeControllerTest {
     @Test
     fun `层锁定时 shift 加空格仍可切换语言`() {
         val r = rig()
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(KeyEvent.KEYCODE_ALT_LEFT) // 双击锁定 L2
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 双击锁定 L2(敲击判定在 keyUp,所以是"两次完整敲击")
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
         assertEquals("en", r.c.state.languageId) // 锁定态下仍可切换拼音/En
         r.key(KeyEvent.KEYCODE_SPACE, shift = true)
@@ -461,7 +479,7 @@ class ImeControllerTest {
         r.key(kc('e'))
         r.key(kc('r'))
         assertEquals(listOf("1", "2", "3"), r.h.commits) // 一次性被消费后长按层继续兜着
-        Thread.sleep(350)
+        holdLongerThanThreshold()
         r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT) // 长按松开 = 取消
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
@@ -471,7 +489,7 @@ class ImeControllerTest {
         val r = rig()
         r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        Thread.sleep(350)
+        holdLongerThanThreshold()
         r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
         assertEquals(emptyList<String>(), r.h.commits)
@@ -488,7 +506,7 @@ class ImeControllerTest {
         assertEquals(listOf("1", "2"), r.h.commits)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
         // 真实节奏:锁定后先输入符号,再次敲 Alt 时早已超出双击窗口 → 单击解锁
-        Thread.sleep(450)
+        exitTapWindow()
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
@@ -498,7 +516,7 @@ class ImeControllerTest {
         val r = rig()
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
-        Thread.sleep(450) // 窗口外独立敲击
+        exitTapWindow() // 窗口外独立敲击
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 取消
         assertFalse(r.c.state.hasComposition)
@@ -510,20 +528,75 @@ class ImeControllerTest {
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
-        Thread.sleep(450)
+        exitTapWindow()
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer) // 取消
     }
 
     @Test
-    fun `锁定态下 Alt Sym 互切层`() {
+    fun `锁定态下单击异层键是借用 用完回到锁`() {
+        // 2026-09-30 用户定案,分两步:
+        //   「锁着 Alt 时单击 Sym = 一次性 Sym」⇒ 不能单击就锁定(Locked 分支原先排在次数判定之前);
+        //   「临时借用返回上一个锁定状态 没有锁定状态返回初始状态」⇒ 借的那一个键用完后回锁。
+        val r = rig()
+        r.c.state.languageId = "en" // 英文态:字母键直接出字,不用绕开拼音组词
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+        r.tap(KeyEvent.KEYCODE_SYM)
+        assertEquals(
+            "借 Sym 一次,恢复目标是锁着的 L2",
+            LayerState.OneShot(dev.hwkbd.ime.keymap.Layer.L3, LayerState.Locked(dev.hwkbd.ime.keymap.Layer.L2)),
+            r.c.state.layerState,
+        )
+        assertEquals("借用期间可见层是 Sym", dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        assertEquals("锁没丢", dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+        r.key(kc('x')) // L3 X=&
+        assertEquals(listOf("&"), r.h.commits)
+        assertEquals("借的那一下用完就回到锁着的 L2", dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+        r.key(kc('w')) // 下一个键又在 L2
+        assertEquals(listOf("&", "1"), r.h.commits)
+    }
+
+    @Test
+    fun `借用中再敲 Sym 取消借用 敲 Alt 收回借用`() {
+        val r = rig()
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 锁 L2
+        exitTapWindow()
+        r.tap(KeyEvent.KEYCODE_SYM) // 借 L3
+        exitTapWindow()
+        r.tap(KeyEvent.KEYCODE_SYM) // 再敲同一个键 = 取消借用,回锁
+        assertEquals(LayerState.Locked(dev.hwkbd.ime.keymap.Layer.L2), r.c.state.layerState)
+        exitTapWindow()
+        r.tap(KeyEvent.KEYCODE_SYM) // 再借一次
+        exitTapWindow()
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 敲底下锁着的那层 = 收掉借用,回锁
+        assertEquals(LayerState.Locked(dev.hwkbd.ime.keymap.Layer.L2), r.c.state.layerState)
+    }
+
+    @Test
+    fun `锁定态下双击异层键才把锁移过去`() {
         val r = rig()
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
-        r.tap(KeyEvent.KEYCODE_SYM)
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock) // 锁定态下异层键一次切换
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+        r.tap(KeyEvent.KEYCODE_SYM) // 第一击:一次性 L3(锁被顶掉)
+        r.tap(KeyEvent.KEYCODE_SYM) // 第二击:双击 = 锁定 L3
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lockedLayer)
+    }
+
+    @Test
+    fun `锁定态下敲同层键解锁`() {
+        val r = rig()
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 单击 = 解锁
+        assertEquals(null, r.c.state.lockedLayer)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
 
     @Test
@@ -610,8 +683,12 @@ class ImeControllerTest {
         assertEquals("》", at('y'))
         assertEquals("【", at('g'))
         assertEquals("】", at('h'))
+        // `\` 换成中文里真有用途的顿号(用户 2026-09-30「全角状态 L3 的 z 应该映射为 `、`,
+        // 而不是全角的 `\`」)。连带效果:顿号上了物理键,状态行那把补差键被 L4 的筛自动带走
+        // (见 ImeRegistryTest「L4 装 L1-L3 敲不出的」)。代价:全角 `＼` 敲不出来了。
+        assertEquals("、", at('z'))
         // 其余一律机械全角 +0xFEE0
-        for (ch in "efujzxcb n".filter { it in 'a'..'z' }) {
+        for (ch in "efujxcb n".filter { it in 'a'..'z' }) {
             val printed = factory[KeyEvent.KEYCODE_A + (ch - 'a')] as KeyOut.Text
             assertEquals(
                 "Sym+$ch 丝印 ${printed.text} 却敲出 ${at(ch)}",
@@ -700,8 +777,8 @@ class ImeControllerTest {
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁 L3
         r.key(kc('e')) // 丝印 ~ → 全角 ～
         assertEquals(listOf("～"), r.h.commits)
-        r.key(kc('z')) // 丝印 \ → 全角 ＼
-        assertEquals(listOf("～", "＼"), r.h.commits)
+        r.key(kc('z')) // 丝印 \ → 顿号(全角态把反斜杠换成中文真用的那一个)
+        assertEquals(listOf("～", "、"), r.h.commits)
     }
 
     @Test
@@ -755,7 +832,7 @@ class ImeControllerTest {
     @Test
     fun `数字类输入框绕过中文表 照旧用出厂 ASCII 槽位`() {
         // 数字类的合法字符集是照着**出厂 ASCII L2 槽位**定的(`- . + * # / :` 各占一键),
-        // 中文表把那些位换成了中文标点。日期框要是跟着换,就输不出 `/`;芯片上的 `0-9-/:`
+        // 中文表把那些位换成了中文标点。日期框要是跟着换,就输不出 `/`;状态项上的 `0-9-/:`
         // 也跟着说谎。数字框本来就没有"语言"可言 —— 必须走键位表出厂值。
         val r = rig()
         r.c.setFieldKind(FieldKind.DATETIME)
@@ -776,20 +853,24 @@ class ImeControllerTest {
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lockedLayer)
         r.key(KeyEvent.KEYCODE_SPACE)
         assertEquals(listOf(" "), r.h.commits) // 空格在 L3 不再特判(与可可一致)
     }
 
     @Test
-    fun `Sym 连击三击为武装锁定解除`() {
+    fun `三连击不是独立事件 只是单加双的叠加`() {
         val r = rig()
         repeat(3) {
             r.key(KeyEvent.KEYCODE_SYM)
             r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         }
-        // tap1 一次性 L3,tap2 锁定 L3,tap3 解锁回 L1
-        assertEquals(null, r.c.state.lock)
+        // 2026-09-30 用户定案「三连击无效,短时间内只有单击和双击是有效事件」。
+        // 三击 = 单击(一次性 L3) + 双击(锁定 L3) + 第三击(锁定态下的一次单击 = 解锁)
+        // ⇒ 净结果就是"锁定态被单击解除",**没有第三种含义**。
+        // 顺带证实:原先那条 `n>=3 → 换层` 分支是**够不到的死代码**——从 L1 连击三下时
+        // 第二击就已经进 Locked 分支,第三击永远轮不到 n>=3。
+        assertEquals(null, r.c.state.lockedLayer)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
 
@@ -800,12 +881,12 @@ class ImeControllerTest {
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lock)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lockedLayer)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 第一击:解锁
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 第二击:连击被吸收,不重新武装
-        assertEquals(null, r.c.state.lock)
+        assertEquals(null, r.c.state.lockedLayer)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
     }
 
@@ -831,20 +912,20 @@ class ImeControllerTest {
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
         r.key(kc('x')) // L3 X=&
         assertEquals(listOf("&"), r.h.commits)
-        Thread.sleep(350)
+        holdLongerThanThreshold()
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 长按松开 = 取消,不再算敲击
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
-        assertEquals(null, r.c.state.lock)
+        assertEquals(null, r.c.state.lockedLayer)
     }
 
     @Test
     fun `长按 Sym 不按任何键松开也取消`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SYM)
-        Thread.sleep(350)
+        holdLongerThanThreshold()
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         assertEquals(dev.hwkbd.ime.keymap.Layer.L1, r.c.state.effectiveLayer)
-        assertEquals(null, r.c.state.oneShot)
+        assertEquals(null, r.c.state.oneShotLayer)
     }
 
     @Test
@@ -876,23 +957,22 @@ class ImeControllerTest {
         val r = rig()
         r.c.state.languageId = "en"
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 单击
-        assertEquals(ShiftState.ONCE, r.c.state.shift)
-        assertFalse(r.c.state.shiftHeld) // 松手后大写提示熄灭
+        assertEquals(ShiftMode.ONCE, r.c.state.shiftMode)
         r.key(kc('a'))
         assertEquals(listOf("A"), r.h.commits)
-        assertEquals(ShiftState.OFF, r.c.state.shift) // 输入一个字母就取消
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode) // 输入一个字母就取消
 
-        Thread.sleep(350) // 出双击窗口,重新起算
+        exitTapWindow() // 出双击窗口,重新起算
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 双击第一击:大写一次
-        assertEquals(ShiftState.ONCE, r.c.state.shift)
+        assertEquals(ShiftMode.ONCE, r.c.state.shiftMode)
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 第二击:Caps 锁定
-        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        assertEquals(ShiftMode.CAPS, r.c.state.shiftMode)
         r.key(kc('b'))
         r.key(kc('c'))
         assertEquals(listOf("A", "B", "C"), r.h.commits)
 
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 已在 Caps:单击 = 关掉锁定
-        assertEquals(ShiftState.OFF, r.c.state.shift)
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
     }
 
     @Test
@@ -900,19 +980,19 @@ class ImeControllerTest {
         val r = rig()
         r.c.state.languageId = "en"
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 单击:大写一次
-        assertEquals(ShiftState.ONCE, r.c.state.shift)
+        assertEquals(ShiftMode.ONCE, r.c.state.shiftMode)
 
-        Thread.sleep(350) // 出双击窗口 = 一次独立单击
+        exitTapWindow() // 出双击窗口 = 一次独立单击
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
-        assertEquals(ShiftState.OFF, r.c.state.shift) // 已开着的大写状态被按掉
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode) // 已开着的大写状态被按掉
 
-        Thread.sleep(350)
+        exitTapWindow()
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 再按:重新武装大写一次
-        assertEquals(ShiftState.ONCE, r.c.state.shift)
+        assertEquals(ShiftMode.ONCE, r.c.state.shiftMode)
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 窗口内第二击仍 = Caps 锁定(双击语义不变)
-        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        assertEquals(ShiftMode.CAPS, r.c.state.shiftMode)
         r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 任意一次按压都能退出:再按 = 解除
-        assertEquals(ShiftState.OFF, r.c.state.shift)
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
     }
 
     @Test
@@ -920,13 +1000,12 @@ class ImeControllerTest {
         val r = rig()
         r.c.state.languageId = "en"
         r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
-        assertTrue(r.c.state.shiftHeld) // 按住期间状态行亮大写芯片
-        Thread.sleep(350)
+        assertEquals(ShiftMode.HELD, r.c.state.shiftMode) // 按住期间状态行亮出大写
+        holdLongerThanThreshold()
         r.key(kc('a'), shift = true) // 长按大写由物理修饰键承担
         assertEquals(listOf("A"), r.h.commits)
         r.c.onKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT)
-        assertFalse(r.c.state.shiftHeld)
-        assertEquals(ShiftState.OFF, r.c.state.shift) // 松手取消,不残留一次性/锁定
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode) // 松手取消,不残留一次性/锁定
         r.key(kc('b'))
         assertEquals(listOf("A", "b"), r.h.commits)
     }
@@ -938,7 +1017,7 @@ class ImeControllerTest {
         r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
         r.key(kc('a'), shift = true) // 按住期间按了别的键
         r.c.onKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT)
-        assertEquals(ShiftState.OFF, r.c.state.shift) // 不武装大写一次
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode) // 不武装大写一次
         r.key(kc('b'))
         assertEquals(listOf("A", "b"), r.h.commits) // 按住期间大写来自物理 shift,松开后回小写
     }
@@ -949,7 +1028,7 @@ class ImeControllerTest {
         assertEquals("zh", r.c.state.languageId)
         r.c.onShiftTap()
         r.c.onShiftTap() // 双击也不给锁定:拼音不需要大小写
-        assertEquals(ShiftState.OFF, r.c.state.shift)
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
         r.key(kc('n'))
         r.key(kc('i'))
         assertTrue(r.c.state.hasComposition)
@@ -962,18 +1041,18 @@ class ImeControllerTest {
         r.c.state.languageId = "en"
         r.c.onShiftTap()
         r.c.onShiftTap()
-        assertEquals(ShiftState.CAPS, r.c.state.shift)
+        assertEquals(ShiftMode.CAPS, r.c.state.shiftMode)
         r.c.cycleLanguage()
         assertEquals("zh", r.c.state.languageId)
-        assertEquals(ShiftState.OFF, r.c.state.shift)
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
     }
 
     @Test
-    fun `密码框内禁止切到拼音 语言芯片与Shift空格都收口在 setLanguage`() {
+    fun `密码框内禁止切到拼音 语言项与Shift空格都收口在 setLanguage`() {
         val r = rig()
         r.c.state.secure = true
         r.c.state.languageId = "en" // onStartInput 聚焦密码框时已强制到安全语言
-        r.c.cycleLanguage() // 状态栏语言芯片 / Shift+空格 的共同入口
+        r.c.cycleLanguage() // 状态行语言项 / Shift+空格 的共同入口
         assertEquals("en", r.c.state.languageId)
         r.c.setLanguage("zh") // 直接点名切走也被拒
         assertEquals("en", r.c.state.languageId)
@@ -984,7 +1063,7 @@ class ImeControllerTest {
         assertEquals("zh", r.c.state.languageId)
     }
 
-    // ---------------------------------------------------------------- 状态栏(芯片只显示,切换走物理键)
+    // ---------------------------------------------------------------- 状态行(只显示,切换走物理键)
 
     @Test
     fun `层切换只走物理键 Alt Sym 单击一次性 双击锁定`() {
@@ -996,26 +1075,26 @@ class ImeControllerTest {
 
         r.tap(KeyEvent.KEYCODE_ALT_LEFT) // Alt 单击 = 一次性 L2
         assertEquals(L2, r.c.state.effectiveLayer)
-        assertEquals(L2, r.c.state.oneShot)
-        assertEquals(null, r.c.state.lock)
+        assertEquals(L2, r.c.state.oneShotLayer)
+        assertEquals(null, r.c.state.lockedLayer)
 
-        Thread.sleep(350) // 出双击窗口,再敲才是**独立**单击
+        exitTapWindow() // 出双击窗口,再敲才是**独立**单击
         r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 已是一次性 L2,窗口外再敲 = 取消回 L1
         assertEquals(L1, r.c.state.effectiveLayer)
-        assertEquals(null, r.c.state.oneShot)
+        assertEquals(null, r.c.state.oneShotLayer)
 
         r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 一次性 L2
         r.tap(KeyEvent.KEYCODE_SYM) // Sym 单击 = 一次性 L3,顶掉 L2 的一次性
         assertEquals(L3, r.c.state.effectiveLayer)
-        assertEquals(L3, r.c.state.oneShot)
-        assertEquals(null, r.c.state.lock)
+        assertEquals(L3, r.c.state.oneShotLayer)
+        assertEquals(null, r.c.state.lockedLayer)
 
         // 双击 = 锁定该层
-        Thread.sleep(350)
+        exitTapWindow()
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
         r.tap(KeyEvent.KEYCODE_ALT_LEFT)
-        assertEquals(L2, r.c.state.lock)
-        assertEquals(null, r.c.state.oneShot)
+        assertEquals(L2, r.c.state.lockedLayer)
+        assertEquals(null, r.c.state.oneShotLayer)
     }
 
     // ---------------------------------------------------------------- 透传
@@ -1029,12 +1108,91 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `Caps 双击解除后短窗内的第三击被吸收`() {
+        val r = rig()
+        r.c.state.languageId = "en"
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(ShiftMode.CAPS, r.c.state.shiftMode)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 已开着再单击 = 关掉
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
+        // 2026-09-30 补齐:关掉大写进 250ms 吸收窗(原先只有层状态有),
+        // 所以"双击解除后手抖再按一下"不会立刻又锁上
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals("短窗内这一击被吞掉", ShiftMode.OFF, r.c.state.shiftMode)
+        exitTapWindow()
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT) // 出窗后恢复独立单击
+        assertEquals(ShiftMode.ONCE, r.c.state.shiftMode)
+    }
+
+    @Test
     fun `切换输入框丢弃组词但保留模式与层`() {
         val r = rig()
-        r.key(KeyEvent.KEYCODE_ALT_LEFT)
-        r.key(KeyEvent.KEYCODE_ALT_LEFT) // 无组词时双击 Alt 锁 L2
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 无组词时双击 Alt 锁 L2
         r.c.resetForNewInput()
         assertEquals("", r.c.state.raw)
-        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lock)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+    }
+
+    @Test
+    fun `层状态是单一取值 按住中不与锁定或一次性并存`() {
+        val r = rig()
+        // 按下 Alt 的那一帧:可见层是 Hold,底下是按下的那份(敲击还没落定)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        val hold = r.c.state.layerState
+        assertTrue("按住中应当是 LayerState.Hold", hold is LayerState.Hold)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.effectiveLayer)
+        r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT) // 快速松开 = 敲击 ⇒ 落定一次性层
+        assertEquals(LayerState.OneShot(dev.hwkbd.ime.keymap.Layer.L2, LayerState.L1), r.c.state.layerState)
+    }
+
+    @Test
+    fun `三个修饰键同一套骨架 敲击判定都在 keyUp`() {
+        // 2026-09-30 整条梳理:Alt 曾在 keyDown 计数,于是需要 pending + holdTapN 两处补救;
+        // 现在统一"keyDown 记快照、keyUp 判敲击、只有敲击才落定"——长按永远不留痕迹。
+        val r = rig()
+        r.c.state.languageId = "en"
+        val L1 = dev.hwkbd.ime.keymap.Layer.L1
+        val L2 = dev.hwkbd.ime.keymap.Layer.L2
+
+        // 按住 Alt 不放:层已进,但**敲击还没落定**(底下仍是 L1)
+        r.key(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals("底下那份还没被敲击改过", null, r.c.state.oneShotLayer)
+        holdLongerThanThreshold()
+        r.c.onKeyUp(KeyEvent.KEYCODE_ALT_LEFT) // 长按松手 = 取消
+        assertEquals("长按不留一次性层", null, r.c.state.oneShotLayer)
+        assertEquals(L1, r.c.state.effectiveLayer)
+
+        // 同样时长按 Shift:不留大写状态
+        r.key(KeyEvent.KEYCODE_SHIFT_LEFT)
+        holdLongerThanThreshold()
+        r.c.onKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
+
+        // 快速敲击才落定(三个键各来一次)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(L2, r.c.state.oneShotLayer)
+        exitTapWindow()
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(ShiftMode.ONCE, r.c.state.shiftMode)
+    }
+
+    @Test
+    fun `长按 Sym 松手恢复按下的层状态`() {
+        val r = rig()
+        // 先双击 Alt 锁住 L2,再长按 Sym:长按期间可见层是 Sym,松手必须回到**按下的那个**(锁着的 L2)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L2, r.c.state.lockedLayer)
+        r.key(KeyEvent.KEYCODE_SYM) // 按下(Sym 的敲击判定在 keyUp,长按期间不落定)
+        assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.effectiveLayer)
+        holdLongerThanThreshold() // 按够长按阈值
+        r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        assertEquals(
+            "长按松手不该抹掉锁定层",
+            LayerState.Locked(dev.hwkbd.ime.keymap.Layer.L2),
+            r.c.state.layerState,
+        )
     }
 }

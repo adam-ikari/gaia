@@ -8,8 +8,103 @@ enum class Layer { L1, L2, L3 }
 /** 解析结果:全部行合法时 layout 非空,否则 errors 里带 1 起始行号。 */
 data class KeyLayoutParse(val layout: KeyLayout?, val errors: List<Int>)
 
-/** L4 虚拟按键:屏幕面板上的一个可配置键(标签 + 输出)。 */
-data class L4Key(val label: String, val out: KeyOut)
+/**
+ * L4/L5 键的**显示优先级**(2026-09-30 用户定案「L4L5 显示的按键是有优先级的」)。
+ * **数字小 = 优先**,排在前面、留在 L4;行宽不够被推进 L5 的是数字大的。
+ *
+ * 整套 L4/L5 就是一条优先级列表:状态行 L4 取**装得下的最高优先级前缀**
+ * ([dev.hwkbd.ime.ui.L4PanelView.onMeasure] 按"前缀最长标签宽"判装得下),L5 接剩下的尾巴
+ * (横滑翻页)。所以"优先级"不是显示上的花活 —— 它**就是**"这把键留在 L4 还是被推进 L5"的判据。
+ *
+ * ## 两个家族,别混成一句"放 L1-L3 敲不出的键"(2026-09-30 用户两次纠正)
+ *
+ * 早先这里把整条规则写成「L4 放 L1-L3 敲不出的键」。那把**两件性质不同的事**混成了一句,
+ * 后果是两种误判:以为"敲得出就不该上 L4"(于是连"一次上屏一段常用串"这种纯粹的省事也
+ * 一并否掉),以及以为"L4 只该放单字符"(于是把词组短语塞进固定键档、名不正言不顺)。
+ *
+ * - **固定符号键(只有 [FIXED] 一档)**:单个符号,**物理 L1-L3 真敲不出**,状态行是唯一入口 ——
+ *   出厂核心 `；` `$`(见 [KeyLayout.L4_CORE])。数量就那么几个,任何输入框都得有(按
+ *   [FieldProfile.l4CoreKeys] 的合法值过滤,数字类全非法 ⇒ 整档退场)。
+ * - **词组短语([PHRASE_HOT] [PHRASE] [PHRASE_COLD] 三档)**:一次按键上屏一段常用串。
+ *   **图的是省事,不是字形** —— 物理键敲 `+86` 要三下、敲 `...` 要三下,状态行一下。
+ *   `…` `——` `「」『』※` 都属于这一族(用户 2026-09-30:「`…` `——`,以及冷门的 `「」『』※`
+ *   不是 L4 的固定按键 这是词组短语」)。三档只表示**常用度**,不表示性质。
+ *
+ * 跨家族唯一一条取舍规则是**去重**:一次物理键就能敲出、并不省操作的取值不上状态行(见
+ * [dev.hwkbd.ime.strategy.ImeRegistry.l4Keys])。多字符短语天然一次敲不出,所以它从不拦词组短语。
+ *
+ * 档位由高到低:
+ * 1. [FIXED] **固定符号键**:出厂核心 `；` `$`。`[L4 url]`/`[L4 email]` 等段删掉也会被合并回来。
+ * 2. [PHRASE_HOT] **通用高频短语**(`…` `——`,半角态 `...` `--`):任何输入框都用得上,排在
+ *    模式短语之前 —— 整批排在词组之后时,拼音邮箱模式下 `...`/`--` 被挤到 L5 末尾
+ *    (用户 2026-09-30 报障)。
+ * 3. [PHRASE] **模式短语 / 通用短语**(键位套里的 `http://` `.com` `+86` `00:00:00`):
+ *    套内按常用度排序;也是键位文件 `[L4]` 段自定义键的默认档。
+ * 4. [PHRASE_COLD] **冷门短语**(`「」『』※`):同一性质,但很少用,排最末、行紧时先溢出去
+ *    (网址模式下要把位置让给 `http://`)。
+ * 5. [USER] **用户自己编辑录入的短语**:功能还没实现(见 [USER_PHRASES_TODO]),档位先占住,
+ *    接上时排在 [PHRASE] 之后即可,不影响已有四档。
+ *
+ * ## 状态行的长尾到此为止(2026-09-30 用户定案)
+ *
+ * **比 [PHRASE_COLD] 更冷的一律不上状态行**:CJK 括号的第三四层(`〔〕` 已撤)、制表符与序号
+ * (`① ② ③`)、emoji 等,连同 [USER] 那档自定义短语,都**留给将来的屏幕软键盘**
+ * (见 [dev.hwkbd.ime.ui.SoftKeyboardView])。理由是物理键盘的状态行**只有一行**:
+ * 每多一把冷门键,行宽就少留给高频键与模式短语的位置,而 L4/L5 的切分是**前缀切**
+ * (装不下的整段被推进 L5),挤掉的往往正是用户刚报障要留在 L4 的那些。
+ * 换句话说:长尾不是"排在后面",而是**不在这一行**——要它们时用软键盘,那才是网格。
+ */
+object L4Priority {
+    /**
+     * **固定符号键**:单个符号,物理 L1-L3 敲不出,状态行是唯一入口(出厂核心 `；` `$`)。
+     * 这一档"敲不出"是**定义本身**,全表只此一档。
+     */
+    const val FIXED = 0
+
+    /**
+     * **通用高频短语**:一次按键上屏一段常用串,任何输入框都用得上(`…` `——` / `...` `--`)。
+     * 排在模式短语之前 —— 排在之后时拼音邮箱模式下它们会被挤到 L5 末尾(用户 2026-09-30 报障)。
+     */
+    const val PHRASE_HOT = 5
+
+    /**
+     * **模式短语 / 通用短语**:键位套里的 `http://` `.com` `+86` `00:00:00`……
+     * 同样是"一次上屏一段常用串",只是**与输入框类型相关**;套内按常用度排序。
+     * 也是键位文件 `[L4]` 段自定义键的默认档。
+     */
+    const val PHRASE = 10
+
+    /**
+     * **冷门短语**(`「」『』※`):同一性质,只是很少用 —— 排最末、行紧时先被推进 L5
+     * (网址模式下要把位置让给 `http://`)。比这更冷的见类注释"长尾到此为止"。
+     */
+    const val PHRASE_COLD = 15
+
+    /**
+     * **用户自己编辑录入的短语**:功能还没实现(见 [USER_PHRASES_TODO]),档位先占住位置。
+     */
+    const val USER = 30
+
+    /**
+     * 用户自定义短语**还没实现**:键位编辑器目前只写得出"这一把键是什么",没有"按输入框分类 +
+     * 长期累积用户常敲短语"这套数据源([L4Profile] 的自定义段只是静态键)。
+     * 档位 [USER] 先占住位置,接上时不必再动排序。
+     */
+    const val USER_PHRASES_TODO = "用户自定义短语未实现:数据源(按输入框分类的用户短语库)还没有"
+}
+
+/**
+ * L4 虚拟按键:屏幕面板上的一个可配置键(标签 + 输出 + 优先级)。
+ *
+ * [priority] 见 [L4Priority]:**默认 [L4Priority.PHRASE]**(这一把是"某个输入模式的词组短语",
+ * 也是键位文件 `[L4]` 段能写出来的全部内容)。出厂固定符号键给 [L4Priority.FIXED](物理敲不出的
+ * 单个符号,见 [KeyLayout.L4_CORE]),语言补差键里的通用高频短语给 [L4Priority.PHRASE_HOT]、
+ * 冷门短语给 [L4Priority.PHRASE_COLD](见 [dev.hwkbd.ime.strategy.Language.l4Extras])。
+ *
+ * **优先级不进键位文件格式**(`label=output` 照旧,见 [KeyLayout.formatText]):文件排不出
+ * "哪一把更该留 L4",那是输入法自己的判断;要改档位改语言策略那一侧。
+ */
+data class L4Key(val label: String, val out: KeyOut, val priority: Int = L4Priority.PHRASE)
 
 /**
  * 键位表:L1/L2/L3 物理层 + L4 虚拟按键(屏幕面板,每个键 = 自由标签 + 文本/功能键输出)。
@@ -64,8 +159,9 @@ class KeyLayout(
      *   文件里没写这段时回落出厂预置(老 keymap.txt 也拿得到网址键)。
      *   **并入哪些核心键由注册表 [dev.hwkbd.ime.strategy.FieldProfile.l4CoreKeys] 决定**
      *   (网址框要、邮件框不要),这里只管字面;
-     * - **最终显示前再过一道 L1-L3 筛**([producible],L1-L3 已有的按键不进 L4,
-     *   2026-09-29 定案)——筛在注册表 [dev.hwkbd.ime.strategy.ImeRegistry.l4Keys] 做,本函数不筛。
+     * - **最终显示前再过一道去重筛**([producible]:一次物理键就能敲出、并不省操作的取值不上
+     *   状态行,2026-09-29 定案)——筛在注册表 [dev.hwkbd.ime.strategy.ImeRegistry.l4Keys] 做,
+     *   本函数不筛。多字符词组短语天然一次敲不出,所以这把筛从不拦它们。
      */
     fun l4Combined(profile: String = L4_DEFAULT): List<L4Key> {
         val list = if (profile == L4_DEFAULT) {
@@ -75,7 +171,10 @@ class KeyLayout(
         }
         val keys = LinkedHashMap<String, L4Key>()
         for (k in list) {
-            keys.putIfAbsent("${k.label} ${k.out.format()}", k)
+            // 同一把键出现多次(核心键也在 `[L4]` 段里)只留一把,**优先级高的那把赢**
+            val id = "${k.label} ${k.out.format()}"
+            val held = keys[id]
+            if (held == null || k.priority < held.priority) keys[id] = k
         }
         return keys.values.toList()
     }
@@ -135,7 +234,7 @@ class KeyLayout(
         const val L4_PROFILE_DATETIME = "datetime"
 
         /**
-         * 各数字类型的合法单字符——白名单 [dev.hwkbd.ime.strategy.FieldProfile.digitChars] 与 Alt 芯片
+         * 各数字类型的合法单字符——白名单 [dev.hwkbd.ime.strategy.FieldProfile.digitChars] 与 Alt 那一项
          * 文字的**单源**(按各输入类型的合法格式定,见 [dev.hwkbd.ime.strategy.FieldKind])。
          * **只管物理键路径**:这些字符在 L2 上都有键帽、物理键直接敲得出,所以「L1-L3 已有的
          * 不进 L4」一把尺之下它们**不上 L4**(数字态 L4 放的是短语组合,见 [L4_PROFILE_PHONE_KEYS])。
@@ -149,10 +248,11 @@ class KeyLayout(
         const val DIGITS_DATETIME = "-/:."
 
         /**
-         * L4 **固定核心键**:默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来)。
-         * `;`/`$` 是 L1/L2/L3 三层都敲不出的**单个字符**——L4 的存在意义就是补这些键。
+         * L4 **固定符号键**:默认键位套永远显示它们(键位编辑器里删掉也会被 [l4Combined] 合并回来)。
+         * `;`/`$` 是 L1/L2/L3 三层都敲不出的**单个字符**,状态行是它们唯一的入口 ——
+         * 这一档"敲不出"就是定义本身(与 [PHRASE] 那档的"图省事"是两件事,别混)。
          * **`\` 已从固定键里删掉**(2026-09-29 用户定案):L3 编程层 `Sym+z` 就能敲出它,
-         * 按「L1-L3 已有的按键不进 L4」这把尺它不该占中区;L2 严格按 Titan 丝印,丝印上也没有它。
+         * 一次按键就能上屏,状态行再摆一把只是重复;L2 严格按 Titan 丝印,丝印上也没有它。
          * Tab/Esc/Home/End/PU/PD/Ins/方向键 L3 全有,不重复占用中区。
          *
          * **不放组合按键**——`-> => != ==` 这类多字符串键已按用户要求移除(2026-09-28):
@@ -162,8 +262,10 @@ class KeyLayout(
             // 键帽是**出厂**的(键位表与语言无关),画全角 `；`。实际显示/输出哪一把由
             // [dev.hwkbd.ime.strategy.Language.l4Replace] 按语言换:拼音态换全角 `；`、
             // 英文态换半角 `;` —— 换的是整把键(标签+输出),所以两边键帽都不骗人。
-            L4Key("；", KeyOut.Text(";")),
-            L4Key("$", KeyOut.Text("\$")),
+            // 优先级 [L4Priority.FIXED]:物理 L1-L3 敲不出的**单个符号**,状态行是唯一入口,
+            // 任何输入框模式下都排在最前、留在 L4(词组短语挤不掉它们)
+            L4Key("；", KeyOut.Text(";"), L4Priority.FIXED),
+            L4Key("$", KeyOut.Text("\$"), L4Priority.FIXED),
         )
 
         /**
@@ -189,11 +291,12 @@ class KeyLayout(
          * 2026-09-29 用户定案「给网址模式添加更多的扩展词组确保溢出到L5」:原来只有 3 把
          * (`http://` `https://` `.com`),连同核心键 `； $` 一共 5 把,在中区 314dp 里**恰好铺满**
          * (实测键帽 5×144px),于是**不溢出、键盘图标不出现**——L5 那套机制在网址框里等于没有出口。
-         * 扩充到 13 把(核心 2 + 这里 11)后必溢出。
+         * 扩充后必溢出。2026-09-30 用户「补充常用的」再补一批内网与常见后缀。
          *
-         * **不放 `/`**——那是 L2 的键帽(Alt+o),L4 不重复(2026-09-28 用户定案)。
-         * 多字符短语天然 L1-L3 按不出,所以一定能过 [producible] 那把筛(见 [L4PanelView] 注释)。
-         * 后缀选的是真正常用的,`.xyz`/`.top` 那类垃圾后缀不收;`[L4 url]` 段可整段改写。
+         * **不放 `/`**——那是 L2 的键帽(Alt+o),L4 不重复(2026-09-28 用户定案);
+         * `?` `&` `=` 同理都在 L2/L3 上,会被 [producible] 那把筛带走。
+         * 多字符短语天然 L1-L3 按不出,所以一定能过筛;后缀选的是真正常用的,
+         * `.xyz`/`.top` 那类垃圾后缀不收;`[L4 url]` 段可整段改写。
          */
         val L4_PROFILE_URL_KEYS: List<L4Key> = listOf(
             L4Key("http://", KeyOut.Text("http://")),
@@ -201,6 +304,7 @@ class KeyLayout(
             L4Key("www.", KeyOut.Text("www.")), // 最常敲的裸域前缀
             L4Key("localhost", KeyOut.Text("localhost")), // 本机调试/内网直连
             L4Key("127.0.0.1", KeyOut.Text("127.0.0.1")), // 配 localhost 最常跟的一段
+            L4Key("192.168.", KeyOut.Text("192.168.")), // 内网段前缀,后面跟 0~255
             L4Key(".com", KeyOut.Text(".com")),
             L4Key(".cn", KeyOut.Text(".cn")),
             L4Key(".net", KeyOut.Text(".net")),
@@ -209,6 +313,14 @@ class KeyLayout(
             L4Key(".dev", KeyOut.Text(".dev")),
             L4Key(".app", KeyOut.Text(".app")),
             L4Key(".co", KeyOut.Text(".co")),
+            L4Key("index.html", KeyOut.Text("index.html")), // 本机起静态站最常敲的整串
+            L4Key(".html", KeyOut.Text(".html")),
+            L4Key(".php", KeyOut.Text(".php")),
+            L4Key(".json", KeyOut.Text(".json")),
+            L4Key(".xml", KeyOut.Text(".xml")),
+            L4Key(".js", KeyOut.Text(".js")),
+            L4Key(".css", KeyOut.Text(".css")),
+            L4Key(".htm", KeyOut.Text(".htm")),
         )
 
         /**
@@ -218,6 +330,8 @@ class KeyLayout(
          * (齿轮左侧键盘图标翻页)——"后缀占 L4、域名溢出 L5"由**键序 + 既有溢出规则**自然达成,
          * 不做硬分栏。**键位套本身不含核心键**(并入哪些由 `FieldProfile.l4CoreKeys` 定:邮箱只并
          * 合法的 `$`),`[L4 email]` 段可整段改写。
+         *
+         * 2026-09-30 用户「补充常用的」:完整域名按国内常用度补齐(163/qq/126 排在国外那几家前面)。
          */
         val L4_PROFILE_EMAIL_KEYS: List<L4Key> = listOf(
             L4Key(".com", KeyOut.Text(".com")),
@@ -225,9 +339,16 @@ class KeyLayout(
             L4Key(".org", KeyOut.Text(".org")),
             L4Key(".cn", KeyOut.Text(".cn")),
             L4Key(".edu", KeyOut.Text(".edu")),
+            L4Key("@163.com", KeyOut.Text("@163.com")),
+            L4Key("@qq.com", KeyOut.Text("@qq.com")),
+            L4Key("@126.com", KeyOut.Text("@126.com")),
             L4Key("@gmail.com", KeyOut.Text("@gmail.com")),
             L4Key("@hotmail.com", KeyOut.Text("@hotmail.com")),
             L4Key("@outlook.com", KeyOut.Text("@outlook.com")),
+            L4Key("@yahoo.com", KeyOut.Text("@yahoo.com")),
+            L4Key("@icloud.com", KeyOut.Text("@icloud.com")),
+            L4Key("@foxmail.com", KeyOut.Text("@foxmail.com")),
+            L4Key("@live.com", KeyOut.Text("@live.com")),
         )
 
         /** 数字类出厂键位套:一段短语即一把键(`[L4 number]` 等段可整段改写)。 */
@@ -235,22 +356,43 @@ class KeyLayout(
             outs.map { L4Key(it, KeyOut.Text(it)) }
 
         /**
-         * 出厂数字类键位套 = **短语组合**(2026-09-29 用户定案:`+86` 这类)。为什么不是一字一键:
-         * 「L1-L3 已有的按键不进 L4」这把尺(见 [producible])按**单次按键的输出**判,而各数字类型的
-         * 合法单字符(`- / : . + * #`)在 L2 上全有键——一字一键会被整段筛空,数字态 L4 就空了。
-         * 物理键一次只能出一个单字符,**多字符组合天然 L1-L3 按不出**,所以数字态要 L4 有内容
-         * 就得放组合键。核心键 `； $ \` 在数字类全非法,由 `FieldProfile.l4CoreKeys = emptyList()` 滤掉。
+         * number / signed / decimal / signeddecimal 四个类型出厂仍为空:它们的合法字符全在 L2,
+         * **没有任何 L1-L3 按不出的东西可放**(不是被筛空的结果)。用户 2026-09-30
+         * 「补充常用的」这一轮没给它们加内容——数字框里能敲的就是数字与那几个符号,
+         * 硬凑"短语"只会摆出输入框根本不收的东西;要放就在对应段(`[L4 decimal]` 等)里自写。
          *
-         * number / signed / decimal / signeddecimal / datetime 五个类型出厂为空:它们的合法字符
-         * 全在 L2,**没有任何 L1-L3 按不出的东西可放**(不是被筛空的结果);要放就在对应段
-         * (`[L4 datetime]` 等)里自写短语。
+         * 数字类要 L4 有内容就得放**多字符组合**(物理键一次只出一个单字符,组合天然按不出),
+         * 核心键 `； $` 在数字类全非法、由 `FieldProfile.l4CoreKeys = emptyList()` 滤掉。
          */
         val L4_PROFILE_NUMBER_KEYS: List<L4Key> = emptyList()
         val L4_PROFILE_SIGNED_KEYS: List<L4Key> = emptyList()
         val L4_PROFILE_DECIMAL_KEYS: List<L4Key> = emptyList()
         val L4_PROFILE_SIGNED_DECIMAL_KEYS: List<L4Key> = emptyList()
-        val L4_PROFILE_PHONE_KEYS: List<L4Key> = phrases("+86", "+1", "+81", "+44")
-        val L4_PROFILE_DATETIME_KEYS: List<L4Key> = emptyList()
+
+        /**
+         * 出厂电话键位套:国际区号,**按从国内拨出的常用度排**(2026-09-30 用户「有些输入模式的
+         * L4L5 中词组确实少 需要补充常用的」,原来只有 4 把)。港澳台与新马泰排在欧美前面。
+         * 前缀留在 L4、溢出到 L5 是既有机制(见 [L4PanelView] 的前缀切)。
+         *
+         * **只放区号不放分机符号**:`、`(分机号分隔)归 Sym+Z(全角态的 `\` 位),
+         * `转`/`ext` 之类各家表单写法不统一,写死在键帽上容易连着后面的分机一起上屏。
+         */
+        val L4_PROFILE_PHONE_KEYS: List<L4Key> = phrases(
+            "+86", "+852", "+886", "+1", "+81", "+44", "+65", "+60",
+            "+82", "+66", "+63", "+84", "+62", "+7", "+49", "+33", "+61", "+971",
+        )
+
+        /**
+         * 出厂日期时间键位套:**时刻是数字类里唯一"单字符都按得出、整串仍然常用"的那一类** ——
+         * `:` 和数字在 L2 上都有键,可 `00:00:00` 这种整串按不出(一把物理键只出一个字符),
+         * 所以它天生属于 L4。`T00:00:00` 给 HTML `datetime-local` 那类要 ISO 本地格式的框。
+         *
+         * 年月日的数字同样按得出,所以**不给 `2026-01-01` 这种**:年份每月都变,写死在键帽上
+         * 很快就过期,而敲四个数字并不麻烦。
+         */
+        val L4_PROFILE_DATETIME_KEYS: List<L4Key> = phrases(
+            "00:00", "00:00:00", "T00:00:00", "23:59:59",
+        )
 
         /** 上下文键位套的出厂预置(编辑器里没写该段时用它)。 */
         private fun builtinProfile(id: String): List<L4Key> = when (id) {

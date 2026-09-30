@@ -10,7 +10,7 @@ import android.view.View
 import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.R
 import dev.hwkbd.ime.ime.ImeState
-import dev.hwkbd.ime.ime.ShiftState
+import dev.hwkbd.ime.ime.ShiftMode
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.Layer
@@ -40,7 +40,7 @@ class SoftKeyboardView @JvmOverloads constructor(
 
     private var layer = Layer.L1
     private var lock: Layer? = null
-    private var shift = ShiftState.OFF
+    private var shift: ShiftMode = ShiftMode.OFF
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 46f * density
@@ -73,8 +73,8 @@ class SoftKeyboardView @JvmOverloads constructor(
 
     fun setState(state: ImeState) {
         layer = state.effectiveLayer
-        lock = state.lock
-        shift = state.shift
+        lock = state.lockedLayer
+        shift = state.shiftMode
         invalidate()
     }
 
@@ -176,7 +176,7 @@ class SoftKeyboardView @JvmOverloads constructor(
                 val isSpecial = slots[i].special != null
                 val active = (slots[i].special == Special.ALT && lock == Layer.L2) ||
                     (slots[i].special == Special.SYM && lock == Layer.L3) ||
-                    (slots[i].special == Special.SHIFT && shift != ShiftState.OFF)
+                    (slots[i].special == Special.SHIFT && shift != ShiftMode.OFF)
                 canvas.drawRoundRect(left, top, right, bottom, 6f * density, 6f * density, when {
                     active -> keyPressedBg
                     isSpecial -> keySpecialBg

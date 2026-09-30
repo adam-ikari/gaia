@@ -48,8 +48,8 @@ class ImeRegistryTest {
         private val extras: List<L4Key> = emptyList(),
         private val compose: Boolean = false,
     ) : Language {
-        override val chipLabel = "[$id]"
-        override val showShiftChip = false
+        override val statusLabel = "[$id]"
+        override val showShift = false
         override val shiftTapsEnabled = false
         override fun l4Extras(fullWidth: Boolean): List<L4Key> = extras
         override fun composes(text: String, state: ImeState): Boolean =
@@ -90,7 +90,7 @@ class ImeRegistryTest {
     }
 
     @Test
-    fun `输入类型决定 L4 键位套与 Alt 芯片文字`() {
+    fun `输入类型决定 L4 键位套与 Alt 文字`() {
         assertEquals(
             FieldKind.URL,
             FieldKind.from(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI),
@@ -131,14 +131,14 @@ class ImeRegistryTest {
             listOf("；", "$"),
             reg.fieldProfile(FieldKind.URL).l4CoreKeys.map { it.label },
         )
-        assertEquals("0-9", reg.fieldProfile(FieldKind.NUMBER).altChipLabel)
-        assertEquals("alt", reg.fieldProfile(FieldKind.TEXT).altChipLabel)
-        // 芯片按实际可输字符集标注:decimal/signed/phone/date 光秃秃的 0-9 不恰当(2026-09-29)
-        assertEquals("0-9-", reg.fieldProfile(FieldKind.NUMBER_SIGNED).altChipLabel)
-        assertEquals("0-9.", reg.fieldProfile(FieldKind.NUMBER_DECIMAL).altChipLabel)
-        assertEquals("0-9-.", reg.fieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL).altChipLabel)
-        assertEquals("0-9+*#", reg.fieldProfile(FieldKind.PHONE).altChipLabel)
-        assertEquals("0-9-/:.", reg.fieldProfile(FieldKind.DATETIME).altChipLabel)
+        assertEquals("0-9", reg.fieldProfile(FieldKind.NUMBER).altLabel)
+        assertEquals("alt", reg.fieldProfile(FieldKind.TEXT).altLabel)
+        // Alt 那一项按实际可输字符集标注:decimal/signed/phone/date 光秃秃的 0-9 不恰当(2026-09-29)
+        assertEquals("0-9-", reg.fieldProfile(FieldKind.NUMBER_SIGNED).altLabel)
+        assertEquals("0-9.", reg.fieldProfile(FieldKind.NUMBER_DECIMAL).altLabel)
+        assertEquals("0-9-.", reg.fieldProfile(FieldKind.NUMBER_SIGNED_DECIMAL).altLabel)
+        assertEquals("0-9+*#", reg.fieldProfile(FieldKind.PHONE).altLabel)
+        assertEquals("0-9-/:.", reg.fieldProfile(FieldKind.DATETIME).altLabel)
         // 邮箱框默认英文态,其余输入框不动当前语言
         assertEquals("en", reg.fieldProfile(FieldKind.EMAIL).defaultLanguageId)
         assertNull(reg.fieldProfile(FieldKind.TEXT).defaultLanguageId)
@@ -174,18 +174,20 @@ class ImeRegistryTest {
         val r = rig()
         r.c.state.fieldKind = FieldKind.URL
         assertEquals(
-            // 拼音态:固定核心键排最前(分号;币种归物理键所以核心 `$` 退场),然后是输入类型
-            // 选的键位套,最后才是语言补差键(冷门符号,行宽不够时先被推进 L5)。
+            // 拼音态四档优先级(2026-09-30 用户定案):固定核心键 → 通用高频标点(hot 补差键)
+            // → 输入类型选的键位套 → 冷门补差键。币种归物理键所以核心 `$` 退场(见 coreKeys)。
             // 分节符不上屏(L1 的 v 键才是)。`/` 也不放(出厂 L2 的 O 位就有)。
-            listOf("；") + listOf(
-                "http://", "https://", "www.", "localhost", "127.0.0.1",
+            // 顿号也不在:2026-09-30 挪上 Sym+Z(L3),被"L1-L3 敲不出就不显示"那把筛带走了。
+            listOf("；", "…", "——") + listOf(
+                "http://", "https://", "www.", "localhost", "127.0.0.1", "192.168.",
                 ".com", ".cn", ".net", ".org",
                 ".io", ".dev", ".app", ".co",
-            ) + listOf("…", "——", "、", "「", "」", "『", "』", "〔", "〕", "※"),
+                "index.html", ".html", ".php", ".json", ".xml", ".js", ".css", ".htm",
+            ) + listOf("「", "」", "『", "』", "※"),
             r.c.l4Keys().map { it.label },
         )
         // 数字框:核心键全非法被滤;合法单字符全在 L2(被 producible 筛掉,不上 L4),
-        // L4 放的是 L1-L3 敲不出的短语组合——出厂**只有电话**有(`+86` 等国际区号),
+        // L4 放的是 L1-L3 敲不出的短语组合——出厂**电话**(国际区号)与**日期时间**(时刻串)有,
         // 其余数字类型没有组合可放 → 出厂为空(不是被筛空的结果)
         r.c.state.fieldKind = FieldKind.NUMBER
         assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
@@ -196,9 +198,14 @@ class ImeRegistryTest {
         r.c.state.fieldKind = FieldKind.NUMBER_SIGNED_DECIMAL
         assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
         r.c.state.fieldKind = FieldKind.DATETIME
-        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
+        // 日期时间:时刻是唯一"单字符都按得出、整串仍然常用"的那类(2026-09-30 补的常用词组)
+        assertEquals(listOf("00:00", "00:00:00", "T00:00:00", "23:59:59"), r.c.l4Keys().map { it.label })
         r.c.state.fieldKind = FieldKind.PHONE
-        assertEquals(listOf("+86", "+1", "+81", "+44"), r.c.l4Keys().map { it.label })
+        // 电话:国际区号按从国内拨出的常用度排,港澳台/新马泰在欧美前面(2026-09-30 补)
+        assertEquals("+86", r.c.l4Keys().first().label)
+        assertEquals("+852", r.c.l4Keys()[1].label)
+        assertTrue("区号该有一批(溢出到 L5 是既有机制)", r.c.l4Keys().size >= 15)
+        assertTrue(r.c.l4Keys().map { it.label }.containsAll(listOf("+886", "+1", "+971")))
         // 回归:L4 显示的键必须 L1-L3 按不出(否则就该被筛掉,而不是"显示着却不按不出")
         val producible = KeyLayout.default().producible()
         for (kind in FieldKind.values()) {
@@ -232,10 +239,13 @@ class ImeRegistryTest {
             // `$` 是 RFC 5322 atext 合法字符(2026-09-29 定案),但它是**物理键**——
             // 出厂 L3 的 R 位就是它,按「L1-L3 敲不出的才上 L4」这把尺,它不上 L4;
             // 邮箱框照样按 RFC 5322 的合法字符集放行它敲(见 FieldProfile.digitChars 那把尺的同源口径)。
-            // 短域名后缀优先级高排前(占 L4),完整域名排后(L4 装不下的尾巴进 L5,同日定案)
+            // 短域名后缀优先级高排前(占 L4),完整域名排后(L4 装不下的尾巴进 L5,同日定案);
+            // 2026-09-30「补充常用的」把完整域名按国内常用度补齐(163/qq/126 在国外那几家前面)
             listOf(
                 ".com", ".net", ".org", ".cn", ".edu",
+                "@163.com", "@qq.com", "@126.com",
                 "@gmail.com", "@hotmail.com", "@outlook.com",
+                "@yahoo.com", "@icloud.com", "@foxmail.com", "@live.com",
             ),
             r.c.l4Keys().map { it.label },
         )
@@ -244,13 +254,126 @@ class ImeRegistryTest {
         assertTrue(sigEmail == r.c.l4Signature())
         r.c.state.fieldKind = FieldKind.URL
         assertTrue(sigEmail != r.c.l4Signature())
-        // 切到拼音:多出「L1-L3 敲不出」的那批冷门符号,币种归物理键所以状态行没有它
+        // 切到拼音:补差键那批「L1-L3 敲不出」的符号照常上屏——**邮箱允许中文**
+        // (2026-09-30 用户「允许邮箱输入中文」:显示名 `张三 <…@…>`、备注里中文是真会出现的;
+        // 曾按"地址是纯 ASCII"滤掉全角补差键,那是误伤,ASCII 过滤已撤)
         r.c.state.languageId = "zh"
         r.c.state.fieldKind = FieldKind.EMAIL
         val zh = r.c.l4Keys().map { it.label }
-        assertTrue(zh.contains("…"))
+        assertTrue("邮箱框该有全角省略号", zh.contains("…"))
+        assertTrue("邮箱框该有破折号", zh.contains("——"))
+        // 半角开关关掉 ⇒ 同一批键换半角写法(状态行不该出现与开关矛盾的字形)
+        r.c.fullWidthSymbolsInCn = false
+        val halfZh = r.c.l4Keys().map { it.label }
+        assertTrue(halfZh.contains("..."))
+        assertTrue(halfZh.contains("--"))
+        assertFalse(halfZh.contains("…"))
+        // 币种归物理键,状态行不摆;`;` 不在 RFC 5322 atext,核心键里也不进
         assertFalse(zh.contains("￥"))
         assertFalse(zh.contains("$"))
+        assertFalse(zh.contains("；"))
+    }
+
+    @Test
+    fun `固定键优先级最高 排在模式组合短语之前`() {
+        val r = rig()
+        // 2026-09-30 用户定案「L4L5 显示的按键是有优先级的」:
+        // 固定键(L1-L3 敲不出、按输入框合法值过滤过)> 模式组合短语 > 冷门符号 > (将来)用户短语。
+        // L4/L5 是**前缀切**(L4PanelView 取装得下的最长前缀),所以优先级就是"留在 L4 还是
+        // 被推进 L5"的判据 —— 键序必须严格按优先级升序。
+        val layout = KeyLayout.default()
+        for (langId in listOf("zh", "en")) {
+            val lang = r.c.registry.language(langId)
+            // 与 l4Keys 内部同一把尺:当前语言 + 全角开关下 L1-L3 真正敲得出的取值
+            val producible = Layer.values().flatMap { l ->
+                val over = lang.layerMap(l, true)
+                if (over != null) over.values else layout.mapFor(l).values
+            }.map { it.format() }.toSet()
+            for (kind in FieldKind.values()) {
+                val profile = r.c.registry.fieldProfile(kind)
+                // 固定键过语言处置(可换键帽/退场)再过 L1-L3 那把筛,剩下的就是"该排最前"的那些
+                val expectedFixed = lang.coreKeys(profile.l4CoreKeys, true)
+                    .filterNot { it.out.format() in producible }
+                    .map { it.label }
+                r.c.state.languageId = langId
+                r.c.state.fieldKind = kind
+                val keys = r.c.l4Keys()
+                val labels = keys.map { it.label }
+                assertEquals(
+                    "$langId/$kind 的固定键必须排在最前",
+                    expectedFixed,
+                    labels.take(expectedFixed.size),
+                )
+                // 整条键序按优先级升序(不光是固定键在前,档位之间也不能乱序)
+                assertEquals(
+                    "$langId/$kind 的键序没有按优先级排",
+                    keys.map { it.priority }.sorted(),
+                    keys.map { it.priority },
+                )
+                // 数字类固定键全非法(见 FieldProfile.l4CoreKeys = emptyList)⇒ 没有固定键,
+                // L4 摆的全是模式组合短语(`+86` 那类),不违反规则
+                if (profile.digitsOnly) assertTrue(expectedFixed.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `通用高频标点排模式词组之前 半角省略号破折号上 L4 开头`() {
+        val r = rig()
+        // 用户报障原文:「在拼音输入法邮箱模式 ... 和 -- 就显示到 L5 的末尾了,
+        // 我希望显示在 L4 的开头」—— 整批补差键排在词组之后导致的。
+        r.c.state.languageId = "zh"
+        r.c.state.fieldKind = FieldKind.EMAIL
+        r.c.fullWidthSymbolsInCn = false // 半角态:补差键是 `...` / `--`(ASCII,邮箱里合法)
+        val half = r.c.l4Keys().map { it.label }
+        assertTrue("`...` 该在 L4 开头", half.indexOf("...") in 0..1)
+        assertTrue("`--` 该紧跟它", half.indexOf("--") in 1..2)
+        assertTrue(
+            "高频标点要排在邮箱词组前面",
+            half.indexOf("...") < half.indexOf(".com"),
+        )
+        // 普通文本框(没有模式词组可抢位):全角高频标点同样排最前,冷门 CJK 括号排最后
+        r.c.state.fieldKind = FieldKind.TEXT
+        r.c.fullWidthSymbolsInCn = true
+        val text = r.c.l4Keys().map { it.label }
+        assertEquals(listOf("；", "…", "——"), text.take(3))
+        assertTrue(text.indexOf("「") > text.indexOf("；"))
+        // 撞车时优先级高的赢:键位套里写一把与固定键同名同输出的键,留的还是固定键那把
+        val dup = KeyLayout.parseText(
+            """
+            [L1]
+            a=a
+            [L4]
+            ；=;
+            """.trimIndent(),
+        ).layout!!
+        val keys = r.c.registry.l4Keys(dup, FieldKind.TEXT, "zh", true)
+        assertEquals(1, keys.count { it.label == "；" }) // 没有并排两把
+        assertEquals("；", keys.first().label) // 而且是它打头
+    }
+
+    @Test
+    fun `邮箱框允许中文 全角补差键照常上屏且排在词组前`() {
+        val r = rig()
+        // 2026-09-30 用户定案「允许邮箱输入中文」。曾经按 RFC 5321/5322「地址是纯 ASCII」给邮箱
+        // 加过一道全键集 ASCII 过滤,把 `… —— 、 「」` 全滤掉——那是误伤:邮箱框里中文真会出现
+        // (显示名 `张三 <zhangsan@…>`、收件人备注)。过滤已撤,补差键回到 FIXED 档,
+        // 于是"排在模式词组之前"这条优先级规则在邮箱框里也照常生效。
+        r.c.state.languageId = "zh"
+        r.c.state.fieldKind = FieldKind.EMAIL
+        r.c.fullWidthSymbolsInCn = true
+        val full = r.c.l4Keys().map { it.label }
+        assertTrue("全角省略号该在", full.contains("…"))
+        assertTrue("破折号该在", full.contains("——"))
+        assertFalse("顿号上了 Sym+Z(L3),状态行不再摆", full.contains("、"))
+        assertTrue("高频标点要排在邮箱词组前面", full.indexOf("…") < full.indexOf(".com"))
+        assertTrue("冷门 CJK 括号排最后", full.indexOf("「") > full.indexOf(".com"))
+        // 核心键那把尺照旧:`;` 不在 RFC 5322 atext,邮箱里不摆
+        assertFalse(full.contains("；"))
+        r.c.fullWidthSymbolsInCn = false
+        val half = r.c.l4Keys().map { it.label }
+        assertTrue(half.indexOf("...") in 0..1)
+        assertTrue(half.indexOf("...") < half.indexOf(".com"))
     }
 
     @Test
@@ -278,8 +401,11 @@ class ImeRegistryTest {
         for (k in listOf("《", "》", "【", "】")) {
             assertFalse("Sym 就能敲出 $k,L4 不该重复摆", labels.contains(k))
         }
-        // 真正没着落的都在这儿:省略号、破折号、顿号 + 冷门的 CJK 括号/引号那一族
-        for (k in listOf("…", "——", "、", "「", "」", "『", "』", "〔", "〕", "※", "；")) {
+        // 顿号 2026-09-30 也上了物理键(Sym+Z,全角态把 `\` 换成中文真用的顿号):
+        // 用户「拼音模式全角的、是不需要在 L4L5 上显示的,因为 L3 能打出来」
+        assertFalse("Sym+Z 就能敲出 `、`,L4 不该摆", labels.contains("、"))
+        // 真正没着落的都在这儿:省略号、破折号 + 冷门的 CJK 括号/引号那一族
+        for (k in listOf("…", "——", "「", "」", "『", "』", "※", "；")) {
             assertTrue("L1-L3 敲不出 $k,该在 L4", labels.contains(k))
         }
         // 引号有两把物理键(Alt+K / Alt+L)就够,不在状态行再摆
@@ -287,7 +413,7 @@ class ImeRegistryTest {
             assertFalse("引号 Alt+K/L 敲得出,L4 不该摆", labels.contains(k))
         }
         // 反证:能敲出的一个都不该上来,否则屏上两把同义的键、只有一把是活的
-        for (sym in listOf("（", "）", "：", "。", "，", "？", "！", "～", "＼", "＝")) {
+        for (sym in listOf("（", "）", "：", "。", "，", "？", "！", "～", "＝")) {
             assertFalse("L2/L3 已经能敲出 $sym,L4 不该重复摆", labels.contains(sym))
         }
     }
@@ -304,7 +430,7 @@ class ImeRegistryTest {
         r.c.fullWidthSymbolsInCn = false
         val half = r.c.l4Keys().map { it.label }
         assertEquals("半角态分号是半角,且排最前", ";", half.first())
-        for (fw in listOf("…", "——", "、", "「", "」", "『", "』", "〔", "〕", "※", "；")) {
+        for (fw in listOf("…", "——", "、", "「", "」", "『", "』", "※", "；")) {
             assertFalse("半角态不该摆全角的 $fw", half.contains(fw))
         }
         // 同一批符号的半角写法在位上
@@ -400,7 +526,7 @@ class ImeRegistryTest {
         r.c.cycleLanguage() // zh → en
         r.c.cycleLanguage() // en → ja
         assertEquals("ja", r.c.state.languageId)
-        assertEquals("[ja]", r.c.registry.language(r.c.state.languageId).chipLabel)
+        assertEquals("[ja]", r.c.registry.language(r.c.state.languageId).statusLabel)
 
         r.type("a")
         assertEquals(listOf("[a]"), r.h.commits) // 上屏形态来自新语言策略

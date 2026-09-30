@@ -12,8 +12,8 @@ android {
         applicationId = "dev.hwkbd.ime"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     signingConfigs {
@@ -72,6 +72,14 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.preference:preference:1.2.1")
+    // 协程:目前只有 ui.RenderPump 在用(按键路径的渲染合并,见 dev.hwkbd.ime.ui.RenderPump)——
+    // 主线程上 yield 一帧,再把这一轮里多次 render() 合成一次重绘。
+    // 版本锁 1.8.1 = 与本项目 Kotlin 1.9.24 配套的稳妥版。体积:coroutines-android 自身几 KB,
+    // 大头是 coroutines-core(APK 7.4MB → 约 +1.2MB dex)。
+    // (修饰键手势那条 debounce 流 2026-09-30 随"暂定态"规则一起删了,见 ModifierGestures。)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
+    // 手势流化的时序单测:runTest 虚拟时间
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

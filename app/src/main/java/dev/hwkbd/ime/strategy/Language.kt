@@ -14,14 +14,14 @@ interface Language {
     /** 唯一 id,[ImeState.languageId] 记的就是它。 */
     val id: String
 
-    /** 状态行语言芯片文字(拼 / En)。 */
-    val chipLabel: String
+    /** 状态行上语言那一项的文字(拼 / En)。 */
+    val statusLabel: String
 
     /** 绑定的输入法 id,由 [ImeRegistry.method] 解析。 */
     val methodId: String
 
-    /** 是否显示大写芯片(拼音不需要大小写)。 */
-    val showShiftChip: Boolean
+    /** 是否显示大小写状态(拼音不需要大小写)。 */
+    val showShift: Boolean
 
     /** Shift 敲击是否生效(单击大写一次 / 双击 Caps)。 */
     val shiftTapsEnabled: Boolean

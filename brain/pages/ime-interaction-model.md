@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-29T22:51:51"
+updated: "2026-09-30T16:55:08"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -13,6 +13,12 @@ tags: [ime ux keymap]
 
 <!-- compiled_truth -->
 模仿可可的交互模型，并按 [[tt2-hardware-constraints]] 重新排布可行通道。总原则：**每个动作至少两条通道（物理键 + 屏幕手势）**。
+
+## 术语：状态行不叫"芯片"
+
+状态行左区那几颗小方块最早按"芯片"（工业设计语言）命名，2026-09-30 用户定：**这一层关心的是"输入法此刻处于什么状态"，与画成什么形状无关**，所以代码与文档一律用抽象的 **status / 状态**：`ui/StatusRow.present`（纯函数，判定规则全在这里）、`status_mode` / `status_shift` / `status_alt` / `status_sym` / `status_fullwidth`（view id）、`ImeTheme.statusL2/L3`、`drawable/status_lock_underline`。规则读起来要是产品语言（"层与大小写互斥""锁定态""借用"），不是排版术语。
+
+**状态行是状态的纯函数**（公理 A）：只吃状态，不吃时间。判定在纯函数 `StatusRow.present(state, spec)`，`ImeService.renderStatus` 只负责把单子贴到 TextView，于是每条规则都有 JVM 回归测试（`StatusRowTest`）。**大写与层互斥**是唯一带产品判断的规则：符号层上大小写不参与输出（`commitText` 的 `upper` 只在字母上起作用），层生效时藏起大小写、回 L1 自己回来，**大写状态本身不清**。曾有一条"敲击窗口内不显示暂定态"的规则，因为敲击判定统一到 keyUp 后只剩副作用（真机报障：alt 状态长按 alt，那颗状态消失 0.5s）已删除。
 
 ## 三层键盘
 
@@ -32,6 +38,69 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
 
 空格在 L3 输出 `->`，回车仍为回车，删除仍为删除；`z/x` 组合可再放 `=>`、`!=`、`==`。每个键都可在设置里改成任意字符串或功能键（ESC/TAB/方向键/F5…），与可可"扩展键盘"同构。
 
+## 修饰键状态机（2026-09-30 整条重整，状态迁移图）
+
+### 状态的形状：一个持续态 + 最多一层临时覆盖
+
+不是三个可空字段（`lock`/`oneShot`/`hold` 那种），而是一个和类型 `LayerState`——非法组合写不出来，并存由类型自己说明：
+
+| 状态 | 性质 | 含义 |
+|---|---|---|
+| `L1` | 持续态 | 不在层上（= 初始状态） |
+| `Locked(L)` | 持续态 | **双击产生的锁**，常驻；再敲同层键解除。**唯一的锁来源** |
+| `OneShot(L, snap)` | 临时 | **借用** L 一个键，用掉 / 再敲同层键就恢复 `snap` |
+| `Hold(L, snap)` | 临时 | 按住期间生效，松手恢复 `snap`（长按即取消） |
+
+`snap` = 恢复目标，**只可能是 `L1` 或 `Locked`**，由 `LayerState.borrow()` 一处保证（剥掉所有临时层 = `base`）。读法：`lockedLayer` 走 `base`，所以**按住期间、借用的底层锁都仍然读得到**。
+
+### 迁移图
+
+```
+                        长按 Alt/Sym(任何状态都进)
+              ┌───────────────────────────────────────┐
+              │                                       │  松手 = 长按 / 被别的键用掉
+              v                                       │  ⇒ 恢复 snap(什么都不留)
+        Hold(L, snap) ────────────────────────────────┘
+              │
+              │ 松手 = 快速独立敲击(按住 <300ms 且期间没按别的键) ⇒ 落定,判据见下表
+              v
+   ┌──────────────────────────────────────────────────────────────────────────┐
+   │ 数字类且已锁 L2  → Locked(L2)        守卫:数字类的锁解不掉(否则 L1 全被吞)  │
+   │ 命中解锁吸收窗    → 不变              250ms 内吞掉紧随的那一下              │
+   │ n>=2(双击)      → Locked(L) + 清计数  锁在别的层时 = 把锁搬过去            │
+   │ Locked(同层)     → L1 + 吸收窗         敲一下 = 解锁                       │
+   │ 临时层 & 敲的正是当前那层或底下锁着的那层 → snap + 吸收窗(收掉临时层)      │
+   │ 其余单击         → OneShot(L, snap=底层持续态)   ← 借用                   │
+   └──────────────────────────────────────────────────────────────────────────┘
+
+   OneShot(L, snap) ──下一个键消费──→ snap
+                   ──再敲同层键────→ snap + 吸收窗
+
+   借用实例（用户 2026-09-30 定案「临时借用返回上一个锁定状态,没有锁定状态返回初始状态」）：
+     Locked(L2) ──单击 Sym──→ OneShot(L3, Locked(L2)) ──敲一个键──→ Locked(L2)   ← 回锁
+     L1        ──单击 Sym──→ OneShot(L3, L1)         ──敲一个键──→ L1            ← 回初始
+     OneShot(L3, Locked(L2)) ──单击 Sym──→ Locked(L2)   (取消借用)
+     OneShot(L3, Locked(L2)) ──单击 Alt──→ Locked(L2)   (敲底下锁着的那层 = 收掉借用)
+     旧借用被丢掉:OneShot(L2, L1) ──单击 Sym──→ OneShot(L3, L1) (一次性层只有"下一个键"的寿命)
+```
+
+**判定的主轴是敲击次数 `n`**（`n` = 敲击窗口内的连续次数，窗口 **400ms**，2026-09-30 用户定"再长一点"；长按阈值另算，**300ms**）：
+
+- `n>=2`（双击）**必须排第一**——第二击的可见层正是这个键，排在"取消"之后会被当成取消借用；
+- 锁定之后**清掉这一键的连击计数**：下一击重新算单击，否则窗口内第三击又是 `n>=2`，"锁着再敲一下 = 解锁"就只在窗口外成立；
+- **只有单击和双击两种有效事件**（2026-09-30 用户定"三连击无效"）：窗口内第三次及以后不是新事件。三击 = 单击 + 双击 + 锁定态下的一次单击 = 解锁。原先那条 `n>=3 → L1↔L2/L3 换层` **够不到**（第二击就进 Locked 分支）⇒ 从来没生效过，已删。
+
+**解锁吸收窗 250ms**（层与大写同一条规则）：解除/取消后紧随的同键敲击被吞掉，双击解除后手抖再按一下不会又锁上。
+
+**三个修饰键同一套骨架**：`keyDown` 记快照进 `Hold(L, snap)` / `shiftBeforeHold` → `keyUp` 判是不是快速独立敲击 → **是**才落定，**否**就恢复快照。所以长按永远不会留下一次敲击，也不需要"记住这次敲了几个来补救"的字段。**按键入口不 Flow 化**（`onKeyDown` 必须同步返回消费判定），**输出侧不整体流化**（`InputConnection` 写入必须同步）。
+
+**大写是独立状态机**（`ShiftMode` 单一取值，取代原先"落定状态 + 是不是按着"两个字段）：`ab` 未大写 / `Ab` 大写一次（含物理 Shift 正按住）/ `AB` Caps 锁定，**字形表达、不带下划线**（层状态仍用下划线，两套语言不混用）。单击 = OFF⇄ONCE（Shift 永远是自己的退出键，不存在按不掉的死态）；双击 = CAPS 锁定 / 再双击解除；关掉大写也进 250ms 吸收窗。拼音态整个忽略（拼音没有大小写）。把 Shift 当修饰键用过（按住期间按了别的键）就不算敲击。
+
+**其它迁移**：字母键消费 `OneShot` 与 `ONCE`；聚焦数字类 → `Locked(L2)`，离开数字类且锁着 L2 → `L1`；切语言 → 语言策略 `onEnter` 清大写（**层不清**，换一个输入框不该丢用户选的层）；窗口隐藏 → 全回初始；换输入框 → 只清组词。
+
+- **按住 `Sym` 再按其他键 = Ctrl 组合 —— 已废弃（2026-09-27 反转）**：Sym 长按专用于进 L3；Ctrl 组合只由 `Ctrl/Fn` 键承担（`Ctrl+q/w/e/r/t` 五键选字），vim 的 `Ctrl+[`=ESC 走这条路。
+- `Shift+Space` = 中英切换（可可语义）；`Shift+Enter` = 快捷发送（可选、默认关，需无障碍）。
+
 ## L1–L5 全景：物理三层 + 屏幕两行
 
 | 层 | 载体 | 内容来源 |
@@ -42,28 +111,16 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
 
 **L4 显示规则（四道工序，2026-09-29 整条重理）**：
 
-1. **合成（取源定序）**：语言补差键 → 字段核心键（按输入框合法性取子集）→ 字段键位套（`[L4 default|url|email|number|…]` 段或出厂预置）。
+1. **合成（取源定序）**：语言补差键 → 字段核心键（按输入框合法性取子集）→ 字段键位套（`[L4 default|url|email|number|…]` 段或出厂预置）。键位有**优先级**（`L4Key(label, out, priority)`：固定键 > 模式短语 > 冷门符号 > 用户短语），撞车时优先级高的赢。
 2. **去重**：标签+输出相同的只留一把。
-3. **过滤：`L1-L3 已有的按键一律不进 L4`**——`KeyLayout.producible()` 取**本机** L1/L2/L3 三层输出的并集，命中就不显示（2026-09-29 用户定案，推翻 2026-09-28"不做程序筛选"）。**这一步必须运行时**：编译期把内容写死会失去不同手机的适配能力（键位表随机型不同，某层没有某键时 L4 要自动少一把/多一把）——用户明确否掉"编译时过滤器 + 合成器生成固定内容"。
+3. **过滤：`L1-L3 已有的按键一律不进 L4`**——`KeyLayout.producible()` 取**本机** L1/L2/L3 三层输出的并集，命中就不显示（2026-09-29 用户定案，推翻 2026-09-28"不做程序筛选"）。**这一步必须运行时**：编译期把内容写死会失去不同手机的适配能力——用户明确否掉"编译时过滤器 + 合成器生成固定内容"。
 4. **版式（`L4PanelView`）**：单行不滚动、键间距恒 4dp、左右边距对称 6dp、键宽下限 36dp、槽宽 `W = min(填充值, 72dp 封顶)`；`W=填充值` → 两端对齐，`W=封顶` → 整组居中；等宽+等距 ⇒ 中线恒过中心键心（奇数把）或中缝（偶数把）。分页按"前缀最长标签宽"判装得下，L4 页不裁字，装不下的尾巴切给 L5。
 
-**L4 必显**（2026-09-29）：设置页的 L4 显隐开关已删；数字态也不整块隐藏——数字框里显示的是该类型的**短语组合**键位套（见 [[ime-strategy-registry]]：合法单字符全在 L2 会被筛掉，所以数字态 L4 放 `+86` 这类组合，出厂只有电话类型有）。
+**L4 必显**（2026-09-29）：设置页的 L4 显隐开关已删；数字态也不整块隐藏——数字框里显示的是该类型的**短语组合**键位套（见 [[ime-strategy-registry]]：合法单字符全在 L2 会被筛掉，所以数字态 L4 放 `+86` 这类组合，出厂只有电话类型有）。**邮箱模式允许中文**（2026-09-30 用户定案，曾加过 ASCII 过滤又被推翻）。
 
 **重建判据 = 键序内容的 hash**（2026-09-29）：`ImeController.l4Signature()` 对最终键序（逐把 `标签+输出`）取 hash，内容变才重建键帽——不再手工拼"键位套 id|语言 id"，那种签名要靠人记得列全所有来源，漏一个就"键换了却不重绘"。
 
-**L5 显示规则（2026-09-29）**：只装 **L4 装不下的溢出尾巴**（"现在还不做用户短语功能"——曾一度加的 `[L5]` 用户短语段已整体撤回）；**左侧对齐、键宽用自然宽**（不是 L4 那套等宽槽/居中：尾行是 L4 的续页，靠左才读成同一条序列，也就不会被截字）。行高 48dp、**键帽贴行底**、与状态行间距 6dp。键盘图标无溢出时 GONE，行开时高亮；组词态整行让位。行显隐会改 `contentTopInsets`，切换后要通知窗口重算，并**补一次延迟重排**——否则「L5 开着切输入框」时窗口没跟着长高，L5 顶被裁掉一截（键只剩 54px，应为 86px）。输入条背景**纯黑**。
-
-## 修饰键语义：敲击 = 记忆动作，长按 = 临时层
-
-总纲（2026-09-27 定案，`ImeController.HOLD_MS = 300ms`）：**"敲击"落状态，"长按"只在按住期间生效，松开即取消**；两者共用一次按下/松开，不互相打架。
-
-- **长按 `Alt` = 按住 L2、长按 `Sym` = 按住 L3**：按下即进层，按住期间可连续出符号；松开时恢复按下前的 `lock`/`oneShot` 快照（= 取消）。长按期间按下任何其他键 = 这次长按已被"用掉"，松开必然取消。
-- **`Alt` 单击** → L2 一次性（keyDown 生效）；**双击**（TapTracker 300ms 窗口）→ 锁定 L2；**再单击**解锁。双击刚建立的锁定不会被紧随的长按取消（收尾时保留 `holdTapN >= 2` 的状态）。
-- **`Sym` 单击** → L3 一次性、**双击**锁定、**三击** L1→L2→L3 循环；敲击语义一律在 keyUp 判定（快速松开才算敲击）。
-- 锁定态下 `Alt`/`Sym` 单击异层键 = 直接换锁（互为层切换键）。
-- **`Shift`**：单击 = 大写一次（输入一个字母后自动取消；已在 Caps 态时单击 = 关掉锁定）；双击 = Caps 大写锁定；**长按 = 按住期间大写**——大写来自物理修饰键本身，松手即取消、不留任何状态。状态行有大写芯片提示：Caps = 实心，一次性 / 按住中 = 描边。把 Shift 当修饰键用过（按住期间按了别的键）就不算敲击，不会误武装"大写一次"。
-- **按住 `Sym` 再按其他键 = Ctrl 组合 —— 已废弃（2026-09-27 反转）**：Sym 长按专用于进 L3；Ctrl 组合只由 `Ctrl/Fn` 键承担（`Ctrl+q/w/e/r/t` 五键选字），vim 的 `Ctrl+[`=ESC 走这条路。
-- `Shift+Space` = 中英切换（可可语义）；`Shift+Enter` = 快捷发送（可选、默认关，需无障碍）。
+**L5 显示规则（2026-09-29）**：只装 **L4 装不下的溢出尾巴**（"现在还不做用户短语功能"——曾一度加的 `[L5]` 用户短语段已整体撤回）；**左侧对齐、键宽用自然宽**（不是 L4 那套等宽槽/居中：尾行是 L4 的续页，靠左才读成同一条序列，也就不会被截字）。行高 48dp、**键帽贴行底**、与状态行间距 6dp。键盘图标无溢出时 GONE，行开时高亮；组词态整行让位。行显隐会改 `contentTopInsets`，切换后要通知窗口重算，并**补一次延迟重排**——否则「L5 开着切输入框」时窗口没跟着长高，L5 顶被裁掉一截。输入条背景**纯黑**。
 
 ## 选字通道（5 个候选位）
 
@@ -75,24 +132,15 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
 
 - **拖动即反馈**：一开始上滑，被选的词就随手指缓慢起升（0→26dp），同一行的其他候选同步渐隐（到阈值时剩 0.4）；
 - **越过阈值才提交**：位移达到阈值立刻触发选字，完成段动画接管（词加速飞到 64dp 并淡出，其余候选加速淡完）；松手还没过阈值就把拖出来的效果淡回原位。
-- **触发距离取保守档**：阈值档位由 15/25/40 整体上调为 **25/40/60，默认 40**（设置页"飞字触发滑动距离"）。老取值一次性迁移（pref 标记 `fly_threshold_v2`），不带标记的话已被迁移过的值会被反复上调。
+- **触发距离取保守档**：阈值档位由 15/25/40 整体上调为 **25/40/60，默认 40**（设置页"飞字触发滑动距离"）。老取值一次性迁移（pref 标记 `fly_threshold_v2`）。
 
 ## 翻页通道
 
 候选栏左右滑、`DPAD_LEFT/RIGHT`（翻屏助手双击编辑模式后滑动）、候选框两侧箭头、可选音量键。每页 5 条，页码显示在候选栏中部。
 
-## 时间线
+## 组词缓冲与悬浮条
 
-- time: 2026-09-23T04:32:00
-  kind: decision
-  summary: 三层键盘 = L1 字母 / L2 符号数字(Alt) / L3 编程(Sym)，单击一次性、双击锁定、锁定态互切
-  source: 用户需求"sym锁定切换三层键盘"+ 可可 alt 单双击锁定语义
-  affects: [tt2-hardware-constraints]
-- time: 2026-09-23T04:33:00
-  kind: decision
-  summary: 上滑选字/左右滑翻页落地为"屏幕候选栏手势 + 软键盘 5 区上滑 + 方向键"三条通道，放弃 TT2 键盘飞字
-  source: [[tt2-hardware-constraints]]
-  affects: [tt2-hardware-constraints, reference-cocoime]
+中文拼音由输入法自己的悬浮条渲染（部分 App 不渲染 `composing` 区，如 Termux），浮在候选条上方 6dp 缝、**不占 insets**。
 
 
 ## Timeline
@@ -354,4 +402,99 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "输入法隐藏时**大写/Alt(L2)/Sym(L3) 全部回到初始态**(用户定案)。新增 ImeController.resetLayers():lock/oneShot/hold 清空、shift 回 OFF、shiftHeld 清掉,连同长按与连击那套内部状态(holdMod/snapLock/snapOneShot/holdTapN/shift*/symDown/suppress*)一起清——那些记的是本次长按/连击的前置状态,跨过一次隐藏就该丢弃,否则下次长按 Alt 会去恢复一份过期快照。挂在 **onWindowHidden**(不是只挂收起三角),App 主动收键盘这条路径同样覆盖。语言与输入框类型不动(换框/换语言是 resetForNewInput / onStartInput 那套)"
   source: "用户定案 2026-09-29"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T08:46:01
+  kind: decision
+  summary: "状态行左区芯片互斥规则(2026-09-29 用户定案):英文态下大写芯片与层芯片互斥、层优先(层生效时藏起「A」,回 L1 自恢复,大写状态不清);大写锁定样式与 alt/sym 锁定同款(同走 ImeService.renderChip,盒子统一 34dp/12sp)"
+  source: "用户报「英文状态大小写状态和 alt/sym 模式是互斥的」「英文大小写锁定图标的样式和 alt/sym 锁定不同」"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T11:03:38
+  kind: reversal
+  summary: "邮箱不再按'纯 ASCII'过滤 L4 键:曾加 FieldProfile.l4AsciiOnly 把全角补差键(… —— 、 「」)从邮箱框全滤掉(RFC 5321/5322 依据),用户当天定案「允许邮箱输入中文」后撤销——邮箱框里中文真会出现(显示名、备注),为可投递地址的严格性撤掉中文标点是误伤。该字段已从 FieldProfile 删除,不留死配置"
+  source: "用户 2026-09-30「允许邮箱输入中文」(推翻同日「邮箱模式 中文是合法的吗」的处置)"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T11:03:39
+  kind: decision
+  summary: "修饰键手势流化(Flow 改造 Stage1/2/4,已落地):新增纯 Kotlin 的 ModifierGestures 收编全部'时间'(敲击计数/敲击窗口/按住时长/解锁吸收窗),原先散在 ImeController 七八个字段 + ImeState.tapAt;敲击窗口用 taps.debounce(300) 表达 ⇒ 「双击按一个事件」成为一条声明式规则(settled 流只发一次),ImeService 收它补渲染,删掉手写 Handler.postDelayed + chipSettle 字段;删 TapTracker + TapTrackerTest;新增 ModifierGesturesTest(runTest 虚拟时间,双击只发一次已变成断言)。按键入口不 Flow 化(onKeyDown 必须同步返回消费判定);输出侧 Flow(ImeCommand)列为 Stage3 未做"
+  source: "用户 2026-09-30「接下来Flow改造重构事件系统」"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T11:47:47
+  kind: decision
+  summary: "Stage 3 落地(输出侧):新增 ui.RenderPump —— 一次按键事件里的多次 render() 合成一次视觉渲染(Channel CONFLATED + yield + 渲染前 drain)。合并只覆盖**视觉**部分,ImeService.updateUi 拆成 requestRender(组词区同步 + 合并渲染)与 updateUi(完整同步一趟,生命周期路径用)。**组词区写 InputConnection 必须同步**:延后会让 onUpdateSelection 看到上一份组词区而把组词丢掉,不能一起合并"
+  source: "用户 2026-09-30「继续」(Stage 3)"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T12:33:12
+  kind: decision
+  summary: "状态行呈现判定抽成纯函数 ui.StatusChips.present(state, tapWindowOpen, spec)(公理 A:状态行是 (状态,时间) 的纯函数);ImeService.renderChips 退化成'取输入+贴 View',mutual exclusion/暂定不画/统一样式/全半可见性等规则全部有 JVM 回归测试 StatusChipsTest(15 项)——这些规则此前一行测试都没有。同时把 shift:ShiftState + shiftHeld:Boolean 两个字段收成单一 ShiftMode{OFF,ONCE,CAPS,HELD},非法组合('ONCE 且按住中')不再可能"
+  source: "用户 2026-09-30「开始」(第一性原理分析后推荐的单项改动)"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T12:56:25
+  kind: decision
+  summary: "ImeState 的层状态收成单一和类型 LayerState{L1,OneShot,Locked,Hold}(取代 lock/oneShot/hold 三个可空字段):顶层不再可能同时存在'按住中'与'锁着/一次性'。关键认知:那两个状态并存**不是疏忽**,而是'长按取消 / 敲击保留'的实现方式(Alt 敲击在 keyDown 就落定)——所以并存的两份被收进 LayerState.Hold(layer, snap, pending),敲击逻辑经 tapBase/withTapBase 写 pending。另修 4 个既有 lint error(onEvaluateInputViewShown 改调 super;三处 android:tint 加 tools:ignore——本布局非 AppCompat 上下文,app:tint 会静默丢染色,是误报)"
+  source: "用户 2026-09-30「修复」"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T13:08:27
+  kind: reversal
+  summary: "onEvaluateInputViewShown 必须硬写 true,不能调 super(2026-09-30 实机事故):为消 lint 的 MissingSuperCall 改成 super.onEvaluateInputViewShown() 后,平台默认实现因 Titan 2 配了硬件键盘而返回 false,输入视图永不显示——输入法整个弹不出来(日志 ImeTracker onFailed at PHASE_IME_ON_SHOW_SOFT_INPUT_TRUE、mIsInputViewShown=false)。改为 @Suppress(MissingSuperCall) 显式抑制。教训:不为消 lint 而改行为,尤其硬件相关分支;断言'行为等价'之前要先在真机验证"
+  source: "用户报障「输入法弹不出来了」+ logcat/dumpsys 定位"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T13:32:55
+  kind: reversal
+  summary: "大写芯片回到字形表状态(2026-09-30 用户定案「把 A 改为 ab Ab AB 的模式,不显示下划线锁定了」):ab=未大写 / Ab=大写一次(含物理 Shift 按住中) / AB=Caps 锁定,英文态恒显(ab 也在),**一律不带下划线**——锁定与否由字形表达,与 alt/sym 的锁定下划线分成两套语言。层生效时仍藏起(互斥);敲击窗口内不画暂定态(含 ab:窗口里再敲一下就是 Ab,先画 ab 会闪)。推翻同日'一把 A + 锁定加下划线、与 alt/sym 同款'的定案;这实际是回到更早的 ab/Ab/AB 老方案"
+  source: "用户 2026-09-30"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T13:57:43
+  kind: decision
+  summary: "修饰键状态迁移整条梳理(2026-09-30):三个键统一成同一套骨架——keyDown 记快照进 LayerState.Hold.snap / shiftBeforeHold,keyUp 判是否快速独立敲击,是才落定新状态、否则恢复快照。**Alt 的敲击判定从 keyDown 移到 keyUp**(原先与 Sym/Shift 不一致),于是删掉两处只为补这个不对称而存在的机制:LayerState.Hold.pending 与 controller 的 holdTapN(以及长按分支里的重置连击)。迁移总表写进 ImeController 类注释(逐事件 × 逐键 + 敲击落定的分支表)。两处遗留不对称已在注释里标明待定:①层芯片解锁有 250ms 吸收窗、大写没有(Caps 双击解除后第三击会重新锁上);②锁定态下的连击先被'同层解锁'吃掉,走不到 n>=3 换层"
+  source: "用户 2026-09-30「几种状态切换的状态迁移需要重新梳理」"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T14:18:33
+  kind: reversal
+  summary: "删除'三击 = L1↔L2/L3 换层'(2026-09-30 用户定案「三连击无效,短时间只有单击和双击是有效事件」)。查明那条分支**够不到**:从 L1 连击三下,第二击就进 Locked 分支,第三击被'同层解锁'吃掉;换起点也一样 ⇒ 这个功能从未真正生效,却让人以为三击能换层(用户:「有些反直觉」)。现在只有两种事件:单击=一次性/解锁,双击=锁定;第三击只是'锁定态下的一次单击'。同时给大写补上 250ms 解锁吸收窗(与层芯片同一条规则),Caps 双击解除后手抖再按一下不会又锁上"
+  source: "用户 2026-09-30「1 加上 2 有些反直觉」+「三连击无效 短时间只有单击和双击是有效事件」"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T14:49:28
+  kind: reversal
+  summary: "删除状态行'敲击窗口内不画暂定态'整条规则(用户选'去掉这条规则')。报障:「在 alt 状态下长按 alt 会有 alt 消失 0.5s 左右」——根因:长按 keyDown 重开敲击窗口,按住期间 Hold 态不锁,被当成暂定态藏起来,300ms 后才补画。查清后判定这条规则本身就是错的工具:敲击判定统一到 keyUp 之后,按住期间画出来的东西和敲击落定结果长得一模一样(同一层、锁定样式取自 snap),藏它只会造成闪烁。连带删掉 ModifierGestures.settled(debounce 流)+ ImeService.startGestureCollector + tapWindowOpen/openWindow/windowRemainMs + 7 个相关测试。StatusChips.present 签名改为 (state, spec),状态行现在是状态的纯函数(不再吃时间)。代价:双击锁定时能看到下划线长出来那一下(那是锁定真正成立的时刻,是一次状态变化不是闪一下)。新增回归测试'长按已有层状态 芯片前后一模一样'"
+  source: "真机报障 + 用户 2026-09-30 选'去掉这条规则(推荐)'"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T15:55:20
+  kind: decision
+  summary: "双击判定窗口 300 → 400ms(用户 2026-09-30「双击时间窗口再长一点」,理由:300ms 时想双击却没锁上手感偏紧)。长按阈值 holdMs 仍是 300ms 不变(那是按键时长,与两击之间的间隔是两件事)。顺带把 ImeControllerTest 里 17 处写死的 sleep(350/450) 换成两个跟常量走的辅助函数 holdLongerThanThreshold()/exitTapWindow()——写死毫秒数的地方在窗口一改就会静默变成'还在窗口内',测试照过但断的是语义"
+  source: "用户 2026-09-30「双击时间窗口再长一点」"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T16:12:13
+  kind: reversal
+  summary: "锁定态下敲**异层**键:单击 Sym 不再把锁搬过去,改为得到一次性 Sym(原来的锁被顶掉)。根因:layerKeyTap 里 'cur is LayerState.Locked' 分支排在敲击次数判定**之前**,不是同层就一律 Locked(新层)——等于单击就能造出锁定,与'锁定 = 双击'矛盾(真机报障:alt 锁定时单击 sym,sym 芯片也是带下划线的锁定态)。改法:把判定的主轴换成敲击次数 n —— Locked(同层)→解锁 / n>=2→Locked / OneShot(同层)→取消 / 其余单击→OneShot。推翻 2026-09-28 起'锁定态下 Alt Sym 一次互切层'的行为与同名测试。**表示能力边界**:状态是单值,'锁保留 + 叠一次性'表示不了,所以单击异层键会丢掉原来的锁(与'Sym 单击顶掉 L2 的一次性'同一条逻辑)。锁定态下要换锁仍需双击那个键"
+  source: "真机报障「alt锁定的时候单击sym为什么sym也是锁定的」+ 用户选'单击 = 一次性 Sym(推荐)'"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T16:54:37
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "brain update-truth: 修饰键状态迁移图 + status 术语 + 三连击删除/借用语义"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T16:55:08
+  kind: decision
+  summary: "层状态从'单值'改成'一个持续态 + 最多一层临时覆盖'(用户 2026-09-30「临时借用返回上一个锁定状态 没有锁定状态返回初始状态」)。LayerState: OneShot(layer, snap) 加了恢复目标 snap(与 Hold.snap 同一形状),snap 只可能是 L1 或 Locked,一律由 LayerState.borrow() 造(= over.base,剥掉全部临时层);lockedLayer 走 base 所以借用期间底下的锁仍读得到,状态行把借来的层画成**无下划线**、锁着的 Alt 暂时不显示(同一时间只显一项层状态),借完回锁才带下划线回来。代价:旧借用会被丢掉(OneShot(L2,L1) 后再单击 Sym ⇒ OneShot(L3,L1))——一次性层的有效期只有'下一个键',用户没在下一个键上用它就去按了别的修饰键,它就该作废;锁不会。判定顺序同时改了:n>=2 必须排第一(否则双击第二击被'取消借用'吃掉,实测 16 个测试挂),且锁定后要清这一键的连击计数(否则窗口内第三击又是 n>=2,'锁着再敲一下=解锁'只在窗口外成立)"
+  source: "真机报障「alt锁定的时候单击sym为什么sym也是锁定的」+ 用户两轮定案"
+  affects: [ime-interaction-model]
+
+- time: 2026-09-30T16:55:08
+  kind: decision
+  summary: "'芯片'这个叫法整体退役,改用抽象的 status(用户 2026-09-30「清理代码中芯片的说法 这个说法来自于早期ui的设计 使用抽象的status代替」)。改的是**概念名不是外观**:这一层关心'输入法此刻处于什么状态',与画成方块还是圆无关。ui/StatusChips.kt ⇒ ui/StatusRow.kt(StatusChips.Chip ⇒ StatusRow.Item,present 签名 (state, spec)),ImeService 的 chipMode/chipAlt/... ⇒ statusMode/statusAlt/...,renderChips/paintChips/hideChip/renderChip ⇒ renderStatus/paintStatusItems/hideItem/paintItem,view id chip_row/chip_mode/chip_fullwidth/chip_shift/chip_alt/chip_sym ⇒ status_left/status_mode/...,colors.xml chip_l2/l3 ⇒ status_l2/l3,ImeTheme.chipL2/L3 ⇒ statusL2/L3,drawable chip_lock_underline ⇒ status_lock_underline,Language.chipLabel ⇒ statusLabel、showShiftChip ⇒ showShift,FieldProfile.altChipLabel ⇒ altLabel,StatusChipsTest ⇒ StatusRowTest,全部中文注释'芯片'⇒'状态项/层状态/大写'"
   affects: [ime-interaction-model]

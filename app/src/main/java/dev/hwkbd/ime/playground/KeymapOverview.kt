@@ -53,7 +53,7 @@ object KeymapOverview {
                     "$name=${render(out)}"
                 }
                 if (pairs.isNotEmpty()) {
-                    appendLine("── ${layerNames.getValue(layer)}·${lang.chipLabel}态覆盖 ──")
+                    appendLine("── ${layerNames.getValue(layer)}·${lang.statusLabel}态覆盖 ──")
                     appendLine(pairs.joinToString("  "))
                 }
             }

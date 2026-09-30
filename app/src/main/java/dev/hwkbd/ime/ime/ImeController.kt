@@ -5,7 +5,6 @@ import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.L4Key
 import dev.hwkbd.ime.keymap.Layer
-import dev.hwkbd.ime.keymap.TapTracker
 import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.strategy.InputMethod
@@ -19,11 +18,58 @@ import dev.hwkbd.ime.strategy.Language
  * 加语言/加输入法只注册不改这里;状态行 L4 中区同理按输入框类型选键位套(见 [l4Keys])。
  *
  * 键事件入口约定:
- * - Alt 在 keyDown 进层并计数(单击一次性 / 双击锁定 / 长按临时层),keyUp 判定是否取消;
- * - Sym 在 keyUp 时若是独立敲击才生效;**按住 Alt/Sym 超过 [HOLD_MS] = 长按临时层,松开立即取消**;
- * - 按住修饰键期间按下别的键,这次长按即被"用掉",松开必然取消;
- * - Shift:单击=大写一次(已开着的任意大写状态再单击=关掉)、双击=Caps 锁定(再双击解除)、长按=按住期间大写(物理修饰键,松手取消);
+ * - Alt / Sym 在 keyDown 进 [LayerState.Hold] 并记快照,keyUp 判定"快速独立敲击"还是长按,
+ *   **只有敲击才落定新状态**(长按即取消、恢复快照);按住期间按下别的键,这次长按被"用掉";
+ * - Shift 同理:keyDown 置 [ShiftMode.HELD],keyUp 恢复按前的值,再判敲击还是长按;
+ * - 敲击落定**立刻**反映到状态行——状态行是状态的纯函数,不再按敲击窗口藏"暂定"态
+ *   (见 [dev.hwkbd.ime.ui.StatusRow]);
  * - 返回 false 的键未被本输入法消费,由 service 原样放行(保证 Termux/vim 拿到原始按键)。
+ *
+ * ## 修饰键状态迁移总表(2026-09-30 整条梳理)
+ *
+ * 三个修饰键**同一套骨架**,差别只在"落定什么"那一格:
+ * `keyDown` 记快照进 [LayerState.Hold]/`shiftBeforeHold` → `keyUp` 判是不是快速独立敲击 →
+ * **是**才落定新状态(敲击),**否**就恢复快照(长按取消)。所以"长按"永远不会留下一次敲击,
+ * 也就**不需要**任何"记住这次敲了几个来补救"的字段。
+ *
+ * | 事件 | Alt(L2) | Sym(L3) | Shift(大写) |
+ * |---|---|---|---|
+ * | keyDown 组词中 | 选候选 5 | 选候选 2(在 keyUp) | 选候选 4 |
+ * | keyDown 数字类 | 照常(数字类的 L2 锁见下) | **吞掉**,不进 L3 | 照常 |
+ * | keyDown 别的修饰键正按着 | 忽略(只把那个长按"用掉") | 同左 | 同左 |
+ * | keyDown 空闲 | [beginHold] → `Hold(L2, snap)` | `Hold(L3, snap)` | `shiftMode = HELD` |
+ * | keyUp 快速独立 | [endHold] + [layerKeyTap] | 同左 | `applyShiftTap()` |
+ * | keyUp 长按/被用掉 | 恢复 `snap` | 恢复 `snap` | 恢复按前的大写 |
+ *
+ * 敲击落定的状态迁移(层,Alt 与 Sym 共用 [layerKeyTap];`n` = 敲击窗口内的连续次数。
+ * **主轴是 `n`**:锁定只由双击产生,单击是**借用**一个层、用完恢复底下那份。
+ * **`n>=2` 必须排第一**:第二击的可见层正是这个键,排在"取消"之后会被当成取消借用):
+ * ```
+ * 数字类且已锁 L2   →  Locked(L2)      (守卫:数字类的锁解不掉,否则 L1 全被吞没法打字)
+ * 命中解锁吸收窗     →  不变            (双击解除后手抖再按一下,别重新武装)
+ * n>=2              →  Locked(该层)+清计数 (双击 = 锁定;锁在别的层时 = 把锁搬过去。
+ *                                    清计数:下一击重新算单击,否则窗口内第三击又是 n>=2)
+ * Locked(同层)      →  L1    + 吸收窗   (敲同层键 = 解锁;双击的第二下被吸收窗吃掉)
+ * 临时层(借用/按住中)→  cur.base + 吸收窗 (敲的正是当前那层、或底下锁着的那层 = 收掉它)
+ * 其余单击           →  borrow(该层, cur) (借用一个键;恢复目标 = 底下那份:有锁回锁,没锁回 L1)
+ * ```
+ * 借用的生命周期:下一个键消费掉([consumeOneShot])或再敲一下同层键,都恢复 `snap`;
+ * `snap` 由 [LayerState.borrow] 造 —— 锁定留下,没被用掉的旧借用丢掉。
+ * 大写([applyShiftTap],拼音态直接忽略——拼音没有大小写):
+ * ```
+ * n=1  → OFF→ONCE,ONCE/CAPS→OFF     (Shift 永远是自己的退出键)
+ * n>=2 → CAPS→OFF,其它→CAPS         (双击 = Caps 锁定 / 再双击解除)
+ * ```
+ * 其它迁移:字母键消费 `OneShot` 与 `ONCE`;聚焦数字类 → `Locked(L2)`,离开数字类且锁着 L2 → `L1`;
+ * 切语言 → 语言策略 [Language.onEnter] 清大写(层**不**清,换一个输入框不该丢用户选的层);
+ * 窗口隐藏 → [resetLayers] 全回初始;换输入框 → [resetForNewInput] 只清组词。
+ *
+ * **只有单击和双击两种事件(2026-09-30 用户定案「三连击无效」)**:窗口内第三次及以后的敲击
+ * 不再是独立事件,只是"锁定态下的一次单击" = 解锁。原先那条 `n>=3 → L1↔L2/L3 换层` 已删除——
+ * 它**够不到**:从 L1 连击三下时第二击就进了 `Locked` 分支,第三击永远轮不到 `n>=3`;
+ * 换个起点(先一次性 L2 再连按 Sym)也一样,第二击锁定、第三击被"同层解锁"吃掉。
+ * 也就是说这个功能从来没有真正生效过,却让人以为"三击能换层",属反直觉,删掉。
+ * 解锁后 250ms 吸收窗只针对"刚解除"这一种情形(层与大小写都有)。
  */
 class ImeController(
     private val host: ImeHost,
@@ -33,9 +79,16 @@ class ImeController(
 ) {
     val state = ImeState()
 
-    private val altTracker = TapTracker()
-    private val symTracker = TapTracker()
-    private val shiftTracker = TapTracker()
+    /**
+     * 修饰键手势(敲击计数 / 敲击窗口 / 按住时长 / 解锁吸收窗)。
+     * **所有"时间"都在这一个纯 Kotlin 对象里**(原先散成七八个字段 + 状态上的 `tapAt`),
+     * 它只做判定、不管显示(状态行是状态的纯函数,见 `StatusRow`)。
+     * 构造参数留给测试注入假时钟;生产用系统时钟。
+     */
+    val gestures = ModifierGestures()
+
+    /** 长按阈值(转发给 [ModifierGestures],别处不再各留一份常量)。 */
+    private val holdMs: Long get() = gestures.holdMs
 
     /** 当前语言策略(状态机只跟接口打交道)。 */
     private fun language(): Language = registry.language(state.languageId)
@@ -65,30 +118,27 @@ class ImeController(
     /** 当前按住的层修饰键(Alt=L2 / Sym=L3),null 表示没有按住任何一个。 */
     private var holdMod: Layer? = null
     private var holdCode = 0
-    private var holdAt = 0L
 
     /** 按住期间按过别的键(长按已被"用掉",松开必须取消)。 */
     private var holdUsed = false
 
-    /** 本次按下前的 lock/oneShot 快照:长按松开时恢复,做到"松开即取消"。 */
-    private var snapLock: Layer? = null
-    private var snapOneShot: Layer? = null
-
-    /** 本次敲击积累的连击数(>=2 表示刚刚建立了锁定,松开不取消)。 */
-    private var holdTapN = 0
+    /** 本次按下前的层状态已收进 [LayerState.Hold.snap],controller 不再另留一份快照。 */
 
     /** 物理 Shift 按住状态(长按大写:大写来自物理修饰键,松手自然取消)。 */
     private var shiftHolding = false
     private var shiftHeldCode = 0
-    private var shiftHeldAt = 0L
     private var shiftUsedAsModifier = false
+
+    /**
+     * 本次 Shift 按下**之前**的大写状态:长按松手时恢复它(大写随松手消失),
+     * 快速敲击则拿它当基准去算 [applyShiftTap]。
+     * 有了它,[ImeState.shiftMode] 才能是单一取值——[ShiftMode.HELD] 不会吃掉
+     * "Caps 开着时按住 Shift"这个前提。
+     */
+    private var shiftBeforeHold: ShiftMode = ShiftMode.OFF
 
     /** 本次 Shift keyDown 是否被消费(组词中消费、空闲透传);keyUp 必须与它成对,否则系统侧 Shift 会粘住。 */
     private var shiftDownConsumed = false
-
-    /** 解锁/取消后吸收同键连击(双击解除应保持解除)。 */
-    private var suppressNextTap: Layer? = null
-    private var suppressUntil = 0L
 
     // ------------------------------------------------------------------ 键事件
 
@@ -96,7 +146,7 @@ class ImeController(
         // 按住修饰键期间按下任何别的键 = 这次长按"用掉了"(松开要取消,不再算独立敲击)
         if (!repeat) markModifiersUsed(code)
         if (code == symKeycode) {
-            // 数字框限定 0-9:SYM 芯片已隐藏,按下也不进 L3(L3 敲出的全是非数字)
+            // 数字框限定 0-9:SYM 状态项已隐藏,按下也不进 L3(L3 敲出的全是非数字)
             if (fieldProfile().digitsOnly) return true
             if (!repeat) {
                 symDown = true
@@ -112,12 +162,10 @@ class ImeController(
                 if (state.hasComposition) {
                     selectCandidate(4)
                 } else {
-                    // 空闲:先记下按前状态再进层(松开取消时恢复),敲击计数仍在这里
+                    // 空闲:先进层(长按期间可用),敲击判定**留到 keyUp**——与 Sym/Shift 同一套骨架
                     // 另一个修饰键正按着时忽略(这次按压只是把那个长按"用掉")
                     if (holdMod == null || holdCode == code) {
                         beginHold(Layer.L2, code)
-                        onAltTap()
-                        holdTapN = altTracker.peek()
                     }
                 }
             }
@@ -161,16 +209,21 @@ class ImeController(
         // 物理 Shift 松开:快速独立敲击 → 单击大写一次 / 双击 Caps;长按 → 什么也不留(大写随松手消失)
         if (code == KeyEvent.KEYCODE_SHIFT_LEFT || code == KeyEvent.KEYCODE_SHIFT_RIGHT) {
             if (shiftHolding && code == shiftHeldCode) {
-                val quickTap = !shiftUsedAsModifier && System.currentTimeMillis() - shiftHeldAt < HOLD_MS
+                val quickTap = !shiftUsedAsModifier && gestures.up(ModifierGestures.Mod.SHIFT)
                 shiftHolding = false
-                state.shiftHeld = false
+                // 松手先恢复按前的值:长按=大写随松手消失(回到 OFF 或按前的 CAPS/ONCE),
+                // 敲击=拿这个基准去算 applyShiftTap
+                state.shiftMode = shiftBeforeHold
                 if (quickTap) applyShiftTap() else host.render()
             }
             return shiftDownConsumed // 与 keyDown 的消费/透传严格成对,否则系统侧 Shift 会粘住
         }
         // Alt 的 keyDown 总是被消费,keyUp 也成对消费;正按着它则做长按收尾
         if (altKeycodes.contains(code)) {
-            if (holdMod == Layer.L2 && code == holdCode) endHold()
+            if (holdMod == Layer.L2 && code == holdCode) {
+                // 快速独立敲击才落定状态;长按/被用掉 = 已在 [endHold] 里恢复快照
+                if (endHold()) onAltTap()
+            }
             return true
         }
         // 数字框:keyDown 已吞,keyUp 成对吞掉(不触发 L3 敲击语义)
@@ -205,42 +258,48 @@ class ImeController(
     // ------------------------------------------------------------------ 长按实现
 
     /**
-     * 按下层修饰键:先记下按前的 lock/oneShot 快照,再把 [Layer] 挂到 [ImeState.hold]。
-     * 敲击计数不在此处(Alt 在按下调用 [onAltTap],Sym 在松开时才计数)。
+     * 按下层修饰键:把 [Layer] 作为 [LayerState.Hold] 挂上(按下前的层状态收进它的 snap),
+     * 并让状态行立刻把层状态显示出来。
+     * 敲击判定不在此处——**统一在 keyUp 做**,Alt/Sym/Shift 同一套骨架(见类注释的迁移总表)。
+     *
+     * 按住中的呈现与敲击落定的结果**长得一模一样**(同一层,锁定样式取自 snap),所以不需要
+     * "先藏着、等敲击窗口闭合再补画"那一套——真机报障「在 alt 状态下长按 alt 会有 alt 消失
+     * 0.5s 左右」就是那套规则的后遗症(2026-09-30 连同 `ModifierGestures.settled` 一起删了)。
      */
     private fun beginHold(mod: Layer, code: Int) {
+        gestures.down(mod.keyMod())
         if (holdMod != null) return
         holdMod = mod
         holdCode = code
-        holdAt = System.currentTimeMillis()
         holdUsed = false
-        holdTapN = 0
-        snapLock = state.lock
-        snapOneShot = state.oneShot
-        state.hold = mod
+        // 按下的层状态收进 [LayerState.Hold.snap]:长按松手恢复它(松开即取消);敲击则在
+        // [endHold] 恢复之后另落定一个新状态。顶层从此只有一种状态。
+        state.layerState = LayerState.Hold(mod, state.layerState)
         host.render()
     }
 
     /**
-     * 松开层修饰键。返回 true = 这是一次快速独立敲击(< [HOLD_MS] 且按住期间没按过别的键),
-     * 调用方据此走敲击语义;false = 长按结束:恢复按前的 lock/oneShot(松开即取消)并重置连击计数,
-     * 唯独"这次敲击刚刚建立的锁定"保留(双击锁定后再按住不短于 300ms 也不该被抹掉)。
+     * 松开层修饰键。返回 true = 这是一次快速独立敲击(按住不足 [holdMs] 且按住期间没按过别的键),
+     * 调用方据此走敲击语义([layerKeyTap]);false = 长按结束。
+     *
+     * **无论哪种,Hold 都先撤掉、恢复按下前的层状态**([LayerState.Hold.snap]):敲击是"恢复后再落定
+     * 一个新状态",长按是"恢复即取消"。因为**敲击判定统一在 keyUp 做**,长按永远不会留下一次敲击,
+     * 所以这里不需要"记住这次敲了几个来补救"的字段(2026-09-30 整条梳理时删掉了 `holdTapN`
+     * 与 [LayerState.Hold] 的 pending——它们只是因为 Alt 曾在 keyDown 计数才存在)。
      */
     private fun endHold(): Boolean {
         val mod = holdMod
-        val quickTap = mod != null &&
-            System.currentTimeMillis() - holdAt < HOLD_MS && !holdUsed
-        state.hold = null
-        if (!quickTap && holdTapN < 2) {
-            state.lock = snapLock
-            state.oneShot = snapOneShot
-            (if (mod == Layer.L2) altTracker else symTracker).reset()
-        }
+        val quickTap = mod != null && gestures.up(mod.keyMod()) && !holdUsed
+        val h = state.layerState as? LayerState.Hold
+        if (h != null) state.layerState = h.snap
         holdMod = null
         holdUsed = false
         host.render()
         return quickTap
     }
+
+    /** [Layer.L2]/[Layer.L3] → 对应的修饰键(唯一一份映射在 [ModifierGestures.Mod.of])。 */
+    private fun Layer.keyMod(): ModifierGestures.Mod = ModifierGestures.Mod.of(this)
 
     /** 按住修饰键期间按下别的键:标记这次长按已被使用(松开要取消)。 */
     private fun markModifiersUsed(code: Int) {
@@ -249,13 +308,17 @@ class ImeController(
         if (shiftHolding && code != shiftHeldCode) shiftUsedAsModifier = true
     }
 
-    /** 空闲态按下物理 Shift:武装敲击判定(大写提示芯片随 [ImeState.shiftHeld] 亮起)。 */
+    /**
+     * 空闲态按下物理 Shift:武装敲击判定(大小写随 [ShiftMode.HELD] 立刻亮成 `Ab`)。
+     * 松手在 [onKeyUp] 的 Shift 分支:先恢复按前的值,再判敲击还是长按。
+     */
     private fun beginShiftHold(code: Int) {
+        gestures.down(ModifierGestures.Mod.SHIFT)
         shiftHolding = true
         shiftHeldCode = code
-        shiftHeldAt = System.currentTimeMillis()
         shiftUsedAsModifier = false
-        state.shiftHeld = true
+        shiftBeforeHold = state.shiftMode // 记住按前的值,松手恢复(见字段注释)
+        state.shiftMode = ShiftMode.HELD
         host.render()
     }
 
@@ -266,15 +329,27 @@ class ImeController(
      * - **双击**(窗口内)= 跳到 Caps 锁定;已是 Caps 再双击解除。
      *   窗口内第二击被双击征用,所以"ONCE 时手快再按"得到的是 Caps,之后再按一次必然回 OFF。
      * 大写一次仍会在输入一个字母后自动取消。
-     * 拼音态直接忽略——拼音不需要大小写锁定(状态芯片也只在英文态显示)。
+     * 拼音态直接忽略——拼音不需要大小写锁定(大小写状态也只在英文态显示)。
+     * 调用前 [ImeState.shiftMode] 已恢复成按前的值(见 [onKeyUp] 的 Shift 分支),所以
+     * `HELD` 不会参与这里的判定。
      */
     private fun applyShiftTap() {
         if (!language().shiftTapsEnabled) return
-        val n = shiftTracker.tap()
-        state.shift = when {
-            n == 1 -> if (state.shift == ShiftState.OFF) ShiftState.ONCE else ShiftState.OFF
-            else -> if (state.shift == ShiftState.CAPS) ShiftState.OFF else ShiftState.CAPS
+        val key = ModifierGestures.Mod.SHIFT
+        // 解锁后的短窗内吸收同键连击(与层状态同一条规则,2026-09-30 补齐)
+        if (gestures.consumeSuppressed(key)) {
+            gestures.resetTaps(key)
+            return
         }
+        val n = gestures.tap(key)
+        val cur = state.shiftMode
+        state.shiftMode = when {
+            n == 1 -> if (cur == ShiftMode.OFF) ShiftMode.ONCE else ShiftMode.OFF
+            else -> if (cur == ShiftMode.CAPS) ShiftMode.OFF else ShiftMode.CAPS
+        }
+        // **关掉大写就进吸收窗**:双击解除 Caps 后手抖再按一下,不会立刻又锁上
+        // (原先层状态有这窗、大写没有,双击解除后第三击就重新锁上了)
+        if (state.shiftMode == ShiftMode.OFF) gestures.suppress(key)
         host.render()
     }
 
@@ -282,13 +357,13 @@ class ImeController(
 
     /** 软键盘 Alt 键回调。 */
     fun onAltTap() {
-        layerKeyTap(Layer.L2, altTracker)
+        layerKeyTap(Layer.L2)
         host.render()
     }
 
     /** 软键盘 Sym 键回调。 */
     fun onSymTap() {
-        layerKeyTap(Layer.L3, symTracker)
+        layerKeyTap(Layer.L3)
         host.render()
     }
 
@@ -298,15 +373,15 @@ class ImeController(
     }
 
     /**
-     * 切到下一个语言(Shift+空格 / 语言芯片)。
-     * 2026-09-29 用户定案:状态芯片**不可触摸**,切换只走物理按键 —— `Shift+Space`。
+     * 切到下一个语言(Shift+空格 / 状态行的语言项)。
+     * 2026-09-29 用户定案:状态项**不可触摸**,切换只走物理按键 —— `Shift+Space`。
      */
     fun cycleLanguage() = setLanguage(registry.nextLanguage(state.languageId))
 
     /**
      * 切到指定语言(密码框强制英文等场景)。先把挂着的组词上屏,切入收尾交给语言策略
      * ([dev.hwkbd.ime.strategy.ChineseLanguage.onEnter] 清掉英文态的大小写锁定)。
-     * **密码框内(secure)禁止切到安全语言以外**——切语言的两个入口(状态栏语言芯片、
+     * **密码框内(secure)禁止切到安全语言以外**——切语言的两个入口(状态行的语言项、
      * Shift+空格)都收口在这里,一处守卫全覆盖。
      */
     fun setLanguage(id: String) {
@@ -319,52 +394,50 @@ class ImeController(
         host.render()
     }
 
-    private fun layerKeyTap(mod: Layer, tracker: TapTracker) {
+    private fun layerKeyTap(mod: Layer) {
         // 数字类的 L2 锁是**字段给的**(聚焦即锁,免按 Alt):解不掉,否则 L1 全被吞没法打字。
         // 触摸切换已下线,这条守卫现在只挡物理 Alt 键。
-        if (mod == Layer.L2 && state.lock == Layer.L2 && fieldProfile().digitsOnly) {
-            state.lock = Layer.L2
-            state.oneShot = null
+        if (mod == Layer.L2 && state.lockedLayer == Layer.L2 && fieldProfile().digitsOnly) {
+            state.layerState = LayerState.Locked(Layer.L2)
             host.render()
             return
         }
-        val now = System.currentTimeMillis()
+        val key = mod.keyMod()
         // 解锁/取消后的短窗内吸收同键连击(双击解除应保持解除,不重新武装)
-        if (suppressNextTap == mod && now < suppressUntil) {
-            suppressNextTap = null
-            tracker.reset()
+        if (gestures.consumeSuppressed(key)) {
+            gestures.resetTaps(key)
             return
         }
-        suppressNextTap = null
-        val n = tracker.tap()
-        when {
-            state.lock != null -> { // 锁定态:同层键解锁回 L1(并吸收连击),异层键切换锁定层
-                val same = state.lock == mod
-                state.lock = if (same) null else mod
-                state.oneShot = null
-                if (same) {
-                    tracker.reset()
-                    suppressNextTap = mod
-                    suppressUntil = now + 250
-                }
+        val n = gestures.tap(key)
+        // 敲击判定统一在 keyUp 做([endHold] 已把 Hold 撤掉),所以这里直接读写顶层状态。
+        // 判定的**主轴是敲击次数**:锁定只由双击产生;单击是**借用**一个层,用完恢复底下那份。
+        val cur = state.layerState
+        val next = when {
+            // 双击 = 锁定该层(锁在别的层时 = 把锁搬过去)。**唯一**能产生锁的入口。
+            // 必须排在"取消"那些分支**前面**:第二击的可见层正是这个键,否则会被当成"取消借用"。
+            // 锁成之后**清掉这一键的连击计数**:下一击重新算单击,否则窗口内的第三击仍是 n>=2,
+            // "锁着再敲一下 = 解锁"就只在窗口外成立(2026-09-30 测试钉住的)
+            n >= 2 -> {
+                gestures.resetTaps(key)
+                LayerState.Locked(mod)
             }
-            state.oneShot == mod && n == 1 -> { // 一次性激活后,窗口外的再次独立敲击 = 取消
-                state.oneShot = null
-                tracker.reset()
-                suppressNextTap = mod
-                suppressUntil = now + 250
+            // 锁着这个层再敲一下 = 解锁
+            cur is LayerState.Locked && cur.layer == mod -> {
+                gestures.resetTaps(key)
+                gestures.suppress(key)
+                LayerState.L1
             }
-            n == 2 -> { // 双击窗口内第二次敲击 = 锁定该层
-                state.lock = mod
-                state.oneShot = null
+            // 临时层(借用/按住中)上敲的正是**当前那层**或**底下锁着的那层** = 收掉临时层,
+            // 恢复底下那份:借 Sym 时敲 Sym = 取消借用;借 Sym 时敲 Alt = 回到锁着的 Alt
+            cur !is LayerState.Locked && (cur.layer == mod || cur.base.layer == mod) -> {
+                gestures.resetTaps(key)
+                gestures.suppress(key)
+                cur.base
             }
-            n >= 3 -> { // 连击:从当前一次性层切换到下一层(L1↔L2/L3)
-                state.oneShot = if (state.oneShot == Layer.L2) Layer.L3 else Layer.L2
-            }
-            else -> { // 单击 = 一次性层,芯片立刻渲染(描边),双击升级为锁定(实心)——无延迟无闪烁
-                state.oneShot = mod
-            }
+            // 单击 = 借用一个键的这个层,用完恢复底下那份:有锁回锁,没锁回初始(L1)
+            else -> LayerState.borrow(mod, cur)
         }
+        state.layerState = next
     }
 
     // ------------------------------------------------------------------ 候选与组词
@@ -424,7 +497,7 @@ class ImeController(
      * UI 按 [l4Signature] 变化才重建面板。
      *
      * 「中文全角」开关一并传下去:拼音态的 L2/L3 层表随它整体切到中文标点或退回 ASCII
-     * ([Language.layerMap]),L4 那把"L1-L3 敲不出就不显示"的筛必须用同一份表,
+     * ([Language.layerMap]),L4 那把去重筛("一次物理键就能敲出就不上状态行")必须用同一份表,
      * 否则关了全角会把 `；` 这类误判掉、屏上一个分号都敲不出。
      */
     fun l4Keys(): List<L4Key> =
@@ -452,8 +525,8 @@ class ImeController(
         val nowDigit = registry.fieldProfile(kind).digitsOnly
         val wasDigit = registry.fieldProfile(prev).digitsOnly
         when {
-            nowDigit -> state.lock = Layer.L2
-            wasDigit && state.lock == Layer.L2 -> state.lock = null
+            nowDigit -> state.layerState = LayerState.Locked(Layer.L2)
+            wasDigit && state.lockedLayer == Layer.L2 -> state.layerState = LayerState.L1
         }
         host.render()
     }
@@ -514,32 +587,27 @@ class ImeController(
      *
      * 与 [resetForNewInput] 的分工:那个刻意**保留**模式与层(换一个输入框不该丢用户选的层);
      * 这个是给"窗口都收起来了"用的——锁定过的 L2、开着的大写若原样留着,下次弹出来会莫名其妙
-     * 还停在那个态,状态芯片也会显示一个用户根本没在用的层。语言与输入框类型不动。
+     * 还停在那个态,状态行也会显示一个用户根本没在用的层。语言与输入框类型不动。
      *
-     * 内部那些 hold/snap/suppress 字段必须一起清:它们记的是"这次长按/连击的前置状态",
+     * 内部那些 hold/suppress 字段必须一起清:它们记的是"这次长按/连击的前置状态",
      * 跨过一次隐藏就该丢弃,否则下一次长按 Alt 会去恢复一份早已过期的快照。
      */
     fun resetLayers() {
-        state.lock = null
-        state.oneShot = null
-        state.hold = null
-        state.shift = ShiftState.OFF
-        state.shiftHeld = false
+        // 层状态一次归零:锁定/一次性/按住中都在这一个字段里(含 [LayerState.Hold] 里的
+        // snap/pending),不用再逐个清
+        state.layerState = LayerState.L1
+        state.shiftMode = ShiftMode.OFF
+        shiftBeforeHold = ShiftMode.OFF
         holdMod = null
         holdCode = 0
-        holdAt = 0L
         holdUsed = false
-        snapLock = null
-        snapOneShot = null
-        holdTapN = 0
         shiftHolding = false
         shiftHeldCode = 0
-        shiftHeldAt = 0L
         shiftUsedAsModifier = false
         symDown = false
         symProducedKey = false
-        suppressNextTap = null
-        suppressUntil = 0L
+        // 敲击计数 / 敲击窗口 / 按住时长 / 吸收窗:全在一处,一次清干净
+        gestures.resetAll()
         host.render()
     }
 
@@ -551,7 +619,7 @@ class ImeController(
 
     // ------------------------------------------------------------------ 内部处理
 
-    /** 当前输入框的表现策略(键位套 / Alt 芯片文字 / 数字限定)。 */
+    /** 当前输入框的表现策略(键位套 / Alt 文字 / 数字限定)。 */
     private fun fieldProfile() = registry.fieldProfile(state.fieldKind)
 
     private fun handleCtrlKey(code: Int, shift: Boolean): Boolean {
@@ -581,7 +649,7 @@ class ImeController(
 
         // Shift+Space = 中英切换(可可语义);**层锁定/一次性/长按按住时同样生效**
         // (2026-09-29 用户要求:锁定状态下也要能切拼音和 En)。
-        // 数字类锁着数字层,没有语言可切(芯片已隐藏),维持排除。
+        // 数字类锁着数字层,没有语言可切(状态项已隐藏),维持排除。
         if (shift && code == KeyEvent.KEYCODE_SPACE && !digitsOnly) {
             cycleLanguage()
             return true
@@ -622,9 +690,9 @@ class ImeController(
         // 没有再用键位表的出厂值。没这一层时语言切换只影响字母与 L4,固定键的符号还是 ASCII。
         //
         // **数字类绕过语言表**([FieldProfile.digitsOnly]):那一档的合法字符集是**照着出厂
-        // ASCII L2 的槽位**定的(数字位 + `- . + * # / :` 各占一键),芯片上的 `0-9-/:`
+        // ASCII L2 的槽位**定的(数字位 + `- . + * # / :` 各占一键),状态项上的 `0-9-/:`
         // 也是照它标的。中文表把那些槽位换成了《》（》,再套上去日期框就输不出 `/`、电话框
-        // 输不出 `+`,芯片也跟着说谎。数字框本来就没有"语言"可言,走键位表出厂值。
+        // 输不出 `+`,状态项也跟着说谎。数字框本来就没有"语言"可言,走键位表出厂值。
         //
         // 「中文全角」开关一并传下去:关掉时拼音的整张层表退回出厂 ASCII,那个开关才不是
         // 死开关(见 [Language.layerMap])。
@@ -647,7 +715,8 @@ class ImeController(
                     // 语言策略决定上屏形态:英文跟大写、中文按开关全角;**数字类放行的字符强制半角**
                     // (全角 `－` `。` `：` 进不了日期/小数/电话/签名的合法格式,数字本身本就半角)
                     flushComposition()
-                    val upper = shift || caps || state.shift != ShiftState.OFF
+                    // 大写一次用掉即回 OFF;[HELD] 是物理修饰键,不由这里消耗
+                    val upper = shift || caps || state.shiftMode != ShiftMode.OFF
                     val full = fullWidthSymbolsInCn && !digitsOnly
                     host.commitText(lang.commitText(text, layer, upper, full))
                 }
@@ -693,12 +762,19 @@ class ImeController(
         host.render()
     }
 
+    /**
+     * 借来的层被下一个键用掉:恢复底下那份([LayerState.OneShot.snap])——
+     * 锁着 Alt 借 Sym 时,敲完那一个 Sym 键就**回到锁着的 Alt**;没锁时回 L1(初始)。
+     * 按住中不动(松手才恢复,见 [endHold])。
+     */
     private fun consumeOneShot() {
-        state.oneShot = null
+        val s = state.layerState
+        if (s is LayerState.OneShot) state.layerState = s.snap
     }
 
+    /** 大写一次用掉即回 OFF(`HELD` 是物理修饰键、松手自然消失,不由这里消耗)。 */
     private fun consumeShiftOnce() {
-        if (state.shift == ShiftState.ONCE) state.shift = ShiftState.OFF
+        if (state.shiftMode == ShiftMode.ONCE) state.shiftMode = ShiftMode.OFF
     }
 
     companion object {
@@ -707,7 +783,11 @@ class ImeController(
         /** 首选(逻辑第 1 候选)的显示位 = 中间(空格键)。 */
         const val TOP_DISPLAY = 2
 
-        /** 长按修饰键判定:按住 Alt/Sym/Shift 超过此时长算"长按"(松开即取消),不到则按敲击。 */
-        const val HOLD_MS = 300L
+        /**
+         * 长按修饰键判定:按住 Alt/Sym/Shift 超过此时长算"长按"(松开即取消),不到则按敲击。
+         * 家在 [ModifierGestures.DEFAULT_HOLD_MS](它连敲击窗口一起管),这里只做转发别名,
+         * 免得同一时长在两处各留一份常量。
+         */
+        const val HOLD_MS = ModifierGestures.DEFAULT_HOLD_MS
     }
 }

@@ -1,10 +1,11 @@
 package dev.hwkbd.ime.strategy
 
 import dev.hwkbd.ime.ime.ImeState
-import dev.hwkbd.ime.ime.ShiftState
+import dev.hwkbd.ime.ime.ShiftMode
 import dev.hwkbd.ime.keymap.KeyNames
 import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.L4Key
+import dev.hwkbd.ime.keymap.L4Priority
 import dev.hwkbd.ime.keymap.Layer
 
 /**
@@ -26,14 +27,14 @@ object ChineseLanguage : Language {
     const val SEPARATOR = "'"
 
     override val id = "zh"
-    override val chipLabel = "拼"
+    override val statusLabel = "拼"
     override val methodId = "pinyin"
-    override val showShiftChip = false
+    override val showShift = false
     override val shiftTapsEnabled = false
 
     /** 切入拼音时的收尾:清掉英文态可能挂着的锁定/一次性。 */
     override fun onEnter(state: ImeState) {
-        state.shift = ShiftState.OFF
+        state.shiftMode = ShiftMode.OFF
     }
 
     /** v 键 = 分节符(在字母区,组词中顺手);其余文本原样。 */
@@ -54,8 +55,10 @@ object ChineseLanguage : Language {
         .filterNot { it.label == "$" } // 币种归物理键
         .map {
             if (it.label != "；") it
-            else if (fullWidth) L4Key("；", KeyOut.Text("；"))
-            else L4Key(";", KeyOut.Text(";"))
+            // 换整把键(标签+输出)时**优先级要带过去**:新构造的键会退回默认档,
+            // 固定键就被降到模式短语那一档去了(见 [L4Priority])
+            else if (fullWidth) L4Key("；", KeyOut.Text("；"), it.priority)
+            else L4Key(";", KeyOut.Text(";"), it.priority)
         }
 
     /**
@@ -73,9 +76,10 @@ object ChineseLanguage : Language {
      * 唯二例外:`"`→`”`、`'`→`’`(**不是**全角引号 `＂` `＇`,中文引号是弯的);
      * `©` 不是 ASCII,压根没有全角形态,原样不动 —— 没有的可换,硬套一个反而是骗人。
      *
-     * **代价**:`《》【】“‘…——、` 这些 ASCII 压根没有对应字符,两层都变不出来,
-     * 只能上状态行 [l4Extras] —— L4 的定义本就是"L1-L3 敲不出的键",一行装不下的
-     * 由 L5 接着(横滑翻页、不截断)。
+     * **代价**:`《》【】“‘…——` 这些 ASCII 压根没有对应字符,两层都变不出来,
+     * 只能上状态行(固定符号键档,见 [l4Extras])—— 一行装不下的由 L5 接着(横滑翻页、不截断)。
+     * 反过来,**能换宽的就别上状态行**:全角 `＼` 换成了中文里真有用途的顿号 `、`(见 [L3_CN]),
+     * 用户「拼音模式全角的、是不需要在 L4L5 上显示的,因为 L3 能打出来」。
      *
      * [fullWidth] = 那颗开关。**关掉整张表退回 null**(用键位表出厂值 = 丝印原样),
      * 否则它就是按了没反应的死开关。
@@ -111,15 +115,20 @@ object ChineseLanguage : Language {
      * 全角态 L3 —— 14 个符号位(26 − 11 个功能键位 − 1 个空格),同样是丝印的全角形态:
      *
      * 丝印 `~ < > ^ % [ ] ` ` `` \ & | { } =` → 输出
-     * `～ 《 》 ＾ ％ 【 】 ｀ ＼ ＆ ｜ ｛ ｝ ＝`
+     * `～ 《 》 ＾ ％ 【 】 ｀ 、 ＆ ｜ ｛ ｝ ＝`
      *
      * **成对符号换的是"中文里真正用的那一个",不是 Unicode 的全角区块**(用户 2026-09-29 定案
      * 「中文状态 `<>` 对应的应该是 `《》,`[]` 对应 `【】,同理」):
      * - `<` `>` → **`《` `》`**;`[` `]` → **`【` `】`**。中文排版里这两对就是书名号与方头括号;
      *   写成全角 `＜＞［］` 没人用 —— 全角区块只是 Unicode 机械加宽,不是排版惯例。
+     * - **`\` → `、`**(用户 2026-09-30 定案「全角状态 L3 的 z 应该映射为 `、`,而不是全角的 `\`」):
+     *   反斜杠在中文里没有用途,而顿号是高频标点。顿号原先只能上状态行 [l4Extras]——用户
+     *   「拼音模式全角的、是不需要在 L4L5 上显示的,因为 L3 能打出来」——挪到 Sym+Z 之后它
+     *   自动被 L4 那把"L1-L3 敲不出就不显示"的筛带走,状态行腾出一格。**代价**:全角 `＼`
+     *   变成敲不出来的字(没上 L4,中文里也没人用)。
      * - `{` `}` → `｛` `｝`:**保留机械全角**。中文没有对应的定名括号;要 `〔〕` 也行,那是 CJK
      *   括号序列里更外层的一对,习惯上配 `「」『』` 而不是 `{}`。
-     * - 其余(`~ ^ % ` \ & | =`)按机械全角 +0xFEE0,这几个的中文形态就是全角本身
+     * - 其余(`~ ^ % ` & | =`)按机械全角 +0xFEE0,这几个的中文形态就是全角本身
      *   (`~`→`～` 同时也是中文浪纹线)。
      * - R 位**币种**:半角/英文敲 `$`(键位表出厂值),拼音全角敲 `￥`。那里原本是从可可搬来的
      *   `©` —— 既不是 Titan 键帽上的东西、中文写作也几乎不用,2026-09-29 用户定案换掉。
@@ -130,48 +139,55 @@ object ChineseLanguage : Language {
      * **11 个功能键位两层都不动**(`key:esc/up/pgup/pgdn/tab/left/down/right/move_home/
      * move_end/insert`)—— Tab、方向键、光标首尾都在上面。
      *
-     * 连带效果:`《》【】` 回到物理键上,状态行 [l4Extras] 就不必再摆它们。
+     * 连带效果:`《》【】、` 回到物理键上,状态行 [l4Extras] 就不必再摆它们。
      */
     private val L3_CN: List<Pair<String, String>> = listOf(
         "e" to "～", "r" to "￥", "t" to "《", "y" to "》",
         "u" to "＾", "f" to "％", "g" to "【", "h" to "】",
-        "j" to "｀", "z" to "＼", "x" to "＆", "c" to "｜",
+        "j" to "｀", "z" to "、", "x" to "＆", "c" to "｜",
         "v" to "｛", "b" to "｝", "n" to "＝",
     )
 
     /**
-     * L4/L5 装 **物理三层腾不出的**那些,**字形跟全角开关走**。
+     * L4/L5 上语言自己加的那批键,**全是"词组短语"这一族**(性质与档位见下面的说明;
+     * 完整口径在 [ImeRegistry.l4Keys]):一次按键上屏一段常用串,图省事。
+     *
+     * **字形跟全角开关走**:半角态给同一批符号的半角写法(省略号 `...`、破折号 `--`),
+     * 其余在半角没有对应写法就不摆 —— **状态行上不该出现与开关矛盾的字形**
+     * (用户 2026-09-29「半角的时候不应该有全角符号显示在 L4-L5 上」)。
      *
      * 已经被物理键接管、不在这儿摆的:
      * - `《》【】` → Sym+T / Sym+Y / Sym+G / Sym+H(成对符号各占一格,见 [L3_CN]);
+     * - `、` → Sym+Z(2026-09-30 用户定案,原先在这儿摆着,用户「拼音模式全角的、是不需要在
+     *   L4L5 上显示的,因为 L3 能打出来」⇒ 挪上物理键,顺带被去重那把筛自动带走);
      * - 引号 → Alt+K / Alt+L。用户 2026-09-29 定案「`“` 应该切换半角再去按 L2 的 K、L 按键
      *   输入」—— 引号有两把物理键就够,不必在状态行再摆两把。
      * - 币种 → Sym+R(见 [coreKeys])。
      *
-     * - **全角态**:省略号 `…`、破折号 `——`、顿号 `、`(逗号 Alt+N 已经有了),加冷门但中文里
-     *   真有的 CJK 括号/引号那一族 `「」『』〔〕` 与注释符 `※`(用户「冷门的正好可以放 L4/L5」)。
-     * - **半角态**:同一批符号的**半角写法** —— 省略号敲三个点 `...`、破折号敲两个连字符 `--`。
-     *   其余在半角没有对应写法(顿号、CJK 括号都只在中文里存在),半角态就不摆 ——
-     *   **状态行上不该出现与开关矛盾的字形**(用户 2026-09-29「半角的时候不应该有全角符号
-     *   显示在 L4-L5 上」)。
+     * 状态行一行装不下的尾巴由 L5 接着(横滑翻页、不截断)。还要更多就用键位编辑器的
+     * `[L4]` 自定义段自己加(见 [dev.hwkbd.ime.keymap.KeyLayoutStore])。
      *
-     * 状态行一行装不下的尾巴由 L5 接着(横滑翻页、不截断),所以全角态可以放心多放。
-     * 还要更多就用键位编辑器的 `[L4]` 自定义段自己加(见 [dev.hwkbd.ime.keymap.KeyLayoutStore])。
+     * **都是"词组短语"这一族**(用户 2026-09-30:「`…` `——`,以及冷门的 `「」『』※` 不是 L4 的
+     * 固定按键 这是词组短语」—— 固定键只有出厂核心 `；` `$` 那一档,性质是"物理敲不出的单个
+     * 符号";这一族图的是**一次按键上屏一段常用串**,物理键敲 `...` 要三下、敲 `——` 要两下)。
+     * 三档只表示**常用度**,不表示性质:
+     * - 省略号 `…`、破折号 `——`(半角态 `...` `--`)给 [L4Priority.PHRASE_HOT]:任何输入框都
+     *   用得上,排在模式短语之前 —— 排在之后时拼音邮箱模式下它们被挤到 L5 末尾(用户 2026-09-30 报障)。
+     * - `「」『』※` 给 [L4Priority.PHRASE_COLD]:同一性质,但很少用,排最后、行紧时先被推进 L5
+     *   (网址模式下要把位置让给 `http://`)。`〔〕` 已撤(用户 2026-09-30「〔〕不要」)。
      */
     override fun l4Extras(fullWidth: Boolean): List<L4Key> = if (fullWidth) {
         listOf(
-            L4Key("…", KeyOut.Text("…")),
-            L4Key("——", KeyOut.Text("——")),
-            L4Key("、", KeyOut.Text("、")),
-            L4Key("「", KeyOut.Text("「")), L4Key("」", KeyOut.Text("」")),
-            L4Key("『", KeyOut.Text("『")), L4Key("』", KeyOut.Text("』")),
-            L4Key("〔", KeyOut.Text("〔")), L4Key("〕", KeyOut.Text("〕")),
-            L4Key("※", KeyOut.Text("※")),
+            L4Key("…", KeyOut.Text("…"), L4Priority.PHRASE_HOT),
+            L4Key("——", KeyOut.Text("——"), L4Priority.PHRASE_HOT),
+            L4Key("「", KeyOut.Text("「"), L4Priority.PHRASE_COLD), L4Key("」", KeyOut.Text("」"), L4Priority.PHRASE_COLD),
+            L4Key("『", KeyOut.Text("『"), L4Priority.PHRASE_COLD), L4Key("』", KeyOut.Text("』"), L4Priority.PHRASE_COLD),
+            L4Key("※", KeyOut.Text("※"), L4Priority.PHRASE_COLD),
         )
     } else {
         listOf(
-            L4Key("...", KeyOut.Text("...")),
-            L4Key("--", KeyOut.Text("--")),
+            L4Key("...", KeyOut.Text("..."), L4Priority.PHRASE_HOT),
+            L4Key("--", KeyOut.Text("--"), L4Priority.PHRASE_HOT),
         )
     }
 

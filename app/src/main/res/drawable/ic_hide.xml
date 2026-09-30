@@ -2,7 +2,7 @@
 <!--
   收起箭头(实心小三角)。视口收紧为 16x10 且右缘顶到 x=16:
   配合按钮 paddingLeft 与 fitCenter,图标右缘与按钮右缘对齐,
-  右侧视觉边距 = marginEnd,才能与左侧 chip 的 6dp 对齐。
+  右侧视觉边距 = marginEnd,才能与左侧状态项的 6dp 对齐。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="16dp"

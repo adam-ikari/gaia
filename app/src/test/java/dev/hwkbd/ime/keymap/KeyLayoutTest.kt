@@ -138,9 +138,10 @@ class KeyLayoutTest {
         // 并入哪些核心键由 FieldProfile.l4CoreKeys 决定。
         assertEquals(
             listOf(
-                "http://", "https://", "www.", "localhost", "127.0.0.1",
+                "http://", "https://", "www.", "localhost", "127.0.0.1", "192.168.",
                 ".com", ".cn", ".net", ".org",
                 ".io", ".dev", ".app", ".co",
+                "index.html", ".html", ".php", ".json", ".xml", ".js", ".css", ".htm",
             ),
             d.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label },
         )
@@ -149,7 +150,9 @@ class KeyLayoutTest {
         assertEquals(
             listOf(
                 ".com", ".net", ".org", ".cn", ".edu",
+                "@163.com", "@qq.com", "@126.com",
                 "@gmail.com", "@hotmail.com", "@outlook.com",
+                "@yahoo.com", "@icloud.com", "@foxmail.com", "@live.com",
             ),
             d.l4Combined(KeyLayout.L4_PROFILE_EMAIL).map { it.label },
         )

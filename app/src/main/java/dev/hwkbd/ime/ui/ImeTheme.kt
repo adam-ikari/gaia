@@ -1,8 +1,8 @@
 package dev.hwkbd.ime.ui
 
 /**
- * 输入法配色主题:输入条背景 / 候选文字 / 主色(模式芯片、匹配拼音)/
- * 辅助色(箭头)/ 分隔线 / 高亮背景 / 层芯片颜色。
+ * 输入法配色主题:输入条背景 / 候选文字 / 主色(语言状态、匹配拼音)/
+ * 辅助色(箭头)/ 分隔线 / 高亮背景 / 层状态颜色。
  */
 data class ImeTheme(
     val id: String,
@@ -13,8 +13,10 @@ data class ImeTheme(
     val hint: Int,
     val divider: Int,
     val pressed: Int,
-    val chipL2: Int,
-    val chipL3: Int,
+    /** 层状态 alt 的颜色。 */
+    val statusL2: Int,
+    /** 层状态 sym 的颜色。 */
+    val statusL3: Int,
 ) {
     companion object {
         fun byId(id: String?): ImeTheme = ALL.firstOrNull { it.id == id } ?: DEFAULT
@@ -28,8 +30,8 @@ data class ImeTheme(
             hint = 0xFF7C838F.toInt(),
             divider = 0xFF2A2E36.toInt(),
             pressed = 0xFF2C313A.toInt(),
-            chipL2 = 0xFF5B8DBE.toInt(),
-            chipL3 = 0xFF7FA05A.toInt(),
+            statusL2 = 0xFF5B8DBE.toInt(),
+            statusL3 = 0xFF7FA05A.toInt(),
         )
 
         val ALL = listOf(

@@ -5,13 +5,13 @@ import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.L4Key
 import dev.hwkbd.ime.keymap.Layer
 
-/** 英文:直接上屏,跟随大写状态;有大写芯片与 Shift 敲击。 */
+/** 英文:直接上屏,跟随大写状态;有大小写状态与 Shift 敲击。 */
 object EnglishLanguage : Language {
 
     override val id = "en"
-    override val chipLabel = "En"
+    override val statusLabel = "En"
     override val methodId = "direct"
-    override val showShiftChip = true
+    override val showShift = true
     override val shiftTapsEnabled = true
 
     /**

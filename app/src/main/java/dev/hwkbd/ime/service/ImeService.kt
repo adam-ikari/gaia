@@ -21,7 +21,13 @@ import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
 import dev.hwkbd.ime.ime.ImeState
-import dev.hwkbd.ime.ime.ShiftState
+import dev.hwkbd.ime.ui.StatusRow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyLayoutStore
 import dev.hwkbd.ime.keymap.Layer
@@ -45,11 +51,11 @@ class ImeService : InputMethodService() {
 
     private var statusRow: View? = null
     private var candidateRow: View? = null
-    private var chipMode: TextView? = null
-    private var chipAlt: TextView? = null
-    private var chipSym: TextView? = null
-    private var chipShift: android.widget.TextView? = null
-    private var chipFullWidth: TextView? = null
+    private var statusMode: TextView? = null
+    private var statusAlt: TextView? = null
+    private var statusSym: TextView? = null
+    private var statusShift: TextView? = null
+    private var statusFullWidth: TextView? = null
     private var preeditRow: TextView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
@@ -116,7 +122,7 @@ class ImeService : InputMethodService() {
         }
 
         override fun render() {
-            updateUi()
+            requestRender() // 组词区同步 + 合并渲染(见 requestRender)
         }
     }
 
@@ -133,6 +139,7 @@ class ImeService : InputMethodService() {
         // 策略注册表:出厂语言/输入框表现 + 本进程的拼音输入法(加语言/输入法只需注册)
         val registry = ImeRegistry.builtin().registerMethod(PinyinInputMethod(engine))
         controller = ImeController(host, KeyLayoutStore.load(this), registry)
+        renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
         executor.execute {
@@ -171,6 +178,7 @@ class ImeService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        scope.cancel() // 敲击窗口事件流的收集(见 startGestureCollector)
         ImeRuntime.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         ImeRuntime.saveUserDict(this)
         executor.shutdown()
@@ -184,16 +192,16 @@ class ImeService : InputMethodService() {
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
         l5Divider = root.findViewById(R.id.l5_divider)
-        chipMode = root.findViewById<TextView>(R.id.chip_mode).apply {
-            // 语言芯片点击 = 切换拼音/En(锁定层时也能切;层芯片不响应触摸是另一套约定)
+        statusMode = root.findViewById<TextView>(R.id.status_mode).apply {
+            // 语言项点击 = 切换拼音/En(锁定层时也能切;层状态不响应触摸是另一套约定)
             setOnClickListener { controller.cycleLanguage() }
         }
-        chipAlt = root.findViewById(R.id.chip_alt)
-        chipSym = root.findViewById(R.id.chip_sym)
-        chipShift = root.findViewById(R.id.chip_shift)
-        // 「全/半」开关:硬件键盘上没有这个物理键,状态行是唯一的入口(左区其余芯片不可触摸)。
+        statusAlt = root.findViewById(R.id.status_alt)
+        statusSym = root.findViewById(R.id.status_sym)
+        statusShift = root.findViewById(R.id.status_shift)
+        // 「全/半」开关:硬件键盘上没有这个物理键,状态行是唯一的入口(左区其余状态项不可触摸)。
         // 写的是**同一个偏好**设置页那个开关在用 —— 一处改两处都跟着变,不存在两个真相。
-        chipFullWidth = root.findViewById<TextView>(R.id.chip_fullwidth).apply {
+        statusFullWidth = root.findViewById<TextView>(R.id.status_fullwidth).apply {
             setOnClickListener {
                 val next = !controller.fullWidthSymbolsInCn
                 ImeRuntime.prefs.edit().putBoolean(PREF_FULLWIDTH, next).apply()
@@ -252,7 +260,7 @@ class ImeService : InputMethodService() {
             }
         }
         root.findViewById<ImageButton>(R.id.btn_hide_ime).setOnClickListener { requestHideSelf(0) }
-        // 状态芯片**不再响应触摸**(2026-09-29 用户定案):只显示已触发的状态,
+        // 状态项**不再响应触摸**(2026-09-29 用户定案):只显示已触发的状态,
         // 切换层/语言/大写一律走物理按键(Alt / Sym / Shift / Shift+Space)。
         applyPrefs()
         updateUi()
@@ -299,7 +307,7 @@ class ImeService : InputMethodService() {
      * 输入法窗口被收起(收起三角 / App 主动 `hideSoftInput` / 焦点离开)时,**大写与 Alt/Sym
      * 全部回到初始态**(2026-09-29 用户定案):L1、无锁定、无一次性、大写关。
      * 窗口都不在了还留着个锁定的 L2 或开着的大写,下次弹出来会停在一个用户没在用的态上,
-     * 状态芯片也会显示它。语言与输入框类型保持不变(换框/换语言是另一套逻辑,见
+     * 状态行也会显示它。语言与输入框类型保持不变(换框/换语言是另一套逻辑,见
      * [dev.hwkbd.ime.ime.ImeController.resetForNewInput] 与 [onStartInput])。
      *
      * 挂在 `onWindowHidden` 而不是只在收起三角那一下清:App 自己收键盘是同样常见的路径,
@@ -577,7 +585,16 @@ class ImeService : InputMethodService() {
 
     // ------------------------------------------------------------------ 窗口策略
 
-    /** 有硬键盘也要显示输入视图:候选栏是硬件键盘方案的核心选字通道。 */
+    /**
+     * 有硬键盘也要显示输入视图:候选栏是硬件键盘方案的核心选字通道。
+     *
+     * **必须硬写 true,不能调 super**(2026-09-30 实机事故):平台的默认实现看的是设备是否配了
+     * 硬件键盘,Titan 2 配了 ⇒ super 返回 false ⇒ 输入视图**永远不显示**(日志里表现为
+     * `ImeTracker: onFailed at PHASE_IME_ON_SHOW_SOFT_INPUT_TRUE`,`mIsInputViewShown=false`)。
+     * 之前为了消 lint 的 `MissingSuperCall` 把它改成 `super.onEvaluateInputViewShown()`,
+     * 结果输入法整个弹不出来——**lint 的启发式在这里是错的**,所以改成显式抑制而不是照它改。
+     */
+    @Suppress("MissingSuperCall")
     override fun onEvaluateInputViewShown(): Boolean = true
 
     override fun onEvaluateFullscreenMode(): Boolean = false
@@ -669,121 +686,136 @@ class ImeService : InputMethodService() {
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /**
-     * 状态徽标(2026-09-29 用户定案):**只显示已触发的状态**——没触发的层/大写一律不显示,
-     * 切换**全部走物理按键**(Alt / Sym / Shift),芯片不再响应触摸。
-     * - 语言芯片(拼/En):恒显(数字类藏掉,数字只认 Alt 芯片);
-     * - 层芯片:目标层生效才出现——锁定=实心、一次性/按住=描边;数字框里文字是实际可输字符集;
-     * - 大写芯片:大写生效才出现(CAPS 实心 `AB`,一次/按住描边 `Ab`);
-     * - 全/半开关:**拼音态恒显**(硬件键盘没这个物理键,状态行是唯一入口),点按即翻。
+     * 服务级协程作用域:只用来跑 [RenderPump] 的合并渲染,随 [onDestroy] 取消。
+     * [Main.immediate] ⇒ 已在主线程时**同步**执行,不给合并后的重绘再加一帧延迟。
      */
-    private fun renderChips(s: ImeState) {
-        val t = theme
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /**
+     * 视觉渲染合并器:一次按键事件里的多次 `render()` 合成一次([RenderPump])。
+     * 组词区写入不在它那儿(必须同步,见 [syncComposing])。
+     */
+    private val renderPump = dev.hwkbd.ime.ui.RenderPump { updateUi() }
+
+    /**
+     * 状态行(2026-09-29 用户定案):**只显示已触发的状态**——没触发的层/大写一律不显示,
+     * 切换**全部走物理按键**(Alt / Sym / Shift),状态项不响应触摸(全/半开关是例外)。
+     * - 语言(拼/En):恒显(数字类藏掉,数字只认 Alt 那项);
+     * - 层状态:目标层生效才出现——锁定=下划线、借用/按住=无下划线;数字框里文字是实际可输字符集;
+     * - 大写:**英文态恒显**,用字形 `ab` / `Ab` / `AB` 表达三种大写态,不带下划线;
+     * - **大写与层互斥**(2026-09-29 用户定案「英文状态大小写状态和 alt/sym 模式是互斥的」):
+     *   符号层上大小写根本不参与输出(`commitText` 的 upper 只在字母上起作用),两项并排显示
+     *   只会让人以为 alt 层还能出大写——**层优先**,层生效时藏起大写,回 L1 它自己回来;
+     *   大写状态本身**不被清掉**(Caps 是持续态,只是这一层期间不显示)。
+     * - **不显示"暂定"态这条规则 2026-09-30 已删**(原先窗口内藏着一次性层/大写一次):敲击判定
+     *   统一到 keyUp 之后它只剩副作用——按住期间画出来的和敲击落定的结果长得一模一样,藏它只会
+     *   闪烁(真机报障:在 alt 状态长按 alt,本来亮着的那项被藏 300ms 再亮回来)。
+     *   所以状态行不再吃时间,只看状态。
+     *
+     * **本函数现在只做"取输入 + 贴到 View"**,判定规则全在纯函数
+     * [dev.hwkbd.ime.ui.StatusRow.present] 里(零 Android 依赖、有 JVM 回归测试)。
+     */
+    private fun renderStatus(s: ImeState) {
         val lang = controller.registry.language(s.languageId)
-        val digitsOnly = controller.registry.fieldProfile(s.fieldKind).digitsOnly
+        val field = controller.registry.fieldProfile(s.fieldKind)
+        paintStatusItems(
+            StatusRow.present(
+                state = s,
+                spec = StatusRow.Spec(
+                    altLabel = field.altLabel,
+                    digitsOnly = field.digitsOnly,
+                    languageId = s.languageId,
+                    languageLabel = lang.statusLabel,
+                    languageIsPrimary = s.languageId == controller.registry.primaryLanguageId,
+                    showShift = lang.showShift,
+                    fullWidth = controller.fullWidthSymbolsInCn,
+                    theme = theme,
+                ),
+            ),
+        )
+    }
 
-        if (digitsOnly) {
-            chipMode?.visibility = View.GONE // 数字框没有语言可切(锁 L2)
-        } else {
-            // 语言芯片恒显:纯字符样式(无背景块)——主语言=主色字,非主语言=前景色字
-            chipMode?.apply {
-                visibility = View.VISIBLE
-                text = lang.chipLabel
-                val on = s.languageId == controller.registry.primaryLanguageId
-                setTextColor(if (on) t.accent else t.fg)
-                background = null
-            }
+    /** 把 [StatusRow] 开出的单子贴到那五个 TextView 上,没点名的 GONE。 */
+    private fun paintStatusItems(items: List<StatusRow.Item>) {
+        val byKind = items.associateBy { it.kind }
+        val mode = byKind[StatusRow.Kind.MODE]
+        if (mode == null) hideItem(statusMode) else statusMode?.apply {
+            // 语言:纯字符样式(无背景块)——主语言=主色字,非主语言=前景色字
+            visibility = View.VISIBLE
+            text = mode.label
+            setTextColor(mode.color)
+            background = null
         }
-
-        // 层芯片:哪个生效显哪个(数字类只看 Alt 那颗)。**锁定=加下划线**,一次性/按住=无下划线
-        val layerNow = s.effectiveLayer
-        if (layerNow == Layer.L2) {
-            val label = controller.registry.fieldProfile(s.fieldKind).altChipLabel
-            renderChip(chipAlt, label, t.chipL2, locked = s.lock == Layer.L2)
-        } else hideChip(chipAlt)
-        if (!digitsOnly && layerNow == Layer.L3) {
-            renderChip(chipSym, "sym", t.chipL3, locked = s.lock == Layer.L3)
-        } else hideChip(chipSym)
-
-        // 大写状态:文字标签「A」,与层芯片同一视觉语言(色彩区分状态,锁定=底部下划线)
-        // Caps 锁定 = 主色「A」+ 下划线;大写一次/按住中 = 主色/灰色「A」无下划线
-        if (digitsOnly || !lang.showShiftChip || (s.shift == ShiftState.OFF && !s.shiftHeld)) {
-            hideChip(chipShift)
-        } else {
-            val capsLock = s.shift == ShiftState.CAPS
-            val shift = chipShift as? android.widget.TextView
-            shift?.apply {
-                visibility = View.VISIBLE
-                text = "A"
-                setTextColor(if (capsLock || s.shift == ShiftState.ONCE) t.accent else t.fg)
-                contentDescription = context.getString(
-                    if (capsLock) R.string.shift_state_caps else R.string.shift_state_once,
-                )
-                if (capsLock) {
-                    background = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.chip_lock_underline)
-                    backgroundTintList = android.content.res.ColorStateList.valueOf(t.accent)
-                } else {
-                    background = null
-                }
-            }
+        val fw = byKind[StatusRow.Kind.FULLWIDTH]
+        if (fw == null) hideItem(statusFullWidth) else statusFullWidth?.apply {
+            visibility = View.VISIBLE
+            text = fw.label
+            // 当前生效的那一面用主色,像层状态的"锁定"那样一眼看出是哪个状态
+            setTextColor(fw.color)
+            contentDescription = context.getString(
+                if (fw.label == "全") R.string.fullwidth_on else R.string.fullwidth_off,
+            )
         }
-        // 「全/半」开关:**只在拼音态**显 —— 英文态没有全角概念,数字类直接绕过语言表
-        // ([ImeController] 的 digitsOnly 分支),这两种情况下它都是按了没反应的死开关。
-        // 文字标的是**当前状态**而不是"按了会变成什么",跟右区齿轮/收起同一套按钮语言。
-        if (digitsOnly || s.languageId != "zh") {
-            hideChip(chipFullWidth)
-        } else {
-            val fw = controller.fullWidthSymbolsInCn
-            chipFullWidth?.apply {
-                visibility = View.VISIBLE
-                text = if (fw) "全" else "半"
-                // 当前生效的那一面用主色,像层芯片的"锁定"那样一眼看出是哪个状态
-                setTextColor(if (fw) t.accent else t.fg)
-                contentDescription = context.getString(
-                    if (fw) R.string.fullwidth_on else R.string.fullwidth_off,
-                )
-            }
-        }
-        alignFirstVisibleChip()
+        // 三项走同一条渲染路径:锁定=底部下划线,其余无背景(样式统一,2026-09-30)
+        val shift = byKind[StatusRow.Kind.SHIFT]
+        if (shift == null) hideItem(statusShift) else paintItem(
+            statusShift, shift.label, shift.color, shift.locked, shift.contentDescription,
+        )
+        val alt = byKind[StatusRow.Kind.ALT]
+        if (alt == null) hideItem(statusAlt) else paintItem(statusAlt, alt.label, alt.color, alt.locked)
+        val sym = byKind[StatusRow.Kind.SYM]
+        if (sym == null) hideItem(statusSym) else paintItem(statusSym, sym.label, sym.color, sym.locked)
+        alignFirstVisibleItem()
     }
 
     /**
-     * 第一颗**可见**芯片不留起始间距:数字态只剩 Alt(`0-9` 那颗)时,它到屏幕左缘
+     * 第一颗**可见**状态项不留起始间距:数字态只剩 Alt(`0-9` 那项)时,它到屏幕左缘
      * 要和 `拼`/`En` 对齐(否则多 2dp,2026-09-29 用户报障)。
      */
-    private fun alignFirstVisibleChip() {
-        val row = chipMode?.parent as? android.view.ViewGroup ?: return
+    private fun alignFirstVisibleItem() {
+        val row = statusMode?.parent as? android.view.ViewGroup ?: return
         for (i in 0 until row.childCount) {
-            val chip = row.getChildAt(i)
-            if (chip.visibility != View.VISIBLE) continue
-            val lp = chip.layoutParams as? android.view.ViewGroup.MarginLayoutParams ?: return
+            val item = row.getChildAt(i)
+            if (item.visibility != View.VISIBLE) continue
+            val lp = item.layoutParams as? android.view.ViewGroup.MarginLayoutParams ?: return
             if (lp.marginStart != 0) {
                 lp.marginStart = 0
-                chip.layoutParams = lp
+                item.layoutParams = lp
             }
             return // 只处理第一颗
         }
     }
 
-    private fun hideChip(chip: android.view.View?) {
-        chip ?: return
-        chip.visibility = View.GONE
+    private fun hideItem(item: android.view.View?) {
+        item ?: return
+        item.visibility = View.GONE
     }
 
     /**
-     * 状态芯片渲染(2026-09-29 用户定案"状态锁定都采用下划线的方式表示"):
-     * **锁定 = 加底部下划线**,一次性/按住 = 无下划线。文字/图标本身不带背景按钮样式
+     * 状态项渲染(2026-09-29 用户定案"状态锁定都采用下划线的方式表示"):
+     * **锁定 = 加底部下划线**,借用/按住 = 无下划线。文字/图标本身不带背景按钮样式
      * (此前锁定=实心块、一次性=描边块,与右区三键不统一)。
+     * 层状态(alt/sym)与大小写**走同一个函数**——用户报「英文大小写锁定的样式和 alt/sym
+     * 锁定不同」时,差的正是这条路径各写各的:大小写那项曾经自己设一遍 `background`,盒子也小一号。
+     * [contentDescription] 给大小写用(层状态的字面意思就是自身标签,无参即可)。
      */
-    private fun renderChip(chip: TextView?, label: String, color: Int, locked: Boolean) {
-        chip ?: return
-        chip.text = label
-        chip.visibility = View.VISIBLE
-        chip.setTextColor(color)
+    private fun paintItem(
+        view: TextView?,
+        label: String,
+        color: Int,
+        locked: Boolean,
+        contentDescription: String? = null,
+    ) {
+        view ?: return
+        view.text = label
+        view.visibility = View.VISIBLE
+        view.setTextColor(color)
+        if (contentDescription != null) view.contentDescription = contentDescription
         if (locked) {
-            chip.background = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.chip_lock_underline)
-            chip.backgroundTintList = android.content.res.ColorStateList.valueOf(color)
+            view.background = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.status_lock_underline)
+            view.backgroundTintList = android.content.res.ColorStateList.valueOf(color)
         } else {
-            chip.background = null
+            view.background = null
         }
     }
 
@@ -813,14 +845,16 @@ class ImeService : InputMethodService() {
         }
     }
 
-    private fun updateUi() {
-        // 词库后台线程加载完成会触发 render,统一调度回主线程
-        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            mainHandler.post { updateUi() }
-            return
-        }
+    /**
+     * 视觉渲染(状态行/候选栏/L4/L5/单行两态/拼音悬浮条)。
+     *
+     * **可以被合并**([renderPump]):一次按键事件里状态机会请求好几次,中间那几帧是没人看得到的
+     * 中间态,合成一次只画终态。所以按键路径走 [requestRender](组词区同步 + 合并请求),
+     * 生命周期那些需要立刻见效的路径直接调 [updateUi](同步跑完整一趟)。
+     */
+    private fun renderViews() {
         val s: ImeState = controller.state
-        renderChips(s)
+        renderStatus(s)
         candidateBar?.setState(s)
 
         // L4 中区随输入类型/语言变化:签名没变不重建键帽(每变一次就是整排视图重建)
@@ -865,8 +899,18 @@ class ImeService : InputMethodService() {
             lastComposingForInsets = composingNow
             applyWindowMode(composingNow) // 组词中窗口全屏接键盘表面触摸,空闲恢复细条
         }
+    }
 
-        // 组词区同步:编辑框里显示下划线拼音
+    /**
+     * 组词区同步:编辑框里显示下划线拼音。**这一步必须同步,不能进 [renderPump]**。
+     *
+     * 它写的是目标应用的 `InputConnection`,而框架会在**下一次** [onUpdateSelection] 里把
+     * 组词区的起止位置回报回来与我们核对,对不上就 [ImeController.abandonComposition] 把组词丢掉。
+     * 延后一轮再写,中间那一轮里 App 看到的组词区是**上一份**,核对就会误判——
+     * "合并渲染"绝不能把这一步一起合掉(2026-09-30 落地 Stage 3 时发现)。
+     */
+    private fun syncComposing() {
+        val s: ImeState = controller.state
         val ic = currentInputConnection
         if (s.raw != composing && ic != null) {
             if (s.raw.isEmpty()) {
@@ -876,6 +920,35 @@ class ImeService : InputMethodService() {
             }
             composing = s.raw
         }
+    }
+
+    /**
+     * 完整同步一趟:组词区写入 + 视觉渲染。**按键路径不走这里**,走 [requestRender] 合并;
+     * 生命周期那些需要立刻见效的路径(onStartInput / 偏好变化 / 窗口模式切换…)走这里。
+     */
+    private fun updateUi() {
+        // 词库后台线程加载完成会触发 render,统一调度回主线程
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mainHandler.post { updateUi() }
+            return
+        }
+        syncComposing()
+        renderViews()
+    }
+
+    /**
+     * 按键路径的渲染请求:**组词区同步 + 合并一次视觉渲染**。
+     *
+     * 一次按键事件里状态机会请求好几次渲染(`beginHold`、敲击落定、`refreshQuery` 各一次),
+     * 中间那几帧是没人看得到的中间态——既白费又闪。合成一次只画终态(见 [RenderPump])。
+     */
+    private fun requestRender() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mainHandler.post { requestRender() }
+            return
+        }
+        syncComposing()      // 这一步同步:组词区写入不能被合并延后(见 syncComposing)
+        renderPump.request() // 这一步合并:视觉渲染一轮只跑一次
     }
 
     companion object {

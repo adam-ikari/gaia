@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  状态芯片的**锁定下划线**(2026-09-29 用户定案"状态锁定都采用下划线的方式表示"):
-  只有芯片底部一条 2dp 实线,上方透明。图标/文字本身不变,多一根线 = 该状态已锁定。
+  状态项的**锁定下划线**(2026-09-29 用户定案"状态锁定都采用下划线的方式表示"):
+  只有底部一条 2dp 实线,上方透明。图标/文字本身不变,多一根线 = 该状态已锁定。
   和大写 Shift 箭头的 ic_shift_lock 是同一套语言。
-  颜色由代码设 backgroundTint(锁定=主色),一次态整颗没有背景。
+  颜色由代码设 backgroundTint(锁定=主色),借用/按住整项没有背景。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:gravity="bottom">
