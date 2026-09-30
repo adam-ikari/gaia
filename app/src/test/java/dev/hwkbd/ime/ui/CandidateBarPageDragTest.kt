@@ -14,8 +14,8 @@ import org.junit.Test
  * 进度数学已与其他两处手势共用 [DragGesture](见 [DragGestureTest]);这里钉的是本视图
  * 特有的那层:**手指 x 坐标 → 沿翻页方向的位移**。
  *
- * 行宽取 Titan 2 真机候选行 1440px(面板 1440×1440、逻辑宽 576px ⇒ density 2.5;
- * 候选行通栏,两端各露 16dp 底色但**不缩进**)。
+ * 行宽取 Titan 2 真机候选行 1440px:面板 1440×1440,候选行通栏(两端只露底色不缩进)。
+ * 注意这是**物理像素**,与用户改过的最小逻辑宽度(598dp)无关。
  */
 class CandidateBarPageDragTest {
 
@@ -44,7 +44,8 @@ class CandidateBarPageDragTest {
 
     @Test
     fun `the old 24dp flick now falls inside the dead zone`() {
-        val old = 24f * 2.5f // 旧判据 24dp,在 2.5x 密度上 60px
+        // 旧判据 24dp,在 598dp 逻辑宽对应的密度(~2.4)上约 58px
+        val old = 24f * 2.4f
         assertTrue("旧阈值比新死区(${DragGesture.dead(commitPx)}px)还小", old < DragGesture.dead(commitPx))
         assertEquals("所以 24dp 一划现在不再翻页", 0f, progress(old), 1e-6f)
     }

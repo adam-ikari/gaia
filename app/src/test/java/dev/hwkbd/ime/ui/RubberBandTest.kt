@@ -15,7 +15,7 @@ import org.junit.Test
  */
 class RubberBandTest {
 
-    private val scale = 120f  // 阻尼长度,相当于 dip(48) @2.5x
+    private val scale = 120f  // 阻尼长度,相当于 dip(50)
     private val limit = 134f  // 封顶 dip(56)
 
     @Test
