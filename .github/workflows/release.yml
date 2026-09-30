@@ -52,3 +52,50 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/debug/app-debug.apk
           generate_release_notes: true
+
+      # 产物转交给下面的 publish-site 任务:跨 job 只能靠 artifact 传文件
+      - name: 上传 APK 构件
+        uses: actions/upload-artifact@v4
+        with:
+          name: apks
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  # 把包同步到公开站点仓库 adam-ikari/gaia 的同名 Release。
+  # 为什么必须单独一个仓库:应用仓库是私有的,那里的 Release 下载链接需要登录态,
+  # 站点访客拿不到;站点仓库是公开的,匿名可下。站点的 Downloads.vue 读的就是它。
+  publish-site:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      # 没配这个 secret 就整步跳过,不阻塞发版(所以用 step 级 if 而不是 job 级)
+      WEB_TOKEN: ${{ secrets.WEB_RELEASE_TOKEN }}
+      SITE_REPO: adam-ikari/gaia
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apks
+          path: apks
+
+      - name: 同步 APK 到站点仓库的同名 Release
+        if: env.WEB_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.WEB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 幂等:重跑时先删掉同名资产再传,--clobber 也覆盖同名文件,
+          # 两种情况都不会在 Release 里堆出两份 APK。
+          if gh release view "$TAG" --repo "$SITE_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" apks/*.apk --repo "$SITE_REPO" --clobber
+          else
+            gh release create "$TAG" \
+              --repo "$SITE_REPO" \
+              --title "盖亚输入法 $TAG" \
+              --notes "由 hwkbd_ime 的发版流水线自动同步。" \
+              apks/app-release.apk#app-release.apk \
+              apks/app-debug.apk#app-debug.apk
+          fi
+          echo "已同步到 $SITE_REPO @ $TAG"
