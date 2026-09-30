@@ -86,6 +86,7 @@ class SettingsActivity : AppCompatActivity() {
                 startActivity(Intent(requireContext(), dev.hwkbd.ime.probe.KeyProbeActivity::class.java)); true
             }
             findPreference<Preference>("about")?.setOnPreferenceClickListener { showAbout(); true }
+            findPreference<Preference>("licenses")?.setOnPreferenceClickListener { showLicenses(); true }
         }
 
         private fun importDict(uri: Uri) {
@@ -157,5 +158,15 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         private fun toast(s: String) = Toast.makeText(requireContext(), s, Toast.LENGTH_SHORT).show()
+
+        // 第三方开源许可说明。文本很长但短于 AlertDialog 高度不保证,
+        // setMessage 的正文自带 ScrollView,超长会自动可滚。
+        private fun showLicenses() {
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.pref_licenses)
+                .setMessage(R.string.licenses_body)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
     }
 }

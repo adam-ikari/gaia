@@ -72,6 +72,16 @@
     <string name="pref_probe">按键探测器（抓 Sym/Fn 真实键值）</string>
     <string name="pref_about">关于</string>
 
+    <!--
+      第三方开源许可说明。只列"用了谁的代码/数据、归谁、按什么许可"——
+      这是 MIT/Apache-2.0 的署名义务,不是给盖亚输入法自己贴标签。
+      本软件的许可条款在仓库 LICENSE 里,不进这个界面(用户 2026-09-30 定)。
+      许可证全文与署名清单随源码分发:仓库根 THIRD_PARTY_NOTICES.md。
+    -->
+    <string name="pref_category_licenses">许可</string>
+    <string name="pref_licenses">开源许可</string>
+    <string name="licenses_body">本软件使用了下列开源组件。它们的著作权归各自作者所有，并按所列许可证提供。\n\nAndroidX（core-ktx / appcompat / preference）\nApache License 2.0\n\nKotlin 标准库、kotlinx-coroutines\nApache License 2.0（含 Kotlin 例外条款）\n\n内置词库数据\n· 词与词频来自 fxsjy/jieba 的 dict.txt\n  MIT License，Copyright (c) 2013 Sun Junyi\n· 词条读音由 pinyin-pro 在构建期离线生成\n  MIT License，Copyright (c) 2022-present zh-lx\n\nMIT 要求保留上述版权与许可声明，故此处署名。完整许可证全文见项目仓库的 THIRD_PARTY_NOTICES。</string>
+
     <!-- 键位编辑 -->
     <string name="layer_save">保存</string>
     <string name="layer_reset">恢复默认</string>

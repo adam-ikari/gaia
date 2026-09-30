@@ -71,7 +71,7 @@
 
 ## 许可
 
-闭源专有软件，保留所有权利。完整条款见 [LICENSE](LICENSE)。第三方组件（AndroidX、Kotlin、jieba 词表、pinyin-pro）各自受其原始许可证约束。
+闭源专有软件，保留所有权利。完整条款见 [LICENSE](LICENSE)。第三方组件（AndroidX、Kotlin、jieba 词表、pinyin-pro）各自受其原始许可证约束，署名与许可证全文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，应用内 `设置 → 许可 → 开源许可` 是同一份的简版。
 
 ## 真机调试
 

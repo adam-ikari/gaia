@@ -5,36 +5,41 @@ category: decision
 status: active
 tags: [license, proprietary, distribution]
 created: "2026-09-30T09:56:55"
-updated: "2026-09-30T09:57:59"
+updated: "2026-09-30T10:09:43"
 ---
 
 <!-- compiled_truth -->
 盖亚输入法是**闭源专有软件**:专有许可证保留所有权利,GitHub 仓库
-`adam-ikari/hwkbd_ime` 为 **private**(2026-09-30 用户再次确认要闭源;仓库可见性当时已是 private)。
+`adam-ikari/hwkbd_ime` 为 **private**(2026-09-30 用户确认要闭源;仓库可见性当时已是 private)。
 
-**许可证载体**:仓库根 `LICENSE` = 专有条款 —— 未经书面许可禁止复制/再分发/修改/反编译/
-反汇编/出租/商用,以及移除版权声明;按"现状"提供、不担保、不承担损失责任。README 末尾有一行
-指向它。GitHub 会把这种非标准许可证识别成 "Other",这是预期的。
+**许可证的三个落点,分工是用户定的**:
 
-**应用内不强调闭源(2026-09-30 用户定)**:`设置 → 关于` **只留版本号、一句定位、jieba 署名**,
-不加"闭源专有软件/版权所有"这类声明 —— 用户明确不要在软件里强调闭源。所以专有声明的落点
-只有仓库 `LICENSE` 与 README 那一行。以后别"顺手"把闭源字样加回关于页或首启页。
+1. 仓库根 `LICENSE` —— 本软件的专有条款(禁止复制/再分发/修改/反编译/出租/商用、禁止移除
+   版权声明、按现状提供不担保)。README 末尾有一行指向它。GitHub 会把它识别成 "Other",预期如此。
+2. 仓库根 `THIRD_PARTY_NOTICES.md` —— 第三方组件与数据的署名 + 许可证全文/出处链接:
+   AndroidX(core-ktx/appcompat/preference)、Kotlin 标准库与 coroutines 是 Apache-2.0
+   (含 Kotlin 例外条款);`fxsjy/jieba` 词频表是 MIT(Copyright (c) 2013 Sun Junyi)、
+   构建期用的 `pinyin-pro` 是 MIT(Copyright (c) 2022-present zh-lx)。这两条版权行是**从上游
+   LICENSE 原文核过的**,别凭记忆改写。构建期工具(AGP/lint/Gradle 插件)不随 APK 分发,不列。
+3. 应用内 `设置 → 许可 → 开源许可`(`licenses_body`)—— **只列第三方**:用了谁的代码/数据、归谁、
+   什么许可证,再指回仓库的 THIRD_PARTY_NOTICES。
 
-**第三方组件必须逐个署名**(许可证里列了一张表):AndroidX、Kotlin 标准库与 coroutines 是
-Apache-2.0;`fxsjy/jieba` 词频表与构建期用的 `pinyin-pro`(npm)都是 MIT。**MIT 要求保留原始
-版权与许可声明**,所以应用内 `设置 → 关于` 的"词库来源:fxsjy/jieba (MIT)"这一句是**许可义务**,
-不是可选项 —— 改关于页文案时别把它一起删掉(它与"要不要强调闭源"是两件事)。运行时不含
-pinyin-pro 的代码(读音在构建期离线生成)。
+**应用内不强调本软件的闭源(2026-09-30 用户定,连着问了一次才落定)**:关于页只留版本号、
+一句定位、jieba 署名,**不加"闭源专有软件/版权所有"字样**;专有条款不进应用界面。以后别
+"顺手"把闭源字样加回关于页、首启页或那个许可弹窗 —— 用户要的是履行第三方义务,不是自我声明。
+
+**关于页的 jieba 署名是许可义务**,与"要不要强调闭源"无关,改文案时别删。
 
 **连带推论(影响后续决策,别重新踩)**:
 
-- 引入任何依赖、模板、脚手架之前,先核对其许可是否允许"闭源再分发";不接受"要求本项目自身
-  开源"的东西。抄别人代码同理。
+- 引入任何依赖、模板、脚手架之前,先核对其许可是否允许闭源再分发,并**同步补进
+  THIRD_PARTY_NOTICES 与 `licenses_body`** —— 这两处是手工维护的,加依赖不会自动更新。
 - 签名密钥 `hwkbd.keystore` 提交在仓库里,当初的理由是"个人项目权衡:本地/CI 签名一致 > 私密性"。
-  **仓库转私有后,密钥随私钥范围一起收紧,这个顾虑基本消失**(见 [[release-flow]] 的对应反转)。
-- 介绍与下载站(VitePress,做站点这件事本身还没落地)不能直接用私有仓库的 GitHub Pages 对外
-  发布 —— private 仓库的 Pages 需要 GitHub 付费计划。要对外发站点,只能另开一个**公开**仓库
-  放站点、或自托管;下载链接仍指向本私有仓库的 Release(那种链接需要登录态,对外发要注意这一点)。
+  仓库转私有后密钥随之收紧,这个顾虑基本消失(见 [[release-flow]] 的对应反转);但 APK 发到用户
+  手上之后,第三方署名义务就变成法定义务,那正是应用内那个页面的用途。
+- 介绍与下载站(VitePress,这件事本身还没落地)不能直接用私有仓库的 GitHub Pages 对外发布 ——
+  private 仓库的 Pages 需要 GitHub 付费计划。要对外发,只能另开一个**公开**仓库放站点或自托管;
+  下载链接仍指向本私有仓库的 Release,那种链接需要登录态,对外发要注意。
 
 
 ## Timeline
@@ -55,4 +60,10 @@ pinyin-pro 的代码(读音在构建期离线生成)。
   kind: decision
   summary: "补一条:应用内不强调闭源(用户定),专有声明只落在仓库 LICENSE/README"
   source: "2026-09-30 用户定:软件中不用强调闭源"
+  affects: [project-licensing]
+
+- time: 2026-09-30T10:09:43
+  kind: decision
+  summary: "应用内新增「设置 → 许可 → 开源许可」:只列第三方署名与许可证,不带本软件许可;并落 THIRD_PARTY_NOTICES.md"
+  source: "2026-09-30 用户定:应用内只列第三方开源许可"
   affects: [project-licensing]

@@ -83,4 +83,10 @@
             android:key="about"
             android:title="@string/pref_about" />
     </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_licenses">
+        <Preference
+            android:key="licenses"
+            android:title="@string/pref_licenses" />
+    </PreferenceCategory>
 </PreferenceScreen>
