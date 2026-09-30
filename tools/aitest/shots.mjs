@@ -35,8 +35,8 @@ const shell = (cmd, timeout = 20000) =>
 
 /** 截图:`exec-out screencap -p` 直出 PNG,不过 sdcard,也不用 pull。 */
 function screencap(file) {
-  execFileSync(adb, [...args, 'exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 }).length // noop guard
   const buf = execFileSync(adb, [...args, 'exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 })
+  if (!buf || buf.length < 1000) throw new Error(`截图异常:${file} 只有 ${buf ? buf.length : 0} 字节`)
   writeFileSync(file, buf)
   return file
 }

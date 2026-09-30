@@ -203,4 +203,26 @@ class GesturePhysicsTest {
         t.reset()
         assertEquals("reset 后不应残留速度", 0f, t.velocity(), 1e-6f)
     }
+
+    @Test
+    fun `reading velocity twice returns zero the second time`() {
+        // 松手只有那一瞬的速度。第二次读必须给 0:否则读到的是"抬手之后过了多久"的
+        // 平均速度,越晚读越慢,动画时长会跟着抖。
+        val t = SpeedTracker()
+        t.add(1000L, 0f)
+        t.add(1016L, 48f)
+        assertEquals("第一次读 3000", 3000f, t.velocity(), 1f)
+        assertEquals("第二次读 0", 0f, t.velocity(), 1e-6f)
+    }
+
+    @Test
+    fun `reading velocity does not consume the samples`() {
+        // 作废的是"速度",不是"样本" —— 再喂一个点应能重新算出新速度
+        val t = SpeedTracker()
+        t.add(1000L, 0f)
+        t.add(1016L, 48f)
+        t.velocity()
+        t.add(1032L, 96f)
+        assertEquals("新样本应给出新速度", 3000f, t.velocity(), 1f)
+    }
 }

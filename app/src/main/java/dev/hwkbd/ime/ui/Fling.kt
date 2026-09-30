@@ -129,7 +129,14 @@ internal class SpeedTracker(private val minMovePx: Float = 2f) {
     private var velocity = 0f
     private var primed = false
 
-    /** 喂一个样本。@param timeMs 单调递增的时间戳(用 `event.eventTime`) */
+    /**
+     * 喂一个样本。
+     *
+     * @param timeMs 单调递增的时间戳(用 `event.eventTime`)
+     * @param pos 该时刻的**原始**坐标。必须是原始值,不能是扣过死区或进度化过的位移 ——
+     *   本类自己按相邻两点差分算速度,喂错了算出来的就错(这是 2026-09-30 真机改出来后
+     *   顺手补的注释:曾经把"扣死区后的 travel"喂进来,速度整体偏小,甩不动)。
+     */
     fun add(timeMs: Long, pos: Float) {
         if (prevT >= 0L) {
             val dt = timeMs - prevT
@@ -146,8 +153,19 @@ internal class SpeedTracker(private val minMovePx: Float = 2f) {
         primed = true
     }
 
-    /** 当前速度(px/s)。只有首样本时给 0。 */
-    fun velocity(): Float = if (primed) velocity else 0f
+    /**
+     * 当前速度(px/s)。只有首样本时给 0。
+     *
+     * **读一次就作废**:真实松手只有那一瞬的速度。第二次读(先判落点、再判时长)必须拿到 0 ——
+     * 否则第二次读到的是"抬手之后又过了多久"的平均速度,越晚读越慢,动画时长会跟着抖。
+     * 需要读两次就先存局部变量。
+     */
+    fun velocity(): Float {
+        if (!primed) return 0f
+        val v = velocity
+        velocity = 0f
+        return v
+    }
 
     fun reset() {
         prevT = -1L

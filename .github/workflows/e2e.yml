@@ -1,0 +1,148 @@
+name: E2E (模拟器)
+
+# 端到端 + 素材采集。这个工作流**只在模拟器上跑**,不做发布阻断 ——
+# 它有两个用途:一是回归(挂了要知道),二是给站点出截图与录屏(`tools/aitest/shots.mjs`)。
+#
+# 为什么用 workflow_dispatch 而不是每次 push 都跑:模拟器冷启动到能打字约 3–5 分钟,
+# 每次 push 都跑会把 CI 拖成分钟级,而真正的回归价值在"提交前自己跑一遍"与"发版前跑一遍"。
+on:
+  workflow_dispatch:
+    inputs:
+      shots:
+        description: 采集站点素材(截图 + 录屏)
+        type: boolean
+        default: true
+      scenes:
+        description: 跑哪些场景(逗号分隔;留空 = 只跑素材采集)
+        type: string
+        default: ''
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ---------------------------------------------------------------- 构建
+      - name: 单元测试
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: 构建 debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      # ---------------------------------------------------------------- 模拟器
+      # API 34 / x86_64:targetSdk 34 就是为它调的,minSdk 26 向上兼容。
+      # `disable-animations`:模拟器的动画默认开着,截图会拍到动画中间帧,
+      # 站点素材必须是静止帧。
+      - name: 启动模拟器
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_5
+          script: |
+            adb shell input keyevent 82
+          disable-animations: true
+          disable-snapshot: true
+          emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader_indirect -no-boot-anim
+
+      # ---------------------------------------------------------------- 前置
+      - name: 等待开机 + 启用输入法
+        run: |
+          set -euo pipefail
+          adb wait-for-device
+          # boot_completed 要轮询到 true,不是等设备出现就够了
+          for i in $(seq 1 60); do
+            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              echo "boot completed"; break
+            fi
+            sleep 5
+          done
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          # 解锁:模拟器可能锁在 keyguard 上,不解锁则输入框拿不到焦点
+          adb shell input keyevent 82 || true
+          adb shell wm dismiss-keyguard || true
+          adb install -r app/build/outputs/apk/debug/app-debug.apk
+          adb shell ime enable dev.hwkbd.ime/.service.ImeService
+          adb shell ime set dev.hwkbd.ime/.service.ImeService
+          adb shell ime list -s
+
+      - name: 列表场景
+        run: node tools/aitest/harness.mjs list
+
+      # ---------------------------------------------------------------- 素材:录屏包住整场
+      # 录屏放在**场景之前**启动、之后停止,这样 mp4 里就是完整的一段交互,
+      # 而不是"先录一段空屏再录一段操作"。
+      - name: 站点素材(截图 + 录屏)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.shots }}
+        run: |
+          set -euo pipefail
+          adb shell rm -f /sdcard/e2e.mp4
+          adb shell screenrecord --time-limit 180 --bit-rate 6000000 --size 720x1440 /sdcard/e2e.mp4 &
+          REC=$!
+          node tools/aitest/shots.mjs docs-media || true
+          sleep 2
+          kill $REC 2>/dev/null || true
+          wait $REC 2>/dev/null || true
+          mkdir -p out/media
+          adb pull /sdcard/e2e.mp4 out/media/gaia-demo.mp4
+          cp -r docs-media out/media/shots 2>/dev/null || true
+          ls -la out/media out/media/shots 2>/dev/null || true
+
+      # ---------------------------------------------------------------- 回归场景
+      - name: 跑场景
+        if: ${{ inputs.scenes != '' }}
+        run: |
+          set -euo pipefail
+          for s in $(echo '${{ inputs.scenes }}' | tr ',' ' '); do
+            echo "=== $s"
+            node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
+          done
+
+      # ---------------------------------------------------------------- 收尾
+      - name: 收集产物
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p out/evidence
+          cp -r tools/aitest/evidence/* out/evidence/ 2>/dev/null || true
+          adb logcat -d -b crash > out/crash.log 2>/dev/null || true
+          adb logcat -d -s ImeService:* > out/ime.log 2>/dev/null || true
+          echo "--- crash 计数"; grep -c FATAL out/crash.log || true
+
+      - name: 上传素材
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-media
+          path: out/media
+          if-no-files-found: warn
+
+      - name: 上传证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-evidence
+          path: out/
+          if-no-files-found: warn

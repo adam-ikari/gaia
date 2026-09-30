@@ -93,6 +93,8 @@ class CandidateBarView @JvmOverloads constructor(
 
     private var downX = 0f
     private var downY = 0f
+    private var lastX = 0f
+    private var lastY = 0f
     private var downCell = -1
 
     // ---- 翻页:横向**跟手**拖动(与上滑飞字同一套模型:死区 → 跟手 → 松手过阈值才提交)
@@ -372,7 +374,7 @@ class CandidateBarView @JvmOverloads constructor(
         if (flyP < 0f || flyAnim != null) return
         val p = progress.coerceIn(0f, 1f)
         val crossed = flyP < 1f && p >= 1f // 本次拖动里第一次越过阈值
-        if (eventTimeMs > 0L) flySpeed.add(eventTimeMs, -p) // 上滑为正 ⇒ 取负号存成"向上速度"
+        // 速度在 ACTION_MOVE 里用**原始 y** 统一采样(见那里的注释),这里不再重复喂。
         flyP = p
         if (crossed) haptics?.confirm() // 过阈值 = "这次上屏定了"
         invalidate()
@@ -482,6 +484,8 @@ class CandidateBarView @JvmOverloads constructor(
                 downX = event.x
                 downY = event.y
                 downCell = cellIndexAt(downX)
+                lastX = downX
+                lastY = downY
                 longPressFired = false
                 // 越界橡皮筋的起点:从哪按下就从哪算(2026-09-30 用户「翻页到头要有拉伸变形动画」)
                 rubberRaw = 0f
@@ -490,6 +494,16 @@ class CandidateBarView @JvmOverloads constructor(
                 performClick()
             }
             MotionEvent.ACTION_MOVE -> {
+                // 速度跟踪喂**原始位移**:SpeedTracker 自己按相邻两点差分算速度,
+                // 而这里算过的 travel 是"扣死区后的进度化位移",喂进去算出的速度是错的。
+                // 只在真的开始拖动后才喂 —— 按下到过死区之间手是静止的,不必。
+                if (pageDragging || rubberOn || flyP >= 0f) {
+                    pageSpeed.add(event.eventTime, event.x)
+                    flySpeed.add(event.eventTime, event.y)
+                    rubberSpeed.add(event.eventTime, event.x)
+                }
+                lastX = event.x
+                lastY = event.y
                 // 移动出按下槽位 / 移动超过触摸容差则取消长按(上滑拖动中绝不能误触发长按删除)
                 if (!longPressFired && (
                     cellIndexAt(event.x) != downCell ||
@@ -517,7 +531,6 @@ class CandidateBarView @JvmOverloads constructor(
                         beginPageDrag(dir, event.x, event.eventTime)
                         takeOverPage = true
                     } else if (beginRubber(dir, event.x)) {
-                        rubberSpeed.add(event.eventTime, event.x)
                         takeOverPage = true
                     }
                 }
@@ -644,7 +657,6 @@ class CandidateBarView @JvmOverloads constructor(
     /** 橡皮筋拖动进度。 */
     private fun setRubber(x: Float, eventTimeMs: Long = 0L) {
         if (!rubberOn) return
-        if (eventTimeMs > 0L) rubberSpeed.add(eventTimeMs, x)
         val over = -(x - pageDragBaseX) * rubberDir
         rubberRaw = kotlin.math.max(0f, over)
         invalidate()
@@ -705,7 +717,10 @@ class CandidateBarView @JvmOverloads constructor(
         val scale = rubberSquash()
         val savedAlpha = wordPaint.alpha
         val savedColor = wordPaint.color
+        // **裁剪在本区域内**(用户「起始动画不要超过边距 …… 不要影响到区域以外」):
+        // 压缩后的行宽比视口窄,平移一点就会露边,露出来的部分直接切掉。
         canvas.save()
+        canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
         // 围绕中心压缩
         canvas.scale(scale, 1f, width / 2f, height / 2f)
         // 再沿越界方向拉出(方向由 rubberDir 带)
