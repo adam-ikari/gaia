@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [titan2, hardware, gesture]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-23T04:29:42"
+updated: "2026-10-01T08:03:33"
 ---
 
 <!-- compiled_truth -->
@@ -52,4 +52,10 @@ Titan 2（Android 15）的物理键盘既是输入设备也是一块电容触摸
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
+  affects: [tt2-hardware-constraints]
+
+- time: 2026-10-01T08:03:33
+  kind: note
+  summary: "模拟器可以精确还原 Titan 2 的屏幕网格:AVD 手写 config.ini(hw.lcd.width/height=1440、density=320 ⇒ 576dp 宽),从开机起就是这个网格。注意 AOSP Launcher3 在正方形屏上必崩(calculateHotseatBorderSpace 除以零),要 disable 掉;也不能事后 wm size 改(改完系统瘫、Activity 起不来)"
+  source: "2026-10-01 CI 实测"
   affects: [tt2-hardware-constraints]
