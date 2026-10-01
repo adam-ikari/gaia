@@ -56,9 +56,9 @@ actions:
 ::: band ink
 <div class="gaia-band-inner gaia-band-split">
 <div class="gaia-band-copy">
-<p class="gaia-eyebrow">上滑 · 跟手</p>
+<p class="gaia-eyebrow">在键盘上滑 · 跟手</p>
 <h2>手指到哪，词到哪。</h2>
-<p>按住候选往上拖，词跟着手指走。拖到位松手才上屏，没到位它就不动。左右滑动键盘，候选词就跟着翻页。</p>
+<p>在键盘上按住往上划，词跟着手指慢慢升起来。划过分界就换区，划到头松手才上屏，没到头它不动。左右划键盘，候选跟着翻页。</p>
 </div>
 <div class="gaia-band-visual">
 <SwipeFeel />
