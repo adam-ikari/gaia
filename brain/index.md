@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-01T13:14:05.348Z._
+_Auto-generated. Last updated 2026-10-01T14:25:55.602Z._
 
 - [site-analytics](pages/site-analytics.md) — category: decision | tags: [analytics, umami, cloudflare] | 站点统计走**自建 Umami**,部署在 Cloudflare Workers + D1(用户从 Umami/Plausible/GoatCounter/
 - [site-copy](pages/site-copy.md) — category: decision | tags: [copy, voice, titan2] | 站点文案的规则**不在本仓库**，在 `adamblog` 项目里。
