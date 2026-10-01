@@ -356,6 +356,33 @@ function stopRecording() {
 }
 
 /**
+ * 录屏有没有真的起来。**必须查,不能假定。**
+ *
+ * screenrecord 参数写错时是"静默失败":它打印一行原因,然后什么都不做 ——
+ * 文件不生成,进程也不在,但 `adb shell` 本身回 0。所以
+ * `nohup screenrecord ... &` 的返回值说明不了任何事,只有查文件才知道。
+ *
+ * 这个检查的价值在于**失败要能指出原因**。之前这里直接 pull,报出来的是
+ * "No such file or directory",指向文件路径 —— 而真正的原因是参数越界。
+ */
+function recordingStarted(file) {
+  for (let i = 0; i < 6; i++) {
+    if (shell(`test -f ${file} && echo yes || echo no`) === 'yes') return true
+    sleep(1000)
+  }
+  // 没起来:把 stderr 捞出来 —— screenrecord 的报错就写在那儿
+  let why = ''
+  try {
+    why = shell(`screenrecord --time-limit 999999 /sdcard/_probe.mp4 2>&1 | head -2`)
+  } catch {
+    /* 探测本身失败就算了,只报"没起来" */
+  }
+  rmSync('/sdcard/_probe.mp4', { force: true })
+  console.log(`录屏没起来。screenrecord 自己说:${why || '(没有输出)'}`)
+  return false
+}
+
+/**
  * 修好并校验 mp4。
  *
  * **screenrecord 出的是没有 faststart 的文件**:`moov` atom 在文件末尾,
@@ -601,9 +628,20 @@ async function main() {
   // 而不是"先录一段空屏再录一段操作"。--time-limit 是 kill 没成功时的兜底。
   const recPath = '/sdcard/gaia-demo.mp4'
   shell(`rm -f ${recPath}`)
-  // 用 setsid/nohup 甩到后台:`adb shell '... &'` 在 shell 退出时可能连带被杀
-  shell(`nohup screenrecord --time-limit 300 --bit-rate 8000000 ${recPath} >/dev/null 2>&1 &`, 5000)
+  // 用 nohup 甩到后台:`adb shell '... &'` 在 shell 退出时可能连带被杀
+  //
+  // **--time-limit 不能写 300**(2026-10-01 实测,这是站点上那个坏 mp4 的真正来源):
+  // screenrecord 只接受 [1,180],给 300 它**直接拒绝启动**并打印
+  // `Time limit 300s outside acceptable range [1,180]`,文件压根不会生成。
+  // 于是 pull 必然失败(md: No such file),而如果 stderr 被 `>/dev/null` 吃掉,
+  // 现场就只剩一句"拉取失败",完全看不出是这个参数的问题。
+  //
+  // 上限跟采集时长有关:整场九步约 400–460s,靠前面的 `killall -9` 停,
+  // `--time-limit` 只是 kill 失手时的兜底,所以给上限 180 就够。
+  // 真的超过 180s 会被它自己停掉,文件是完整的 —— 宁可短,不能坏。
+  shell(`nohup screenrecord --time-limit 180 --bit-rate 8000000 ${recPath} >/dev/null 2>&1 &`, 5000)
   const recStarted = Date.now()
+  const recLive = recordingStarted(recPath)
 
   for (const s of STEPS) {
     process.stdout.write(`▶ ${s.name} ... `)
@@ -638,18 +676,22 @@ async function main() {
   await sleep(1500)
   let videoOk = false
   const videoFile = join(outDir, 'gaia-demo.mp4')
-  try {
-    execFileSync(adb, [...args, 'pull', recPath, videoFile], { timeout: 180000, stdio: 'ignore' })
-    const v = finalizeVideo(videoFile)
-    if (v.ok) {
-      videoOk = true
-      console.log(`录屏 ✓ ${v.info} · ${(v.bytes / 1048576).toFixed(2)}MB · moov 已前置`)
-    } else {
-      console.log(`录屏不可用(已删除):${v.why}`)
-      rmSync(videoFile, { force: true })
+  if (!recLive) {
+    console.log('录屏拉取失败:录屏就没起来(见上面 screenrecord 的说法)')
+  } else {
+    try {
+      execFileSync(adb, [...args, 'pull', recPath, videoFile], { timeout: 180000, stdio: 'ignore' })
+      const v = finalizeVideo(videoFile)
+      if (v.ok) {
+        videoOk = true
+        console.log(`录屏 ✓ ${v.info} · ${(v.bytes / 1048576).toFixed(2)}MB · moov 已前置`)
+      } else {
+        console.log(`录屏不可用(已删除):${v.why}`)
+        rmSync(videoFile, { force: true })
+      }
+    } catch (e) {
+      console.log(`录屏拉取失败:${e.message.split('\n')[0]}`)
     }
-  } catch (e) {
-    console.log(`录屏拉取失败:${e.message.split('\n')[0]}`)
   }
   shell(`rm -f ${recPath}`)
 
