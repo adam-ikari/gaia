@@ -159,30 +159,6 @@
   text-align: center;
 }
 
-/*
- * 状态行特写。
- *
- * 这是全站唯一一张产品图:从模拟器截图里裁出来的候选行(1440×96)。
- * 之前那 9 张整屏截图说明不了产品 —— 拍的是调试用的实验场,真正属于输入法的
- * 只有最底下那条黑边,占画面 6.7%。所以只裁这一条。
- *
- * 图本身是 12:1 的长条。手机上必然显示得小,这是它的固有形状,不是没调好;
- * 靠上面的文字把「五个候选、中间那个最好」讲清楚,图只负责证明这是真的。
- */
-.gaia-status-row {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.gaia-status-row img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
 .gaia-band-copy {
   max-width: 620px;
 }

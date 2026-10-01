@@ -17,10 +17,6 @@ actions:
 <h2>五个候选，五根手指。</h2>
 <p>打出一个词，五个候选并排落在你五根手指上。最好的那个排在正中间，空格就是它；剩下四个按顺序分给 Shift、Sym、Ctrl、Alt。想选哪个，手指都在原来的位置上。</p>
 </div>
-
-<div class="gaia-status-row">
-<img src="/media/shots/status-row.png" alt="五个候选并排，正中间那个是你最想要的词" width="1440" height="96" />
-</div>
 :::
 
 ::: band stone
