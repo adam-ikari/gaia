@@ -134,6 +134,20 @@ const tapField = async (idTail) => {
   return n
 }
 
+/** 点进输入框并清空。
+ *
+ *  `input keyevent` 一次可以接一串键码,所以「移到末尾 + 40 次退格」是**一次** adb 调用;
+ *  写成 40 次调用要多花十几秒,CI 上没必要。
+ *  清空是为了每张图都从同一个起点开始 —— 不清的话上一张的残留会跟着进下一张,
+ *  拍出来是「你n」这种半截内容,既不说明问题也不好看。
+ */
+const clearField = async (idTail) => {
+  await tapField(idTail)
+  await sleep(700)
+  shell(`input keyevent 123 ${new Array(40).fill(K.del).join(' ')}`)
+  await sleep(700)
+}
+
 const tapText = async (needle) => {
   for (const n of await nodes()) {
     if (!`${n.text}${n.desc}`.includes(needle)) continue
@@ -144,20 +158,31 @@ const tapText = async (needle) => {
   return false
 }
 
-// 键码 = Android KeyEvent 的常量值(对着 android.jar 的 `javap -constants` 抄,别背)。
+// 键码 = Android KeyEvent 的常量值。下面这张表对着 android.jar 核过:
+//   javap -classpath platforms/android-36/android.jar -constants android.view.KeyEvent
 //
 // 这里踩过两次:
 // - `h` 一度写成 **41**,而 41 是 **KEYCODE_M**。于是脚本一直在打 `nimao`,
 //   词库里当然没有,组词出不来「你好」,截出来的图只有一个降级候选 ——
-//   **图还是拍出来了,没人看得出来是键码写错**。所以下面每个步骤都带 verify。
+//   **图还是拍出来了,没人看得出来是键码写错**。所以每个步骤都带 verify。
 // - `alt` 一度写成 58,那是 KEYCODE_ALT_RIGHT;左键是 57。
 //
 // 另外 **v 是拼音分节符**,不是撇号:词库里「你好」记作 `ni'hao`,
 // [ChineseLanguage.mapText] 把 v 映射成分节符,所以要打 `nivhao`。
 const K = {
-  a: 29, h: 36, i: 37, n: 42, o: 43, v: 50,
+  a: 29, h: 36, i: 37, n: 42, o: 43, s: 47, v: 50,
   space: 62, del: 67, shift: 59, alt: 57,
 }
+
+/** logcat 里某个字符串出现了几行。用来断言「动作真的发生了」——
+ *  候选条不在 uiautomator 的 dump 里(它是另一个窗口),但输入法自己会打日志。 */
+const countLog = async (needle) =>
+  shell('logcat -d -b main -s ImeService:I 2>/dev/null || true', 20000)
+    .split('\n')
+    .filter((l) => l.includes(needle)).length
+
+/** 翻页那一步把前后的计数存这儿,给 verify 用。 */
+let flyPages = { before: 0, after: 0 }
 
 /** 等内置词库加载完。
  *
@@ -206,15 +231,23 @@ function stopRecording() {
   }
 }
 
-/** 每一步 = 出一张图 + 一句给站点用的话。core 的步骤失败会让退出码非 0。 */
+/** 每一步 = 出一张图 + 一句给站点用的话。
+ *
+ *  **图必须对得起那句话。** 之前 04/05 两步的文案写「五键选字」「滑动翻页」,
+ *  截出来的却是一张空闲状态的状态行 —— 看的人不会知道是演示没做出来,
+ *  只当是功能没有。所以每步要么拍到那个状态,要么 verify 说不清。
+ *
+ *  步骤顺序也是刻意的:alt 锁定那步放在 url/number 之后,免得锁住的层把后面两张
+ *  输入类型对照图污染掉(设置/许可两页不显示输入法条,解锁失败也无所谓,但还是解开)。
+ */
 const STEPS = [
   {
     name: '01-idle',
     core: true,
-    caption: '打开输入框的样子。屏幕上就这两行：上面是候选，下面是状态。',
+    caption: '打开输入框的样子。就这一行：左边是状态，中间是这一层能按的键，右边三个按钮。',
     async run() {
-      await tapField(':id/et_playground')
-      await sleep(2500)
+      await clearField(':id/et_playground')
+      await sleep(2000)
     },
   },
   {
@@ -222,8 +255,6 @@ const STEPS = [
     core: true,
     caption: '打了一半：nivhao。候选实时跟着变，你不用等它想完。',
     async run() {
-      await tapField(':id/et_playground')
-      await sleep(1200)
       key(K.n, K.i, K.v, K.h, K.a, K.o)
       await sleep(2000)
     },
@@ -246,54 +277,58 @@ const STEPS = [
     },
   },
   {
-    name: '04-five-key',
-    core: false,
-    caption: '五个候选分给五根手指。Shift、Sym、Ctrl、Alt 各管一个，手不用挪。',
+    name: '04-page-swipe',
+    core: true,
+    caption: '候选多于一页。在这一行上左右划，就换页 —— 划的是手指走过多少，不是屏幕宽的几分之几。',
     async run() {
-      key(K.n, K.i)
-      await sleep(1500)
-      key(K.shift)
-      await sleep(1200)
-      key(K.del, K.del)
-      await sleep(800)
-    },
-  },
-  {
-    name: '05-page-swipe',
-    core: false,
-    caption: '左右滑动键盘，候选词就跟着翻页。',
-    async run() {
-      key(K.n, K.i, K.v, K.h, K.a, K.o)
+      await clearField(':id/et_playground')
+      // shi 的候选横跨好几页,才够演示翻页(ni'hao 只有两条,划了也看不出换页)
+      key(K.s, K.h, K.i)
       await sleep(1800)
-      // 在输入框那条线上左右划 —— 划的是键盘区域,坐标跟着输入框走才换得到分辨率无关
       const f = await byId(':id/et_playground')
-      const dx = Math.round(f.cx * 0.35) || 260
+      const before = await countLog('fly page:')
+      // 划在输入框那条线上。输入法窗口是全屏的,飞字手势收得到窗口外的点,
+      // 所以这里不需要知道键盘有多高 —— 坐标跟着输入框走,天然分辨率无关。
+      const dx = Math.round(f.cx * 0.3) || 260
       shell(`input swipe ${f.cx - dx} ${f.cy} ${f.cx + dx} ${f.cy} 220`)
-      await sleep(1200)
-      key(K.del, K.del, K.del, K.del, K.del, K.del)
-      await sleep(600)
-    },
-  },
-  {
-    name: '06-url-field',
-    core: false,
-    caption: '切到网址框，这行键就换成网址开头。',
-    async run() {
-      await tapField(':id/et_url')
-      await sleep(2200)
-    },
-  },
-  {
-    name: '07-number-field',
-    core: false,
-    caption: '切到数字框，只留下数字能打的键。',
-    async run() {
-      await tapField(':id/et_number')
-      await sleep(2200)
+      await sleep(1400)
+      flyPages = { before, after: await countLog('fly page:') }
     },
     async verify() {
+      return flyPages.after > flyPages.before ? null : '划了一下,输入法日志里没有翻页记录'
+    },
+  },
+  {
+    name: '05-url-field',
+    core: false,
+    caption: '切到网址框，中间那把键就变成网址开头。',
+    async run() {
+      await clearField(':id/et_url')
+      await sleep(2000)
+    },
+  },
+  {
+    name: '06-number-field',
+    core: false,
+    caption: '切到数字框，左边这一项直接写出这类框能打的字符。',
+    async run() {
+      await clearField(':id/et_number')
+      await sleep(2000)
+    },
+    async verify() {
+      // 空输入框的 EditText,uiautomator 把 hint 报在 text 上,所以别断言「空」
       const t = (await byId(':id/et_number')).text
-      return t === '' ? null : `数字框应该是空的,实际是「${t}」`
+      return t.includes('你好') ? `换框之后文字还留在框里:「${t}」` : null
+    },
+  },
+  {
+    name: '07-alt-layer',
+    core: false,
+    caption: '连按两下 Alt，这一层就锁住：左边多一项 alt，中间那排键换成这一层的，再按一下解开。',
+    async run() {
+      // 双击 = 锁定([ImeController] 的主轴是敲击次数,单击只是借用一下)
+      shell(`input keyevent ${K.alt} ${K.alt}`)
+      await sleep(1500)
     },
   },
   {
@@ -301,6 +336,9 @@ const STEPS = [
     core: false,
     caption: '设置页。词库导入导出、词频、上下滑距离、翻页方向都在这儿。',
     async run() {
+      // 解开上一步锁住的 alt 层:设置页虽然不显示输入法条,但留着锁住的状态
+      // 会让「真机重跑一次」的人以为层卡住了
+      shell(`input keyevent ${K.alt}`)
       shell(`am start -n ${PKG}/.settings.SettingsActivity >/dev/null 2>&1`)
       await sleep(2500)
     },
