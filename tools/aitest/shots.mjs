@@ -140,22 +140,38 @@ async function byId(idTail) {
 }
 
 /**
- * 等某个控件出现在当前窗口。
+ * 打开实验场,等它真的出现在当前窗口。
  *
- *  冷启动第一次装完包,实验场要好几秒才起来,固定 sleep 3s 不可靠(实测有一次
- *  根本没起来)。**上限给到 150s 而不是 60s**:uiautomator 在刚装完包那阵
- *  会回 `null root node`(见 [dumpUi]),一次 poll 可能自己耗掉 20s,
- *  60s 的预算三下就花完了 —— 那是"dump 慢",不是"应用没起来",两者不该共用一个上限。
+ *  **只 `am start` 一次然后死等是不行的。** 2026-10-01 实测:改完 `wm size/density`
+ *  之后系统要重新布局,launcher 自己还崩过一次
+ *  (`ArithmeticException: divide by zero`,com.android.launcher3),
+ *  第一次 start 落在布局完成之前 → dump 里只有桌面,`et_playground` 永远不出现,
+ *  于是一轮采集白等 150 秒。所以要**反复 start**,而不是启动一次然后只看。
+ *
+ *  `am start -W` 会等 Activity 真的显示出来并打出状态,失败时那段输出留着报错,
+ *  比只说「没等到」有用得多。
  */
-const waitForField = async (idTail, timeoutMs = 150000) => {
+const openPlayground = async (idTail = ':id/et_playground', timeoutMs = 180000) => {
   const t0 = Date.now()
-  for (;;) {
-    const all = await nodes()
-    if (all.some((n) => n.id.endsWith(idTail))) return true
-    if (Date.now() - t0 > timeoutMs) {
-      throw new Error(`${timeoutMs / 1000}s 内没等到 ${idTail}${dumpFailure ? `(uiautomator dump 一直失败:${dumpFailure})` : ''}`)
+  let last = ''
+  for (let round = 0; ; round++) {
+    try {
+      last = shell(`am start -W -n ${PKG}/.playground.PlaygroundActivity 2>&1 | tail -5`, 40000)
+    } catch (e) {
+      last = String(e.message)
     }
-    await sleep(2000)
+    // 一轮 start 之后多看几眼:起来得比 start 返回慢
+    for (let j = 0; j < 4; j++) {
+      if ((await nodes()).some((n) => n.id.endsWith(idTail))) return true
+      await sleep(2000)
+    }
+    if (Date.now() - t0 > timeoutMs) {
+      throw new Error(
+        `${timeoutMs / 1000}s 内实验场没起来\n最后一次 am start:\n${last}` +
+          (dumpFailure ? `\nuiautomator 也一直失败:${dumpFailure}` : ''),
+      )
+    }
+    console.log(`  实验场还没起来,再 start 一次(第 ${round + 1} 轮)`)
   }
 }
 
@@ -480,12 +496,11 @@ async function main() {
   }
   if (!imeReady) throw new Error(`输入法没注册进 ime list:${IME}(装好了吗?)`)
   shell(`ime set ${IME}`)
-  shell(`am start -n ${PKG}/.playground.PlaygroundActivity >/dev/null 2>&1`)
   // 顺序不能反:**输入法服务是在第一个输入框拿到焦点时才起来的**,
   // 词库又是在服务 onCreate 里加载 —— 所以「先等词库」在冷启动时是死等
   // (2026-10-01 实测:等满 180s 超时,因为那时服务还没建,日志根本不会有)。
   // 正确顺序:开实验场 → 等它真的出来 → 点一下输入框(服务起来)→ 再等词库。
-  await waitForField(':id/et_playground')
+  await openPlayground()
   await tapField(':id/et_playground')
   await sleep(1500)
   // 词库就绪之前候选是空的,那组图等于没截 —— 先等它,再开始录屏

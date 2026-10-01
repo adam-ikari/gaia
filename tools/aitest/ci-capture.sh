@@ -78,7 +78,7 @@ a shell wm dismiss-keyguard || true
 say "屏幕改成 Titan 2:1440x1440 @ 320dpi(= 576dp 宽)"
 a shell wm size 1440x1440
 a shell wm density 320
-sleep 3
+sleep 5
 say "现在: $(a shell wm size | tr '\n' ' ')| $(a shell wm density | tr '\n' ' ')"
 
 if ! timeout 300 "$ADB_BIN" -s "$SERIAL" install -r -t "$APK"; then
@@ -115,7 +115,7 @@ if [ -n "${SHOOTS:-}" ]; then
   mkdir -p out/media
   say "采集素材(截图 + 录屏)"
   # 脚本用 adb -s 选设备,所以要把 env 也喂给它
-  AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 700 node tools/aitest/shots.mjs out/media/shots \
+  AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 900 node tools/aitest/shots.mjs out/media/shots \
     || echo "::warning::素材脚本有失败项"
   ls -la out/media out/media/shots 2>/dev/null || true
 fi
