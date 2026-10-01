@@ -143,8 +143,19 @@ const tapField = async (idTail) => {
  *  拍出来是「你n」这种半截内容,既不说明问题也不好看。
  */
 const clearField = async (idTail) => {
-  await tapField(idTail)
-  await sleep(700)
+  // 点一下不一定就点中。上一步刚做完划动(飞字)手势时,第一下点会被吞掉 ——
+  // 表现为"这一格没拿到焦点,焦点还在上一格",而图看起来只是内容不对。
+  // 所以点完要**问一句**焦点在不在,不在就再点。这比针对某一步加延时可靠:
+  // 同样的事可能发生在任何一步。
+  let got = ''
+  for (let k = 0; k < 4; k++) {
+    await tapField(idTail)
+    await sleep(800)
+    got = await focusedId()
+    if (got.endsWith(idTail)) break
+    if (k < 3) console.log(`  ${idTail} 没拿到焦点(现在在 ${got}),再点一次`)
+  }
+  if (!got.endsWith(idTail)) throw new Error(`点了 4 下 ${idTail} 还是没拿到焦点(当前 ${got})`)
   shell(`input keyevent 123 ${new Array(40).fill(K.del).join(' ')}`)
   await sleep(700)
 }
@@ -314,7 +325,8 @@ const STEPS = [
       // 所以这里不需要知道键盘有多高 —— 坐标跟着输入框走,天然分辨率无关。
       const dx = Math.round(f.cx * 0.3) || 260
       shell(`input swipe ${f.cx - dx} ${f.cy} ${f.cx + dx} ${f.cy} 220`)
-      await sleep(1400)
+      // 多等一会儿让手势彻底收尾 —— 收尾不干净的话下一步的第一下点会被吞
+      await sleep(2200)
       flyPages = { before, after: await countLog('fly page:') }
     },
     async verify() {
