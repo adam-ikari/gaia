@@ -6,18 +6,32 @@ name: E2E (模拟器)
 # 为什么用 workflow_dispatch 而不是每次 push 都跑:模拟器冷启动到能打字要 1–2 分钟,
 # 每次 push 都跑会把 CI 拖成分钟级,而真正的回归价值在"发版前跑一遍"。
 #
-# ## 这个文件踩过的三个坑(都在 2026-09-30,每一轮都以为是模拟器的问题)
+# ## 这个文件踩过的坑(2026-09-30 连烧六轮才想通,每一轮都以为是模拟器起不来)
 #
-# 1. **KVM 权限**。runner 默认没 /dev/kvm 权限,x86_64 模拟器起不来。
+# **1. 模拟器的生命周期 == 「启动模拟器」这**一个** step。**
+#    step 一结束,action 立刻 `emu kill`。日志长这样:
+#      Starting emulator → Boot completed in 56010 ms → [group]Terminate Emulator → emu kill
+#    所以安装 APK、启用输入法、截图、录屏**必须全在这个 step 内部**,
+#    拆到后面的 step,等它们跑起来 `adb devices` 已经空了。
+#    `emu kill` 之后的 `libc++abi: terminating` 是收尾噪音,不是启动失败(我误读过一次)。
+#
+# **2. workflow 的 `script:` 是用 `/usr/bin/sh` 逐行执行的**,不是当脚本文件跑:
+#      [command]/usr/bin/sh -c set -u
+#      [command]/usr/bin/sh -c for i in $(seq 1 60); do
+#      /usr/bin/sh: 1: Syntax error: end of file unexpected (expecting "done")
+#    多行 shell 结构必挂,`set -o pipefail` 也会挂(dash 没这选项)。
+#    ⇒ `script:` 只有一行 `bash tools/aitest/ci-capture.sh`,逻辑全在那个文件里。
+#
+# **3. adb 路径与序列号要显式给。** PATH 上的 adb 不保证是 action 用的那个,
+#    `adb shell getprop` 会静默无输出,看着像 boot 不完。
+#    → ci-capture.sh 里 `ADB_BIN` / `SERIAL` 有默认值,workflow 再显式传一遍。
+#
+# **4. KVM 权限。** runner 默认没 /dev/kvm 权限,x86_64 模拟器起不来。
 #    → 见「打开 KVM 权限」那步。
-# 2. **action 的 `script` 是用 `/usr/bin/sh` 逐行执行的**,不是当脚本文件跑。
-#    所以:多行 shell 结构(`for ...; do ... done`)会报
-#    `Syntax error: end of file unexpected`,`set -o pipefail` 会报
-#    `Illegal option`(dash 没有 pipefail)。**script 里只能放单行命令。**
-#    → 所以环境准备与采集都放在下面的普通 `run:` step 里,script 只留一行解锁。
-# 3. **模拟器的生命周期 == 「启动模拟器」这个 step**。该 step 失败(比如 script 报错)时
-#    action 会立刻 `emu kill`,后续 step 就找不到设备 —— 表现是"模拟器起来几十秒就没了",
-#    但真因往往在 script 的 stderr 里,别顺着模拟器方向查。
+#
+# (顺带:`-gpu swiftshader_indirect` 在 emulator 37 报 "Failed to find ColorBuffer",
+#  间接渲染路径已废弃,现在用 `-gpu swiftshader`;`-no-boot-anim` 不能去掉,
+#  留着它 boot_completed 迟迟不上报。)
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +40,7 @@ on:
         type: boolean
         default: true
       scenes:
-        description: 跑哪些场景(逗号分隔;留空 = 只跑素材采集)
+        description: 跑哪些场景(逗号分隔;留空 = 不跑回归场景)
         type: string
         default: ''
   push:
@@ -74,8 +88,16 @@ jobs:
             exit 1
           fi
 
-      - name: 启动模拟器
+      # 装 APK、启用输入法、截图录屏全在这**一个** step 里跑完(坑 1)。
+      # script 只写一行(坑 2),逻辑在 tools/aitest/ci-capture.sh。
+      - name: 启动模拟器 + 准备 + 采集
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # 显式给,别依赖 PATH(坑 3)
+          ANDROID_ADB_PATH: /usr/local/lib/android/sdk/platform-tools/adb
+          ANDROID_SERIAL: emulator-5554
+          SHOOTS: ${{ inputs.shots && '1' || '' }}
+          SCENES: ${{ inputs.scenes }}
         with:
           api-level: 34
           arch: x86_64
@@ -84,92 +106,17 @@ jobs:
           cores: 4
           disable-animations: true
           emulator-boot-timeout: 600
-          # `-gpu swiftshader_indirect` 在 emulator 37 上报 "Failed to find ColorBuffer"
-          # (间接渲染路径已废弃);`-gpu swiftshader` 是现在受支持的软件渲染。
-          # `-no-boot-anim` 不能去掉:留着它 boot_completed 会迟迟不上报。
+          # 注释见文件头:`swiftshader_indirect` 已废弃,`-no-boot-anim` 不能去掉
           emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader -no-boot-anim
-          # script 是必填项(去掉报 "Input required and not supplied: script"),
-          # 且**只能单行**(逐行执行,见文件头坑 2)。真正的准备在下一步。
-          script: adb shell input keyevent 82 || true
+          # 必填(去掉报 "Input required and not supplied: script"),且只能单行(坑 2)
+          script: bash tools/aitest/ci-capture.sh
 
-      # ---------------------------------------------------------------- 环境准备
-      - name: 等待开机 + 安装 + 启用输入法
-        env:
-          # **必须显式指定 adb 路径与设备序列号**。emulator-runner 自己用的是
-          # /usr/local/lib/android/sdk/platform-tools/adb -s emulator-5554;
-          # 而普通 step 里 PATH 上的 adb 可能不是同一个(或它没带 ANDROID_SERIAL),
-          # 于是 `adb shell getprop` 静默无输出 —— 上一轮 24 次轮询一条回显都没有,
-          # 看着像 boot 不完,其实是命令没打到设备上。
-          ADB: /usr/local/lib/android/sdk/platform-tools/adb
-          SERIAL: emulator-5554
-        run: |
-          set -uo pipefail
-          adb() { timeout 60 "$ADB" -s "$SERIAL" "$@"; }
-          export -f adb 2>/dev/null || true
-
-          echo "--- 设备列表:"; timeout 30 "$ADB" devices || true
-
-          booted=0
-          for i in $(seq 1 24); do
-            if [ "$(timeout 20 "$ADB" -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')" = "1" ]; then
-              booted=1; break
-            fi
-            sleep 5
-          done
-          if [ "$booted" != "1" ]; then
-            echo "::error::boot_completed 超时(SERIAL=$SERIAL)"
-            timeout 30 "$ADB" -s "$SERIAL" shell getprop 2>&1 | head -5 || true
-            exit 1
-          fi
-          echo "boot completed after $i polls"
-
-          # 动画全关:截图要静止帧
-          timeout 20 "$ADB" -s "$SERIAL" shell settings put global window_animation_scale 0 || true
-          timeout 20 "$ADB" -s "$SERIAL" shell settings put global transition_animation_scale 0 || true
-          timeout 20 "$ADB" -s "$SERIAL" shell settings put global animator_duration_scale 0 || true
-          timeout 20 "$ADB" -s "$SERIAL" shell wm dismiss-keyguard || true
-
-          timeout 300 "$ADB" -s "$SERIAL" install -r -t app/build/outputs/apk/debug/app-debug.apk || {
-            echo "::error::安装失败"; exit 1; }
-          timeout 30 "$ADB" -s "$SERIAL" shell ime enable dev.hwkbd.ime/.service.ImeService || true
-          timeout 30 "$ADB" -s "$SERIAL" shell ime set dev.hwkbd.ime/.service.ImeService || true
-          # 停掉模拟器自带的拉丁键盘,免得跟输入法抢
-          timeout 20 "$ADB" -s "$SERIAL" shell ime disable com.android.inputmethod.latin 2>/dev/null || true
-          echo "--- 输入法:"; timeout 30 "$ADB" -s "$SERIAL" shell ime list -s || true
-
-      # ---------------------------------------------------------------- 采集与回归
-      - name: 站点素材(截图 + 录屏)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.shots }}
-        env:
-          # 脚本用 adb -s,靠这个环境变量选设备
-          AITEST_DEVICE: emulator-5554
-          ADB: /usr/local/lib/android/sdk/platform-tools/adb
-        run: |
-          mkdir -p out/media
-          timeout 420 node tools/aitest/shots.mjs out/media/shots || echo "素材脚本有失败项"
-          ls -la out/media out/media/shots 2>/dev/null || true
-
-      - name: 跑场景
-        if: ${{ inputs.scenes != '' }}
-        env:
-          AITEST_DEVICE: emulator-5554
-          ADB: /usr/local/lib/android/sdk/platform-tools/adb
-        run: |
-          for s in $(echo '${{ inputs.scenes }}' | tr ',' ' '); do
-            echo "=== $s"
-            timeout 300 node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
-          done
-
-      # ---------------------------------------------------------------- 收尾
-      - name: 收集产物
+      # ---------------------------------------------------------------- 产物
+      # 模拟器已经没了,这里只搬文件。
+      - name: 列出产物
         if: always()
         run: |
-          set -uo pipefail
-          mkdir -p out/evidence
-          cp -r tools/aitest/evidence/* out/evidence/ 2>/dev/null || true
-          timeout 60 adb logcat -d -b crash > out/crash.log 2>/dev/null || true
-          timeout 60 adb logcat -d -s ImeService:* > out/ime.log 2>/dev/null || true
-          echo "--- crash 计数"; grep -c FATAL out/crash.log 2>/dev/null || echo 0
+          find out -type f 2>/dev/null | head -50 || echo "(没有产物)"
 
       - name: 上传素材
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
