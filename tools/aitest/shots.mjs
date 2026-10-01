@@ -98,6 +98,7 @@ async function nodes(xml = null) {
       raw: m[0],
       id: g(/resource-id="([^"]*)"/),
       cls: g(/class="([^"]*)"/),
+      focused: /focused="true"/.test(m[0]),
       text: g(/text="([^"]*)"/),
       desc: g(/content-desc="([^"]*)"/),
       cx: b ? Math.round((Number(b[1]) + Number(b[3])) / 2) : 0,
@@ -176,6 +177,23 @@ const K = {
 
 /** 只看输入法自己的两个 tag。层锁定的日志在 ImeController,其余在 ImeService。 */
 const LOGCAT = 'logcat -d -b main -s ImeService:I ImeController:I 2>/dev/null || true'
+
+/** 当前拿到焦点的那个控件的 resource-id。
+ *
+ *  uiautomator 的每个 node 都带 `focused="true"`,所以「点一下这个输入框,
+ *  焦点真的过去了吗」是**可以直接问的** —— 不用去猜,也不用去看输入框里有没有字。
+ *  (实验场里每个输入框的 hint 就是那句说明文字,所以"框里有没有字"根本不能当证据。)
+ */
+const focusedId = async () => {
+  const hit = (await nodes()).find((n) => n.focused && n.id)
+  return hit ? hit.id : '(没有控件拿到焦点)'
+}
+
+/** 断言焦点在某个输入框上。 */
+const verifyFocus = (idTail, what) => async () => {
+  const got = await focusedId()
+  return got.endsWith(idTail) ? null : `${what}没拿到焦点,当前焦点是 ${got}`
+}
 
 /** logcat 里某个字符串出现了几行。用来断言「动作真的发生了」——
  *  候选条与状态行都不在 uiautomator 的 dump 里(输入法是另一个窗口),
@@ -306,11 +324,12 @@ const STEPS = [
   {
     name: '05-url-field',
     core: false,
-    caption: '切到网址框，中间那把键就变成网址开头。',
+    caption: '切到网址框，中间那排键换成网址常用的一键短语。',
     async run() {
       await clearField(':id/et_url')
       await sleep(2000)
     },
+    verify: verifyFocus(':id/et_url', '网址框'),
   },
   {
     name: '06-number-field',
@@ -320,16 +339,12 @@ const STEPS = [
       await clearField(':id/et_number')
       await sleep(2000)
     },
-    async verify() {
-      // 空输入框的 EditText,uiautomator 把 hint 报在 text 上,所以别断言「空」
-      const t = (await byId(':id/et_number')).text
-      return t.includes('你好') ? `换框之后文字还留在框里:「${t}」` : null
-    },
+    verify: verifyFocus(':id/et_number', '数字框'),
   },
   {
     name: '07-alt-layer',
     core: false,
-    caption: '连按两下 Alt，这一层就锁住：左边多一项 alt，中间那排键换成这一层的，再按一下解开。',
+    caption: '连按两下 Alt，这一层就锁住：左边多出 alt 这一项，带下划线就是锁着的样子。再按一下解开。',
     async run() {
       // 必须先回到拼音态的普通文本框:上一步停在数字框,数字态里 alt 那一项
       // 显示的是「0-9」这类字符集,锁没锁都看不出区别 —— 图就白拍了。
@@ -341,7 +356,8 @@ const STEPS = [
       lockAfter = await countLog('layer lock: true')
     },
     async verify() {
-      return lockAfter > lockBefore ? null : '连按两下 Alt,输入法日志里没有出现锁定记录'
+      if (lockAfter <= lockBefore) return '连按两下 Alt,输入法日志里没有出现锁定记录'
+      return verifyFocus(':id/et_playground', '普通文本框')()
     },
   },
   {
