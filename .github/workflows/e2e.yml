@@ -72,6 +72,12 @@ jobs:
       # arch 由上面那步的结果决定:有 KVM 走 x86_64(快),没有就退出而不是白等 10 分钟。
       - name: 启动模拟器
         uses: reactivecircus/android-emulator-runner@v2
+        # env 必须与 with 同级:放在 with 里面会被当成 action 的入参,
+        # 而入参区只接受标量 → workflow 解析失败、dispatch 直接 422
+        # ("A mapping was not expected")。踩过。
+        env:
+          SHOOTS: ${{ inputs.shots && '1' || '' }}
+          SCENES: ${{ inputs.scenes }}
         with:
           api-level: 34
           arch: x86_64
@@ -88,14 +94,9 @@ jobs:
           # `-no-boot-anim` 不能去掉:留着它 boot_completed 会迟迟不上报。
           emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader -no-boot-anim
           # script 是该 action 的必填项(去掉会报 "Input required and not supplied: script")。
-          # 这里只做最轻的一步解锁,真正的启用/设置在下一步做。
           # 采集必须发生在**这个 step 内部**:模拟器的生命周期 == emulator-runner 这个 step,
-          # step 一结束它就被拆掉。之前把安装/采集拆到后续 step,结果就是后续 step 起来时
+          # step 一结束它就被拆掉。之前把安装/采集拆到后续 step,结果后续 step 起来时
           # `adb devices` 已经空了(2026-09-30 连续三轮都栽在这)。
-          # 所以这里只做环境准备,截图/录屏也在这里跑,由 SHOOTS / SCENES 两个 env 开关控制。
-          env:
-            SHOOTS: ${{ inputs.shots && '1' || '' }}
-            SCENES: ${{ inputs.scenes }}
           script: |
             set -uo pipefail
             # 开机的兜底:action 自己也在等,但它判定成功后脚本才跑
