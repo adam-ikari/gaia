@@ -15,7 +15,7 @@
  * 产出(可直接喂给站点 docs/public/media/):
  *   NN-name.png   每个步骤一张截图
  *   gaia-demo.mp4 全程录屏(screenrecord,8Mbps)
- *   gaia-demo.jpg 封面(站点的 <video poster>)
+ *   gaia-demo-poster.png 封面(站点的 <video poster>)
  *   manifest.json 图文对照表
  *
  * 为什么在真机跑而不是 CI 模拟器(2026-09-30 实测):GitHub runner 的 x86_64 模拟器起来
@@ -56,35 +56,51 @@ function screencap(file) {
 
 const key = (...codes) => codes.forEach((c) => shell(`input keyevent ${c}`))
 
-/** uiautomator dump,返回所有 EditText 的 bounds(按界面从上到下)。 */
-function editTexts() {
-  try {
-    shell('uiautomator dump /sdcard/u.xml', 30000)
-    const xml = shell('cat /sdcard/u.xml', 10000)
-    const out = []
-    for (const m of xml.matchAll(/<node[^>]*>/g)) {
-      if (!m[0].includes('android.widget.EditText')) continue
-      const b = m[0].match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
-      if (!b) continue
-      const [, x1, y1, x2, y2] = b.map(Number)
-      out.push({ cx: Math.round((x1 + x2) / 2), cy: Math.round((y1 + y2) / 2), text: (m[0].match(/text="([^"]*)"/) ?? [])[1] ?? '' })
+/** uiautomator dump 的原始 XML,失败/空结果重试。
+ *
+ *  必须重试:uiautomator 刚起来时经常回
+ *  `ERROR: null root node returned by UiTestAutomationBridge.` 然后什么都不吐 ——
+ *  窗口还在 inflate。这是**瞬时**的,不是设备不支持(dump 本来是能用的,
+ *  同一轮后面几步就全成功了),所以重试比"当成失败"对。
+ */
+function dumpUi(retries = 3, gap = 1200) {
+  for (let k = 0; k < retries; k++) {
+    try {
+      shell('uiautomator dump /sdcard/u.xml', 30000)
+      const xml = shell('cat /sdcard/u.xml', 10000)
+      if (xml && xml.includes('<node')) return xml
+    } catch {
+      /* 落到下一次重试 */
     }
-    return out
-  } catch {
-    return []
+    if (k < retries - 1) execFileSync('sleep', [String(gap / 1000)])
   }
+  return ''
+}
+
+/** 所有 EditText 的 bounds(按界面从上到下)。 */
+function editTexts() {
+  const xml = dumpUi()
+  const out = []
+  for (const m of xml.matchAll(/<node[^>]*>/g)) {
+    if (!m[0].includes('android.widget.EditText')) continue
+    const b = m[0].match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
+    if (!b) continue
+    const [, x1, y1, x2, y2] = b.map(Number)
+    out.push({ cx: Math.round((x1 + x2) / 2), cy: Math.round((y1 + y2) / 2), text: (m[0].match(/text="([^"]*)"/) ?? [])[1] ?? '' })
+  }
+  return out
 }
 
 const tapField = (i) => {
-  const f = editTexts()[i]
-  if (!f) throw new Error(`找不到第 ${i} 个输入框(共 ${editTexts().length} 个)`)
+  const list = editTexts()
+  const f = list[i]
+  if (!f) throw new Error(`找不到第 ${i} 个输入框(共 ${list.length} 个)`)
   shell(`input tap ${f.cx} ${f.cy}`)
   return f
 }
 
 const tapText = (needle) => {
-  shell('uiautomator dump /sdcard/u.xml', 30000)
-  const xml = shell('cat /sdcard/u.xml', 10000)
+  const xml = dumpUi()
   for (const m of xml.matchAll(/<node[^>]*>/g)) {
     const t = (m[0].match(/text="([^"]*)"/) ?? [])[1] ?? ''
     if (!t.includes(needle)) continue
@@ -98,6 +114,25 @@ const tapText = (needle) => {
 }
 
 const K = { n: 42, i: 37, h: 41, a: 29, o: 43, space: 62, del: 67, shift: 59, alt: 58 }
+
+/** 停掉 screenrecord。
+ *
+ *  **不能用 `pkill -f screenrecord`。** `-f` 匹配整条命令行,而这条命令行是
+ *  `sh -c pkill -f screenrecord` —— pkill 会把**自己的父 shell** 一起杀掉,
+ *  adb 那头就永远等不到 shell 退出,20 秒后被 timeout 砍掉,整轮采集跟着炸。
+ *  (2026-10-01 在 CI 上就是这么挂的:status 143 = SIGTERM。)
+ *
+ *  `killall` 匹配的是进程**名**(screenrecord),父 shell 叫 sh,不会误伤。
+ *  再加上 `</dev/null` 掐掉 stdin 等待,失败也只算没停成功 —— 兜底是
+ *  screenrecord 自己的 `--time-limit`,到点自己会退出。
+ */
+function stopRecording() {
+  try {
+    shell(`killall -9 screenrecord </dev/null 2>/dev/null || true`, 10000)
+  } catch {
+    console.log('(killall 没成功,等 --time-limit 兜底)')
+  }
+}
 
 /** 每一步 = 出一张图 + 一句给站点用的话。core 的步骤失败会让退出码非 0。 */
 const STEPS = [
@@ -240,7 +275,7 @@ async function main() {
 
   // 停录屏再拉:先给 2 秒让最后一段写盘,否则 mp4 尾部会缺
   await sleep(2000)
-  shell(`pkill -f screenrecord || true`)
+  stopRecording()
   await sleep(1500)
   let videoOk = false
   try {
@@ -248,8 +283,10 @@ async function main() {
       timeout: 180000,
       stdio: 'ignore',
     })
-    // 顺带出一张封面:站点的 <video poster> 用它,首帧常常还没渲染出候选
-    screencap(join(outDir, 'gaia-demo.jpg'))
+    // 顺带出一张封面:站点的 <video poster> 用它,首帧常常还没渲染出候选。
+    // screencap 只出 PNG,所以文件名也用 .png —— 把 PNG 存成 .jpg 靠浏览器嗅探才显示,
+    // 换个不嗅探的环境就露馅。
+    screencap(join(outDir, 'gaia-demo-poster.png'))
     videoOk = true
   } catch (e) {
     console.log(`录屏拉取失败:${e.message}`)
