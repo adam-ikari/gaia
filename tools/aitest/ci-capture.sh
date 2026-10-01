@@ -68,6 +68,25 @@ if ! timeout 300 "$ADB_BIN" -s "$SERIAL" install -r -t "$APK"; then
   echo "::error::安装失败"
   exit 1
 fi
+
+# **装完包不能立刻 `ime set`**。`adb install` 返回 Success 时,PackageManager 往往还没
+# 处理完新包的 ACTION_PACKAGE_ADDED,`ime enable/set` 会回
+#   Unknown input method dev.hwkbd.ime/.service.ImeService cannot be enabled for user #0
+# 这是竞态不是故障(2026-10-01 在 CI 上隔一轮就复现一次:同样的脚本上一轮能选上)。
+# 所以轮询等它真的出现在 `ime list -a` 里,最多 60 秒。
+say "等输入法注册"
+ime_ok=0
+for i in $(seq 1 20); do
+  if a shell ime list -s -a 2>/dev/null | grep -qx "$IME"; then ime_ok=1; break; fi
+  sleep 3
+done
+if [ "$ime_ok" != "1" ]; then
+  echo "::error::装上了包但 $IME 没注册进 ime list"
+  a shell pm list packages 2>/dev/null | grep hwkbd || echo "(pm list 里没有 hwkbd)"
+  exit 1
+fi
+say "输入法已注册($i 次轮询)"
+
 a shell ime enable "$IME" || true
 a shell ime set "$IME" || true
 # 停掉模拟器自带的拉丁键盘,免得跟输入法抢

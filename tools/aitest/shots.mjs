@@ -246,6 +246,18 @@ async function main() {
   let fail = 0
 
   shell(`ime enable ${IME} >/dev/null 2>&1 || true`)
+  // 刚装完包时 IME 可能还没注册进 ime list,直接 set 会报 "Unknown input method"。
+  // 那是竞态不是配置错,轮询等它出现。
+  let imeReady = false
+  for (let k = 0; k < 20; k++) {
+    if (shell(`ime list -s -a 2>/dev/null || true`, 15000).split('\n').some((l) => l.trim() === IME)) {
+      imeReady = true
+      break
+    }
+    console.log(`  等输入法注册 ${k + 1}/20`)
+    await sleep(3000)
+  }
+  if (!imeReady) throw new Error(`输入法没注册进 ime list:${IME}(装好了吗?)`)
   shell(`ime set ${IME}`)
   shell(`am start -n ${PKG}/.playground.PlaygroundActivity >/dev/null 2>&1`)
   await sleep(3000)
