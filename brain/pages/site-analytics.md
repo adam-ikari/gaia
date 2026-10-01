@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [analytics, umami, cloudflare]
 created: "2026-09-30T12:15:33"
-updated: "2026-10-01T11:49:00"
+updated: "2026-10-01T12:06:05"
 ---
 
 <!-- compiled_truth -->
@@ -22,28 +22,26 @@ updated: "2026-10-01T11:49:00"
 2. 部署 Umami 的 Worker(官方 `cloudflare/analytics` 仓库里有现成模板),绑定该 D1;
 3. 在 Umami 后台建站点,拿到 website ID,填进站点配置的 `umami` 里。
 
-## 下载:链接与统计必须解耦(2026-10-01 改)
+## 下载次数:给我看的,不摆到页面上(2026-10-01 定的口径)
 
-**下载次数不靠第三方统计**,GitHub Release 资产自带 `download_count`,`Downloads.vue` 调
-`api.github.com/repos/adam-ikari/gaia/releases/latest` 时顺手就能拿到。
+`download_count` 是**经营数据,不是访客的决策依据**。它已经从页面上拿掉了 ——
+要我自己的数字,`gh release view adam-ikari/gaia` 或 Release 页面本身就有,
+不必让每个访客替我盯着。摆在按钮旁边只会让人多读一眼,还会在取不到时
+忽然消失、让页面看起来像坏了。
 
-但**下载链接本身绝不能依赖那个 API**(这条是本轮反转的地方,见 timeline):
-未认证 REST 配额是 **60 次/小时、按出口 IP 计**,同一 IP 后面的访客互相抢,403 是常态。
-原先把链接绑在配额上,一旦取不到就整块不渲染 —— 整站唯一真正的转化动作直接消失,
-而那句「无法连接 GitHub,请稍后刷新重试」没有可执行的下一步。
+Umami 的访问量是辅助指标,同理由用户自己看后台。
 
-现在的分工:
+**页面上的下载入口是纯静态的,不发任何客户端请求**:
+`https://github.com/adam-ikari/gaia/releases/latest/download/app-release.apk`
+由 GitHub 站点直接服务(302 到 release-assets),**不走 REST 配额**。
+未认证 REST 配额 60 次/小时、**按出口 IP 计**,同 IP 后面的访客互相抢,403 是常态。
+前提:目标 release 不是 draft / prerelease,否则 `latest` 不指向它。
 
-- **链接是静态的**:`https://github.com/<repo>/releases/latest/download/app-release.apk`
-  由 GitHub 站点直接服务(302 到 release-assets),**不走 REST 配额**。文件名固定、
-  `latest` 由 GitHub 自己解析 ⇒ 不消耗配额且永远指向最新包。
-  前提:该 release 不是 draft / prerelease(否则 `latest` 不指向它),实测 v0.4.1 两者均为 False。
-- **API 只用来锦上添花**:版本号、大小、下载次数。取不到就都不显示,按钮照常能按。
-  装饰信息缺失不该让功能失效 —— 这条是原则,不只是这一处的修法。
-- **不重试**:限流是常态不是异常,重试只会更快耗光配额,而且用户看到的内容不会变好。
+包挂在**公开的站点仓库** `adam-ikari/gaia` 上(应用仓库 `adam-ikari/hwkbd_ime` 是私有的,
+那边的下载链接需要登录态,访客拿不到)。站点只提供正式版。
 
-包仍然挂在**公开的站点仓库** `adam-ikari/gaia` 上(应用仓库 `adam-ikari/hwkbd_ime` 是私有的,
-那边的下载链接需要登录态,访客拿不到)。
+**一条可复用的判据**:页面上该不该显示一个数字,先问"访客拿它做什么决策"。
+答不上来就归到"给我看的",归到我这边的信息不进访客的页面。
 
 
 ## Timeline
@@ -67,6 +65,12 @@ updated: "2026-10-01T11:49:00"
   affects: [site-analytics, site-mobile]
 
 - time: 2026-10-01T11:49:00
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: brain update-truth
+  affects: [site-analytics]
+
+- time: 2026-10-01T12:06:05
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
