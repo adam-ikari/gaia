@@ -1,10 +1,23 @@
 name: E2E (模拟器)
 
-# 端到端 + 素材采集。这个工作流**只在模拟器上跑**,不做发布阻断 ——
-# 它有两个用途:一是回归(挂了要知道),二是给站点出截图与录屏(`tools/aitest/shots.mjs`)。
+# 端到端 + 素材采集。只在模拟器上跑,**不做发布阻断** —— 它有两个用途:
+# 一是回归(挂了要知道),二是给站点出截图与录屏(`tools/aitest/shots.mjs`)。
 #
-# 为什么用 workflow_dispatch 而不是每次 push 都跑:模拟器冷启动到能打字约 3–5 分钟,
-# 每次 push 都跑会把 CI 拖成分钟级,而真正的回归价值在"提交前自己跑一遍"与"发版前跑一遍"。
+# 为什么用 workflow_dispatch 而不是每次 push 都跑:模拟器冷启动到能打字要 1–2 分钟,
+# 每次 push 都跑会把 CI 拖成分钟级,而真正的回归价值在"发版前跑一遍"。
+#
+# ## 这个文件踩过的三个坑(都在 2026-09-30,每一轮都以为是模拟器的问题)
+#
+# 1. **KVM 权限**。runner 默认没 /dev/kvm 权限,x86_64 模拟器起不来。
+#    → 见「打开 KVM 权限」那步。
+# 2. **action 的 `script` 是用 `/usr/bin/sh` 逐行执行的**,不是当脚本文件跑。
+#    所以:多行 shell 结构(`for ...; do ... done`)会报
+#    `Syntax error: end of file unexpected`,`set -o pipefail` 会报
+#    `Illegal option`(dash 没有 pipefail)。**script 里只能放单行命令。**
+#    → 所以环境准备与采集都放在下面的普通 `run:` step 里,script 只留一行解锁。
+# 3. **模拟器的生命周期 == 「启动模拟器」这个 step**。该 step 失败(比如 script 报错)时
+#    action 会立刻 `emu kill`,后续 step 就找不到设备 —— 表现是"模拟器起来几十秒就没了",
+#    但真因往往在 script 的 stderr 里,别顺着模拟器方向查。
 on:
   workflow_dispatch:
     inputs:
@@ -50,100 +63,84 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleDebug
 
       # ---------------------------------------------------------------- 模拟器
-      # API 34 / x86_64:targetSdk 34 就是为它调的,minSdk 26 向上兼容。
-      # `disable-animations`:模拟器的动画默认开着,截图会拍到动画中间帧,
-      # 站点素材必须是静止帧。
-      # KVM 是这个工作流能不能跑通的前提(2026-09-30 首次跑就死在没权限上,
-      # 表现为模拟器起不来、boot 轮询超时 —— 看起来像脚本挂住,其实是模拟器没启动)。
-      # 官方文档:ubuntu runner 需把 runner 用户加进 kvm 组并改 /dev/kvm 权限。
       - name: 打开 KVM 权限
         run: |
-          set -uo pipefail
           if [ -e /dev/kvm ]; then
-            echo "/dev/kvm 存在,尝试授权"
             sudo usermod -aG kvm "$USER" 2>/dev/null || echo "usermod 失败(可能已有权限)"
             sudo chown "$USER" /dev/kvm 2>/dev/null || true
             ls -l /dev/kvm
           else
-            echo "::error::本机没有 /dev/kvm —— runner 是无硬件加速的 VM,x86_64 模拟器跑不起来"
+            echo "::error::本机没有 /dev/kvm:runner 是无硬件加速的 VM,x86_64 模拟器跑不起来"
             exit 1
           fi
 
-      # arch 由上面那步的结果决定:有 KVM 走 x86_64(快),没有就退出而不是白等 10 分钟。
       - name: 启动模拟器
         uses: reactivecircus/android-emulator-runner@v2
-        # env 必须与 with 同级:放在 with 里面会被当成 action 的入参,
-        # 而入参区只接受标量 → workflow 解析失败、dispatch 直接 422
-        # ("A mapping was not expected")。踩过。
-        env:
-          SHOOTS: ${{ inputs.shots && '1' || '' }}
-          SCENES: ${{ inputs.scenes }}
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_5
-          # runner 默认只给 2 核,AVD 会警告 'will run more smoothly with 4 CPU cores'
+          # runner 默认只给 2 核,AVD 会警告 "will run more smoothly with 4 CPU cores"
           cores: 4
           disable-animations: true
-          # disable-snapshot 不是该 action 的合法入参(会被 warning 忽略),去掉;
-          # 冷启动慢由 emulator-boot-timeout 兜底
           emulator-boot-timeout: 600
-          # -no-boot-anim:不等开机动画,直接进系统;开机动画会让 boot_completed 迟迟不上报
-          # `-gpu swiftshader_indirect` 在 emulator 37 上报 "Failed to find ColorBuffer" —— 那套间接
-          # 渲染路径已经废弃。`-gpu swiftshader` 是现在受支持的软件渲染。
+          # `-gpu swiftshader_indirect` 在 emulator 37 上报 "Failed to find ColorBuffer"
+          # (间接渲染路径已废弃);`-gpu swiftshader` 是现在受支持的软件渲染。
           # `-no-boot-anim` 不能去掉:留着它 boot_completed 会迟迟不上报。
           emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader -no-boot-anim
-          # script 是该 action 的必填项(去掉会报 "Input required and not supplied: script")。
-          # 采集必须发生在**这个 step 内部**:模拟器的生命周期 == emulator-runner 这个 step,
-          # step 一结束它就被拆掉。之前把安装/采集拆到后续 step,结果后续 step 起来时
-          # `adb devices` 已经空了(2026-09-30 连续三轮都栽在这)。
-          # **这个 action 用 /usr/bin/sh 执行 script,而 runner 上的 sh 是 dash**:
-          # dash 不认 `set -o pipefail`,会直接报
-          #   `/usr/bin/sh: 1: set: Illegal option -o pipefail` → exit 2,
-          # 于是模拟器刚 boot 完就被拆掉,看起来像"起来 45 秒就死"。
-          # 我照着 action 文档抄了 `set -euo pipefail`,连续三轮都栽在这 —— 
-          # 诊断全错方向(以为是 KVM / GPU / 设备消失),真因只是一行 shell 方言。
-          # 这里只用 POSIX 的 `set -u`,逐条判错,不要 pipefail / -e。
-          script: |
-            set -u
-            # 开机的兜底:action 自己也在等,但它判定成功后脚本才跑
-            booted=0
-            for i in $(seq 1 60); do
-              s=$(timeout 15 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n' || true)
-              if [ "$s" = "1" ]; then booted=1; break; fi
-              sleep 5
-            done
-            if [ "$booted" != "1" ]; then echo "::error::boot_completed 超时"; exit 1; fi
-            echo "boot completed after $i polls"
+          # script 是必填项(去掉报 "Input required and not supplied: script"),
+          # 且**只能单行**(逐行执行,见文件头坑 2)。真正的准备在下一步。
+          script: adb shell input keyevent 82 || true
 
-            timeout 20 adb shell settings put global window_animation_scale 0 || true
-            timeout 20 adb shell settings put global transition_animation_scale 0 || true
-            timeout 20 adb shell settings put global animator_duration_scale 0 || true
-            timeout 20 adb shell input keyevent 82 || true
-            timeout 20 adb shell wm dismiss-keyguard || true
-
-            timeout 300 adb install -r -t app/build/outputs/apk/debug/app-debug.apk || {
-              echo "::error::安装失败"; exit 1; }
-            timeout 30 adb shell ime enable dev.hwkbd.ime/.service.ImeService || true
-            timeout 30 adb shell ime set dev.hwkbd.ime/.service.ImeService || true
-            timeout 20 adb shell ime disable com.android.inputmethod.latin 2>/dev/null || true
-            echo "--- 输入法:"; timeout 30 adb shell ime list -s || true
-
-            if [ -n "$SHOOTS" ]; then
-              mkdir -p out/media
-              echo "--- 采集素材(截图 + 录屏)"
-              timeout 420 node tools/aitest/shots.mjs out/media/shots || echo "素材脚本有失败项"
+      # ---------------------------------------------------------------- 环境准备
+      - name: 等待开机 + 安装 + 启用输入法
+        run: |
+          set -uo pipefail
+          # action 自己会等 boot 完成(实测 55s),这里只是兜底再确认一次
+          booted=0
+          for i in $(seq 1 24); do
+            if [ "$(timeout 15 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')" = "1" ]; then
+              booted=1; break
             fi
+            sleep 5
+          done
+          if [ "$booted" != "1" ]; then
+            echo "::error::boot_completed 超时"
+            exit 1
+          fi
+          echo "boot completed after $i polls"
 
-            if [ -n "$SCENES" ]; then
-              for s in $(echo "$SCENES" | tr ',' ' '); do
-                echo "=== 场景 $s"
-                timeout 300 node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
-              done
-            fi
+          # 动画全关:截图要静止帧
+          timeout 20 adb shell settings put global window_animation_scale 0 || true
+          timeout 20 adb shell settings put global transition_animation_scale 0 || true
+          timeout 20 adb shell settings put global animator_duration_scale 0 || true
+          timeout 20 adb shell wm dismiss-keyguard || true
 
-            echo "--- crash 计数:"
-            timeout 60 adb logcat -d -b crash | grep -c FATAL || echo 0
+          timeout 300 adb install -r -t app/build/outputs/apk/debug/app-debug.apk || {
+            echo "::error::安装失败"; exit 1; }
+          timeout 30 adb shell ime enable dev.hwkbd.ime/.service.ImeService || true
+          timeout 30 adb shell ime set dev.hwkbd.ime/.service.ImeService || true
+          # 停掉模拟器自带的拉丁键盘,免得跟输入法抢
+          timeout 20 adb shell ime disable com.android.inputmethod.latin 2>/dev/null || true
+          echo "--- 输入法:"; timeout 30 adb shell ime list -s || true
+
+      # ---------------------------------------------------------------- 采集与回归
+      - name: 站点素材(截图 + 录屏)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.shots }}
+        run: |
+          set -uo pipefail
+          mkdir -p out/media
+          timeout 420 node tools/aitest/shots.mjs out/media/shots || echo "素材脚本有失败项"
+          ls -la out/media out/media/shots 2>/dev/null || true
+
+      - name: 跑场景
+        if: ${{ inputs.scenes != '' }}
+        run: |
+          set -uo pipefail
+          for s in $(echo '${{ inputs.scenes }}' | tr ',' ' '); do
+            echo "=== $s"
+            timeout 300 node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
+          done
 
       # ---------------------------------------------------------------- 收尾
       - name: 收集产物
