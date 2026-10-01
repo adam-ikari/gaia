@@ -64,6 +64,19 @@ a shell settings put global transition_animation_scale 0 || true
 a shell settings put global animator_duration_scale 0 || true
 a shell wm dismiss-keyguard || true
 
+# ---- 关掉 AOSP 的 Launcher3 ----
+# 它在**正方形屏**上必崩(2026-10-01 实测,1440x1440 100% 复现):
+#   com.android.launcher3.DeviceProfile.calculateHotseatBorderSpace
+#   → java.lang.ArithmeticException: divide by zero
+# 崩在 system_server 派发 USER_UNLOCKED 时,之后系统状态就不对,
+# `am start -W` 一直回 `LaunchState: UNKNOWN (0)` / `TotalTime: 0`,Activity 起不来。
+#
+# **这不是 Titan 2 的行为** —— Titan 2 跑的不是 AOSP 这个 Launcher3,
+# 所以这是镜像的毛病,不是我们要还原的设备特性。采集只需要一个能起 Activity 的系统,
+# 不需要桌面,所以直接关掉。
+a shell pm disable-user --user 0 com.android.launcher3 2>/dev/null || true
+a shell cmd package set-home-activity android 2>/dev/null || true
+
 # ---- 核对屏幕就是 Titan 2 的网格 ----
 # **不要在这里 `wm size` / `wm density`。** 2026-10-01 实测:改这两个会把系统搞瘫 ——
 # launcher 直接 `ArithmeticException: divide by zero` 崩掉,之后 `am start -W` 一直回

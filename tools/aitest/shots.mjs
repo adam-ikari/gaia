@@ -139,6 +139,27 @@ async function byId(idTail) {
   return hit
 }
 
+/** 屏幕上现在是什么:前台窗口、分辨率、点数。失败时用来定位,别靠猜。 */
+const windowState = async () => {
+  const get = async (cmd) => {
+    try {
+      return shell(cmd, 15000)
+    } catch (e) {
+      return `(取不到:${e.message})`
+    }
+  }
+  return [
+    await get('dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | head -4'),
+    await get('dumpsys activity activities 2>/dev/null | grep -E "mResumedActivity|topResumedActivity" | head -3'),
+    await get('wm size'),
+    'dump 到的窗口标题:' + (await nodes())
+      .map((n) => n.text || n.desc || n.id)
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(' | '),
+  ].join('\n')
+}
+
 /**
  * 打开实验场,等它真的出现在当前窗口。
  *
@@ -166,9 +187,14 @@ const openPlayground = async (idTail = ':id/et_playground', timeoutMs = 180000) 
       await sleep(2000)
     }
     if (Date.now() - t0 > timeoutMs) {
+      // **别只说「没等到」。** 之前这句话让我把三轮时间花在错方向上(猜权限、猜模拟器、
+      // 猜 keycode)。真正有用的信息是「屏幕上现在到底是什么」——
+      // 是桌面?是空屏?是输入法窗口?还是 dump 根本读不到东西。
+      const focus = await windowState()
       throw new Error(
         `${timeoutMs / 1000}s 内实验场没起来\n最后一次 am start:\n${last}` +
-          (dumpFailure ? `\nuiautomator 也一直失败:${dumpFailure}` : ''),
+          (dumpFailure ? `\nuiautomator 也一直失败:${dumpFailure}` : '') +
+          `\n--- 现在的窗口状态:\n${focus}`,
       )
     }
     console.log(`  实验场还没起来,再 start 一次(第 ${round + 1} 轮)`)
