@@ -82,6 +82,10 @@ jobs:
           emulator-boot-timeout: 600
           # -no-boot-anim:不等开机动画,直接进系统;开机动画会让 boot_completed 迟迟不上报
           emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader_indirect -no-boot-anim
+          # script 是该 action 的必填项(去掉会报 "Input required and not supplied: script")。
+          # 这里只做最轻的一步解锁,真正的启用/设置在下一步做。
+          script: |
+            adb shell input keyevent 82 || true
 
       # ---------------------------------------------------------------- 前置
       # 这一步卡过一次(2026-09-30 首次跑挂了 24 分钟):`set -e` + 轮询里 adb 短暂不可用会直接
