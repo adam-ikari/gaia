@@ -349,6 +349,10 @@ const STEPS = [
     },
   },
   {
+    // 候选条是按**五键位置**渲染的(左→右 = 4 2 1 3 5,见 ImeController.selectCandidate),
+    // 所以图上「是」在第三格不是排序错 —— 引擎给的顺序是 是 时 使 事 市,
+    // 按五键位置换算回来正好是 事 时 是 使 市,而首选落在正中间 = 空格那一格。
+    // (查过一次,别再查。)
     name: '04-page-swipe',
     core: true,
     caption: '候选多于一页。在这一行上左右划，就换页 —— 划的是手指走过多少，不是屏幕宽的几分之几。',
@@ -374,7 +378,7 @@ const STEPS = [
   {
     name: '05-url-field',
     core: false,
-    caption: '切到网址框，中间那排键换成网址常用的一键短语。',
+    caption: '切到网址框,键位按框的类型换:网址常用的那一串在状态栏上面那一排,左边这把键盘图标点开就是。',
     async run() {
       await clearField(':id/et_url')
       await sleep(2000)
