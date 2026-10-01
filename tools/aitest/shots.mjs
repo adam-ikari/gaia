@@ -129,6 +129,19 @@ async function byId(idTail) {
   return hit
 }
 
+/** 收掉未上屏的组词(把光标推到末尾再删几个键)。
+ *
+ *  **组词态下,点别的输入框拿不到焦点** —— 实测焦点会一直留在原来那个框上,
+ *  所以一步结束时留着未上屏的拼音,下一步就点不动任何别的框。
+ *  (这个现象是采集时发现的,可能是输入法的真问题,也可能是这一行的手势区域
+ *  在组词时扩到了全屏 —— 已经记在 brain 的 e2e-capture 页里,等真机确认。)
+ *  采集这边不依赖它的结论:每一步都收干净,各步互不影响。
+ */
+const cancelComposition = async () => {
+  shell(`input keyevent 123 ${new Array(6).fill(K.del).join(' ')}`)
+  await sleep(500)
+}
+
 const tapField = async (idTail) => {
   const n = await byId(idTail)
   tap(n)
@@ -455,6 +468,8 @@ async function main() {
           console.log(`⚠ ${bad}(图已拍,但对不上)`)
         } else console.log('✓')
       } else console.log('✓')
+      // 每一步都以「没有未上屏的拼音」收尾,下一步才点得动别的框
+      await cancelComposition()
     } catch (e) {
       fail++
       if (s.core) coreFail++
