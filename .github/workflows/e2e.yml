@@ -105,13 +105,22 @@ jobs:
         run: |
           set -uo pipefail
           export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install 'system-images;android-34;default;x86_64' >/dev/null
-          avdmanager delete avd -n titan2 >/dev/null 2>&1 || true
+          SDK="$ANDROID_SDK_ROOT"
+          echo "SDK=$SDK"
+          yes 2>/dev/null | sdkmanager --sdk_root="$SDK" --licenses >/dev/null || true
+          sdkmanager --sdk_root="$SDK" --install 'system-images;android-34;default;x86_64' >/dev/null
+          avdmanager --sdk_root="$SDK" delete avd -n titan2 >/dev/null 2>&1 || true
+          # 输出与退出码都要看见:上一次这一步只给了句
+          # "Do you wish to create a custom hardware profile? [no]" 加一个 exit code 1,
+          # 一个字的错都没说 —— 等于没信息。
+          rc=0
+          out="$(echo no | avdmanager --sdk_root="$SDK" create avd -n titan2 \
+                  -k "system-images;android-34;default;x86_64" --abi x86_64 --force 2>&1)" || rc=$?
+          echo "$out"
+          echo "avdmanager rc=$rc"
           # 建失败要当场停:建不出来还往下走,后面会用 action 的默认 AVD,
           # 于是拍出来是手机的屏幕,而**看起来一切正常**。
-          echo no | avdmanager create avd -n titan2 -k "system-images;android-34;default;x86_64" --force \
-            || { echo "::error::avdmanager create 失败"; avdmanager list avd; exit 1; }
+          [ "$rc" = 0 ] || { echo "::error::avdmanager create 失败(rc=$rc)"; exit 1; }
           # 别猜路径:avdmanager 按 ANDROID_AVD_HOME / ANDROID_SDK_HOME 落盘,
           # 猜错就是「文件不存在」,而真正的 AVD 好好地建在别处。
           avdroot="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
