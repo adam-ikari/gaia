@@ -6,8 +6,8 @@
  * `docs/public/media/` 之后这里才有东西可播。文件不在时整块不渲染 ——
  * 空着一个黑框比不放更糟。
  */
-const src = '/media/gaia-demo.mp4'
-const poster = '/media/gaia-demo.jpg'
+const src = `${import.meta.env.BASE_URL}media/shots/gaia-demo.mp4`
+const poster = `${import.meta.env.BASE_URL}media/shots/gaia-demo-poster.png`
 </script>
 
 <template>
@@ -24,7 +24,7 @@ const poster = '/media/gaia-demo.jpg'
       height="780"
     />
     <p class="gaia-video-cap">
-      从打开输入框到上屏的完整一段。录屏来自 CI 的自动测试，跑的就是发布包，没剪。
+      从打开输入框到翻页的完整一段。自动测试跑下来的，没剪。
     </p>
   </div>
 </template>

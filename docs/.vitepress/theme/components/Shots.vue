@@ -1,28 +1,43 @@
 <script setup lang="ts">
 /**
- * 真机截图组。素材由应用仓库的 E2E 工作流产(模拟器跑的,不是 Titan 2)——
- * 页面里的说明照实说,不冒充真机。
+ * 截图组。
  *
- * 截图文件不在时整块不渲染。
+ * **列表不写死在这里**,读采集脚本产出的 `manifest.json`
+ * (应用仓库 `tools/aitest/shots.mjs` 一次跑出来,截图与文案同源)。
+ * 之前这里是手写的一张表,结果采集脚本一改步骤名(04-five-key → 04-page-swipe),
+ * 页面就跟着对不上,而且没人发现 —— 图断了两张,文案还写着已经没在演示的东西。
+ *
+ * 素材由应用仓库的 E2E 工作流产,**跑的是模拟器,不是 Titan 2**:
+ * 分辨率、键盘、insets 都跟真机不同。页面里的说明照实说,不冒充真机。
+ *
+ * 素材没就位时整块不渲染 —— 空着一排灰框比不放更糟。
  */
-type Shot = { file: string; caption: string }
+import { onMounted, ref } from 'vue'
 
-const SHOTS: Shot[] = [
-  { file: '/media/shots/01-idle.png', caption: '打开输入框。屏幕上就这两行。' },
-  { file: '/media/shots/02-composing.png', caption: '打了一半,候选实时跟着变。' },
-  { file: '/media/shots/03-committed.png', caption: '空格上屏,首选一直在正中间。' },
-  { file: '/media/shots/04-five-key.png', caption: '五个候选分给五根手指。' },
-  { file: '/media/shots/06-url-field.png', caption: '切到网址框,这行键换成了网址开头。' },
-  { file: '/media/shots/07-number-field.png', caption: '数字框里只留下数字能打的键。' },
-  { file: '/media/shots/08-settings.png', caption: '设置页:词库、上下滑距离、翻页方向都在这儿。' },
-  { file: '/media/shots/09-licenses.png', caption: '用了哪些开源组件,应用里写得很清楚。' },
-]
+type Shot = { file: string; caption: string; warn?: string }
+const shots = ref<Shot[]>([])
+const loaded = ref(false)
+// base 要在 script 里取:Vue 模板表达式里不允许直接写 import.meta(编译期报
+// "import.meta may appear only with 'sourceType: module'")
+const base = import.meta.env.BASE_URL
+
+onMounted(async () => {
+  try {
+    const r = await fetch(`${base}media/shots/manifest.json`)
+    if (!r.ok) return
+    shots.value = (await r.json()).shots ?? []
+  } catch {
+    /* 没素材就当没有,不留半个空框 */
+  } finally {
+    loaded.value = true
+  }
+})
 </script>
 
 <template>
-  <div class="gshots">
-    <figure v-for="s in SHOTS" :key="s.file" class="gshot">
-      <img :src="s.file" :alt="s.caption" loading="lazy" decoding="async" width="360" height="780" />
+  <div v-if="loaded && shots.length" class="gshots">
+    <figure v-for="s in shots" :key="s.file" class="gshot">
+      <img :src="`${base}media/shots/${s.file}`" :alt="s.caption" loading="lazy" decoding="async" width="360" height="780" />
       <figcaption>{{ s.caption }}</figcaption>
     </figure>
   </div>

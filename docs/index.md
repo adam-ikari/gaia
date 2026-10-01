@@ -26,7 +26,7 @@ actions:
 <div class="gaia-band-copy">
 <p class="gaia-eyebrow">真实流程</p>
 <h2>一镜到底。</h2>
-<p>输错的那次也留着。这是自动测试里录下来的，和你下载的是同一个包。</p>
+<p>输错的那次也留着。这是自动测试里录下来的完整一段，没剪。</p>
 </div>
 <div class="gaia-band-visual">
 <DemoVideo />
@@ -38,6 +38,7 @@ actions:
 <div class="gaia-band-head">
 <p class="gaia-eyebrow">每个细节</p>
 <h2>一处都不含糊。</h2>
+<p class="gaia-band-sub">下面这些画面是自动测试一轮跑下来的。</p>
 </div>
 
 <Shots />
