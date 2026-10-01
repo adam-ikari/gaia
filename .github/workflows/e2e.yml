@@ -94,16 +94,22 @@ jobs:
       - name: 等待开机 + 启用输入法
         run: |
           set -uo pipefail
-          timeout 120 adb wait-for-device || echo "wait-for-device 超时,继续轮询"
+          # KVM 打开后冷启动仍要 2–3 分钟,别给太紧
+          timeout 300 adb wait-for-device || echo "wait-for-device 超时,继续轮询 boot_completed"
 
           booted=0
           for i in $(seq 1 60); do
             s=$(timeout 15 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n' || true)
             if [ "$s" = "1" ]; then booted=1; break; fi
-            # 设备彻底不在了(模拟器进程崩了)就别再空转
-            if ! timeout 10 adb devices | grep -q "device$"; then
-              if [ "$i" -gt 6 ]; then
-                echo "::error::模拟器已不在设备列表里(第 $i 次轮询),它起没起来就挂了"
+            # 只有**整行消失**才算模拟器挂了。
+            # 别用 grep "device$" 判断 —— 开机过程中状态是 offline(adb devices 里
+            # 显示 "emulator-5554  offline"),那正是"正在启动",不是"已挂"。
+            # 我第一版就是栽在这:第 7 次轮询(约 40 秒)看到 offline 就判死,
+            # 把一台本来能起来的模拟器提前掐了(2026-09-30)。
+            if ! timeout 10 adb devices 2>/dev/null | grep -q "emulator-"; then
+              if [ "$i" -gt 3 ]; then
+                echo "::error::设备列表里已无 emulator-* (第 $i 次轮询),模拟器进程真的没了"
+                timeout 10 adb devices || true
                 exit 1
               fi
             fi
