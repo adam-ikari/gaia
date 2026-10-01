@@ -79,7 +79,11 @@ onMounted(async () => {
 }
 
 .gi-dl-btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  /* 这是整站唯一真正的转化动作。padding 9px + 15px 字只有 42px 高，
+     差 2px 到手指的舒服尺寸 —— 直接给足，别算。 */
+  min-height: 44px;
   padding: 9px 20px;
   border-radius: 980px;
   background: var(--vp-c-brand-1);

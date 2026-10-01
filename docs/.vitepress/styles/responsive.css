@@ -15,6 +15,28 @@
 
 /* ---------------------------------------------------------------- 基准：Titan 2 */
 
+/*
+ * 横向裁切兜底（放在最前面，因为它保护的是全站）。
+ *
+ * 两件事：
+ *
+ * 1) **分区通栏的收尾**。首页 `.gaia-home` 原本用 `margin: 0 -24px` 把分区底色推到屏幕
+ *    两边外沿，那 48px 里有一半是白加的（VPContent 本就满宽、无左右 padding），
+ *    已改成 `margin: ... 0 0`。这里裁的是**万一还有**溢出的情况。
+ *
+ * 2) **兜底**（这才是主因）。手机浏览器把 `width=device-width` 的视口宽度当**最小**宽度：页面只要有
+ *    一个元素横向溢出，整页就按更宽的布局视口排版，手机上看到的不是"某个组件歪了"，
+ *    而是**全站被缩小、右侧一截被切掉**。这轮实测：键盘立体那块的 3D 外接框把 375px
+ *    的手机撑成 559px 布局视口。
+ *
+ *    用 clip 不用 hidden：clip 不建立滚动容器，`position: sticky` 照常工作（导航、
+ *    ScrollFrames 的吸顶都依赖它）；hidden 会破坏。
+ */
+html {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 .gaia-home {
   /* 每屏高度用 svh：移动浏览器地址栏收起/展开时 100vh 会跳，svh 稳定 */
   --vh: 100svh;
@@ -174,6 +196,33 @@
   }
 }
 
+/* ---------------------------------------------------------------- 分区：左右并排 → 窄屏叠起来 */
+
+/*
+ * `.gaia-band-split` 是左右两栏（文案 + 演示）。原先**没有任何断点把它叠起来**：
+ * responsive.css 只在 min-width:1024px 给了 flex 基准，小于 1024 就一直是并排。
+ * 后果不是"挤"，是**压在一起** —— 375px 手机上两栏并排，演示件的 3D 外接框
+ * 直接盖在正文上（见 KeyboardStack 那条）。
+ *
+ * 基准宽度取 1024：Titan 2 是 576dp 宽，属于手机档，叠成单列才对。
+ */
+@media (max-width: 1023px) {
+  .gaia-band-inner.gaia-band-split {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 40px;
+  }
+
+  .gaia-band-visual {
+    max-width: 100%;
+  }
+
+  /* 文案一栏在并排时是 620px 上限，叠成单列后交给外层带宽管 */
+  .gaia-band-split .gaia-band-copy {
+    max-width: 100%;
+  }
+}
+
 /* ---------------------------------------------------------------- 平板与桌面 */
 
 @media (min-width: 720px) {
@@ -224,6 +273,63 @@
 
   .VPDoc a,
   .gaia-btn {
+    min-height: 44px;
+  }
+}
+
+/*
+ * 文档页在手机上的导航：VitePress 默认主题自己给的尺寸都不够手指点。
+ * 这几条只影响手机（下面的断点），桌面侧边栏维持默认密度。
+ *
+ * - 抽屉里的一级菜单项只有 32px 高 —— 手机上这是**主导航**，一屏要点好几次；
+ * - 「本页目录」和「目录」两个按钮都只有 24px 高；
+ * - 标题旁的 ¶ 锚点只有 18px 宽。
+ */
+@media (max-width: 959px) {
+  /*
+   * 抽屉菜单项。手指点的是里面的 `<a>`，不是外层 `.item` —— 只给 `.item` 加高
+   * 不起作用，实测链接仍然是 32px。
+   * `.item` 本身是分组标题（"盖亚输入法"，用来展开/收起），也能点，所以一起加高。
+   */
+  .VPSidebarItem .item,
+  .VPSidebarItem .item a {
+    min-height: 44px;
+  }
+
+  /* 「本页目录」按钮在 .VPLocalNavOutlineDropdown 里是个**没有 class 的裸 button**，
+     没有 .outline-button 可选，只能按父级选 */
+  .VPLocalNavOutlineDropdown > button {
+    min-height: 44px;
+  }
+
+  /*
+   * 标题旁的 ¶ 锚点。盒子本身 24×44：宽不能改 —— 它就摆在标题文字后面，
+   * 加宽会把标题挤到换行。
+   *
+   * 改用伪元素把**命中区域**撑开：`.header-anchor` 是 `position: relative`，
+   * `::after` 往左右各扩 10px、上下扩 6px，落在标题周围的空白里。
+   * 视觉宽度不变（仍是 24px 的 ¶），手指实际能按到 44×56。
+   * 用 `inset` 而不是加 padding/margin —— 那两个会改变布局。
+   */
+  .VPDoc .header-anchor {
+    width: 24px;
+  }
+
+  .VPDoc .header-anchor::after {
+    content: '';
+    position: absolute;
+    top: -6px;
+    bottom: -6px;
+    left: -10px;
+    right: -10px;
+  }
+
+  /*
+   * 手机上的「目录」按钮（VitePress 的 `button.menu`，110×24）。
+   * 平板/桌面宽下它是**局部导航**里的一个次要按钮；手机上它就是进侧栏的唯一入口，
+   * 24px 高按不准。
+   */
+  button.menu {
     min-height: 44px;
   }
 }

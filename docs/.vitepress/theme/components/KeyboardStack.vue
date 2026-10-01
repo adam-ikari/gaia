@@ -143,6 +143,27 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!--
+      窄屏专用的层名按钮行。宽屏用板子左侧那个层名（.kplane-name），位置贴着板子、
+      好看，但它是**绝对定位**的：320px 上板子左边只剩 28px，放不下两个汉字的按钮，
+      实测「字母」被左边缘裁掉 35px —— 一半字都看不见。
+      与其在窄屏把板子缩到 180px（每键只剩 30px，按不准），不如把层名挪到板子下面
+      横排：占满整行宽度，命中区域也是整块，而不是 4px 的碎片。
+      宽屏 display:none，不影响原来的排法。
+    -->
+    <div class="kstack-tabs">
+      <button
+        v-for="(l, i) in LAYERS"
+        :key="l.name"
+        type="button"
+        class="kstack-tab"
+        :class="{ 'is-on': i === active }"
+        @click="go(i)"
+      >
+        {{ l.name }}
+      </button>
+    </div>
+
     <div class="kstack-meta">
       <p class="kstack-when">{{ LAYERS[active].hint }}</p>
       <p class="kstack-now">现在是：{{ LAYERS[active].name }}层</p>
@@ -172,6 +193,19 @@ onBeforeUnmount(() => {
   height: 300px;
   cursor: grab;
   touch-action: none; /* 别让浏览器把手势拿走 */
+
+  /*
+   * 必须裁:倾斜 + 透视之后,.kplane 的**投影外接框**比它的布局框宽得多
+   * (300px 的板转 -24° 再带透视,量出来 340–351px),默认 overflow:visible
+   * 就让这个外接框溢出到页面外,把整页的横向宽度撑大。
+   * 移动端撑大横向宽度 = 布局视口跟着变宽(device-width 视作最小宽度),
+   * 整站于是按更宽的视口排版 —— 手机上不是"某个组件歪了",是**全站都缩小了**。
+   *
+   * 用 clip 而不是 hidden:clip 不建立滚动容器,不会影响 sticky/absolute 的定位基准;
+   * hidden 会。旧的 hidden 留在前面兜底。
+   */
+  overflow: hidden;
+  overflow: clip;
 }
 
 .kstack-stage.is-dragging {
@@ -182,7 +216,18 @@ onBeforeUnmount(() => {
   position: relative;
   height: 100%;
   transform-style: preserve-3d;
-  transform: rotateX(56deg) rotateZ(-24deg);
+  /*
+   * transform 链从**右往左**应用,所以 rotateX/rotateZ 之后再 translate,
+   * 是沿倾斜平面的位移 —— 不是我们要的屏幕竖直方向。
+   *
+   * 两个 -116 是量出来的,不是估的:
+   *   translateY:板子摆在 top:50%,rotateX(56deg) + z 位移把它投影到屏幕上时
+   *              整体下坠约 116px ⇒ 上面空 116px、下面被裁 117px。
+   *   translateX:同一个投影顺带把整块往右带约 27px(375px 与 320px 两档实测
+   *              一致,与板宽无关),所以在窄屏上右边缘会被切掉一条。
+   * 修之前先量 gapAbove / stage.left - planes.left,别照抄数字。
+   */
+  transform: translate(-27px, -116px) rotateX(56deg) rotateZ(-24deg);
   transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -232,6 +277,27 @@ onBeforeUnmount(() => {
   border-radius: 999px;
 }
 
+/*
+ * 触控设备：层名撑到 44px 以上。
+ *
+ * 用 hover:none 而不是 max-width：鼠标设备上 31px 完全够点，没必要撑大视觉。
+ */
+@media (hover: none) {
+  .kplane-name button {
+    /*
+     * 64 是量出来的，不是拍的。层名在 rotateX 的 3D 空间里，屏幕上的高度会被透视压扁：
+     *   本地 44px → 屏幕 33–38px
+     *   本地 60px → 屏幕 43px（375/412 两档实测，还差 1px）
+     * 压缩比约 0.72，所以本地要留到 44 / 0.72 ≈ 61，取 64 留余量。
+     *
+     * 改这个值之后请量 `getBoundingClientRect().height`，**别看 CSS 里的数** ——
+     * CSS 里写 44 只会得到 31–33px，这个坑过一次。
+     */
+    min-height: 64px;
+    padding: 0 10px;
+  }
+}
+
 .kplane.is-front .kplane-name button {
   color: var(--vp-c-brand-1);
   font-weight: 600;
@@ -262,6 +328,7 @@ onBeforeUnmount(() => {
 .kplane-key {
   flex: 1;
   text-align: center;
+  /* 不低于 12px:再小就不是"字"了,手机上会糊成一团 */
   font-size: 12px;
   padding: 7px 0;
   border-radius: 6px;
@@ -272,6 +339,11 @@ onBeforeUnmount(() => {
 .kplane-key.is-space {
   flex: 2.4;
   color: #8e8e93;
+}
+
+/* 窄屏的层名按钮行：默认不渲染，宽屏看不见 */
+.kstack-tabs {
+  display: none;
 }
 
 /* 当前层的说明 */
@@ -296,6 +368,83 @@ onBeforeUnmount(() => {
   .kstack-world,
   .kplane {
     transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------- 窄屏 */
+@media (max-width: 560px) {
+  /*
+   * 板宽 300px + 转 -24°，在 375px 手机上投影外接框（340px+）比舞台（327px）还宽，
+   * 光靠 clip 会被切掉边角 —— 所以窄屏把板子和倾角一起收小，让它留在舞台里。
+   * 倾角要跟着板宽走：板子窄了还转 24° 的话，投影外接框照样比舞台宽。
+   */
+  .kstack-stage {
+    /* 窄屏这块板子的投影高约 271px，舞台给到 276px，配合上面那个 -116px 的上移正好装下 */
+    height: 276px;
+  }
+
+  .kstack-world {
+    /* 倾角比宽屏收小（54°/-15° vs 56°/-24°），跟着板宽走 */
+    transform: translate(-27px, -116px) rotateX(54deg) rotateZ(-15deg);
+  }
+
+  .kplane {
+    width: 248px;
+    margin-left: -124px;
+  }
+
+  /* 层名往里收:键帽窄了(248px),原来的 -46px 会让它顶到舞台右边缘外面 */
+  .kplane-name {
+    left: -52px;
+  }
+}
+
+/*
+ * 320px 档：再窄一档。板子、舞台一起收，否则层名会被左边缘吃掉
+ * （量过：320px 上前排层名左侧 -9px，裁掉 33px，「字母」只剩半个）。
+ */
+@media (max-width: 400px) {
+  .kstack-stage {
+    height: 252px;
+  }
+
+  .kplane {
+    width: 216px;
+    margin-left: -108px;
+  }
+
+  /*
+   * 层名从板子左侧挪到板子下方横排。板子左侧那份 .kplane-name 收掉，
+   * 免得两个入口叠在一起、还各被裁一半。
+   */
+  .kplane-name {
+    display: none;
+  }
+
+  .kstack-tabs {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .kstack-tab {
+    flex: 1;
+    /* 触控命中区域：这个 demo 只有这三个按钮能点，按不准就是整个演示废了 */
+    min-height: 44px;
+    border: 1px solid var(--vp-c-divider);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--vp-c-text-2);
+    font-size: 14px;
+    font-family: var(--vp-font-family-base);
+    cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  }
+
+  .kstack-tab.is-on {
+    color: var(--vp-c-brand-1);
+    border-color: var(--vp-c-brand-1);
+    font-weight: 600;
   }
 }
 </style>

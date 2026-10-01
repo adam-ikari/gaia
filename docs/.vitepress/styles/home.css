@@ -7,8 +7,17 @@
  */
 
 .gaia-home {
-  margin: -32px -24px 0;
-  margin-top: calc(-1 * var(--vp-nav-height));
+  /*
+   * 上下要抵掉 VitePress 的页面留白（负 margin 往上顶出导航），左右**不抵**。
+   *
+   * 左右原来也是 -24px（注释没写原因，估计是照着上下抄的）。但 `.VPContent`
+   * 本身左右 padding 就是 0，.gaia-home 已经占满视口宽度 —— 于是那 48px 是白加的：
+   * 盒子比视口宽 48px、右边溢出 24px。手机上视口宽度是**最小**宽度，溢出 24px
+   * 就把整页布局视口撑大，等于整站比该有的窄 6%。
+   *
+   * 通栏不靠这个负 margin：.VPContent 已经是满宽，分区底色自然到边。
+   */
+  margin: calc(-1 * var(--vp-nav-height)) 0 0;
   padding-top: var(--vp-nav-height);
 }
 
