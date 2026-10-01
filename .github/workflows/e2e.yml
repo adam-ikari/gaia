@@ -126,12 +126,20 @@ jobs:
           [ "$rc" = 0 ] || { echo "::error::avdmanager create 失败(rc=$rc)"; exit 1; }
           # 别猜路径:avdmanager 按 ANDROID_AVD_HOME / ANDROID_SDK_HOME 落盘,
           # 猜错就是「文件不存在」,而真正的 AVD 好好地建在别处。
-          avdroot="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
-          avddir="$(find "$avdroot" -maxdepth 1 -type d -name 'titan2.avd' 2>/dev/null | head -1)"
+          # **每个可能出错的命令都要 `|| true`**:`run:` 默认是 `bash -e`,
+          # 这里又开了 `pipefail` —— 于是 `find … | head -1` 在目录不存在时返回非 0,
+          # **整步静默退出 1,一个字都不打**(2026-10-01 踩过:明明 `avdmanager rc=0`、
+          # AVD 好好地建出来了,却在下一步无声地死掉)。找完把找过哪几个地方打出来。
+          avddir=""
+          for root in "${ANDROID_AVD_HOME:-}" "$HOME/.android/avd" "$ANDROID_SDK_ROOT/.android/avd"; do
+            [ -n "$root" ] && [ -d "$root" ] || continue
+            d="$(find "$root" -maxdepth 1 -type d -name 'titan2.avd' 2>/dev/null | head -1 || true)"
+            if [ -n "$d" ]; then avddir="$d"; break; fi
+          done
+          echo "找过: '${ANDROID_AVD_HOME:-}' | $HOME/.android/avd | $ANDROID_SDK_ROOT/.android/avd"
           if [ -z "$avddir" ]; then
-            echo "::error::在 $avdroot 下找不到 titan2.avd"
-            echo "--- 实际建到哪了:"; find "$HOME/.android" -maxdepth 3 -name 'titan2*' 2>/dev/null || true
-            avdmanager list avd || true
+            echo "::error::三个可能的根目录下都找不到 titan2.avd"
+            find "$HOME/.android" -maxdepth 3 -name 'titan2*' 2>/dev/null || true
             exit 1
           fi
           cfg="$avddir/config.ini"
