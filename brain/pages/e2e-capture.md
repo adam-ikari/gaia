@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [e2e, ci, emulator, media, capture]
 created: "2026-10-01T05:09:58"
-updated: "2026-10-01T05:10:12"
+updated: "2026-10-01T06:02:36"
 ---
 
 <!-- compiled_truth -->
@@ -57,11 +57,16 @@ PATH 上的 adb 不保证是 action 用的那个,`adb shell getprop` 会**静默
 `ime enable/set` 会回 `Unknown input method ... cannot be enabled for user #0`。
 **这是竞态不是配置错**(同一份脚本隔一轮就复现一次)。轮询等它出现在 `ime list -s -a` 里。
 
-## 五、词库要 30 秒才加载,截图之前必须等
+## 五、词库要 5–30 秒才加载,而且顺序不能反
 
-`dict loaded: 348723 entries, 8586..29477 ms`。没就绪时组词**没有候选**,
-候选行是空的 —— 截出来是一张"只有输入框"的图,看着像功能坏了。
-采集前轮询 logcat 等 `dict loaded:`(最多 180 秒)。这一条不做,前 7 张图全废。
+`dict loaded: 348723 entries, 4291..29477 ms`。两条:
+
+1. 没就绪时组词**没有候选**,候选行是空的 —— 截出来是一张"只有输入框"的图,
+   看着像功能坏了。采集前必须等 `dict loaded:`。
+2. **词库日志要等输入法服务的 `onCreate`**,而服务是在**第一个输入框拿到焦点**时
+   才起来的。所以顺序必须是:开实验场 → 点一下输入框 → 再等词库。
+   反过来(先等词库)在冷启动时是**死等**:实测等满 180s 超时,因为那时服务还没建,
+   日志根本不会出现。
 
 ## 六、键码表对着 android.jar 核,别背
 
@@ -89,14 +94,29 @@ pkill 会把**自己的父 shell** 一起杀掉,adb 那头永远等不到 shell 
 
 原先有两步文案写「五键选字」「滑动翻页」,截出来的却是一张空闲状态的状态行。
 看的人不会知道是演示没做出来,只当功能没有。现在每步要么拍到那个状态,
-要么 `verify` 说不清。候选条不在 uiautomator 的 dump 里(它是另一个窗口),
-动作是否发生只能靠输入法自己的日志断言(比如 `fly page:` 的行数变化)。
+要么 `verify` 说不清。
 
-## 素材的诚实边界
+能直接问的不要猜:
+- **输入框定位按 resource-id**,不要按顺序索引(实验场里插一个框就全错位;
+  原来 `editTexts()[2]` 当"数字框",其实是邮箱框)。
+- **焦点有没有切过去**:uiautomator 每个 node 带 `focused="true"`,直接读。
+  (实验场每个输入框的 hint 就是那句说明文字,所以"框里有没有字"根本不能当焦点证据。)
+- **候选条与状态行不在 dump 里**(输入法是另一个窗口),
+  "翻没翻页""锁没锁层"只能靠输入法自己的日志断言
+  (`fly page:` / `ImeController` 的 `layer lock:` 行数变化)。
 
-采集跑的是 **debug 包 + x86_64 模拟器**,不是 Titan 2:分辨率、键盘、insets 都不同。
-站点文案只能说「自动测试跑下来的」,**不能说「和你下载的是同一个包」**(那是假的,
-站点放的是 release APK),也不能冒充真机截图。
+## 十、组词期间 App 里点不动任何东西(待真机确认)
+
+采集时发现的:一步结束时留着未上屏的拼音,下一步就点不到任何别的输入框,
+焦点一直留在原来那个框上。读 [ImeRootView] 定位到根因:
+
+`dispatchTouchEvent` 里,`ev.y < contentTop`(栏以上 = App 区域)的触摸一律交给
+飞字手势,而 `handleFlyMotion` **永远返回 true**(吃掉事件)。同时 `onMeasure` 在
+`flyMode`(= 有组词)时把窗口撑到全屏,好让飞字手势能收到栏以外的触摸。
+
+⇒ **组词期间,输入法窗口占满全屏并吃掉所有触摸,App 完全点不动**,直到上屏或清掉组词。
+这是"接飞字手势"与"别挡住 App"之间的取舍。**采集这边不依赖它的结论**:
+每一步结束都 `cancelComposition()`,各步互不影响。**要不要改是产品决定,没动。**
 
 
 ## Timeline
@@ -117,4 +137,16 @@ pkill 会把**自己的父 shell** 一起杀掉,adb 那头永远等不到 shell 
   kind: evidence
   summary: "2026-10-01:九轮 CI 后 E2E 全绿,9 张图 + mp4 + manifest 一次产出,0 失败步骤;站点已接入并在 gaia 仓库上线"
   source: run 36817406644
+  affects: [e2e-capture]
+
+- time: 2026-10-01T06:02:36
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-01 端到端断言时发现,读 ImeRootView 定位到根因"
+  affects: [e2e-capture]
+
+- time: 2026-10-01T06:02:36
+  kind: evidence
+  summary: "发现:组词未上屏时输入法窗口全屏吃掉所有触摸,App 里点不动任何控件(ImeRootView.dispatchTouchEvent + flyMode 全屏)。已记入待确认,采集侧用每步收尾规避"
+  source: "tools/aitest/shots.mjs 的 focused 断言 + ImeRootView.kt:66"
   affects: [e2e-capture]

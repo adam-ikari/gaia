@@ -129,13 +129,22 @@ async function byId(idTail) {
   return hit
 }
 
-/** 等某个控件出现在当前窗口(冷启动时实验场要好几秒才起来,固定 sleep 不可靠)。 */
-const waitForField = async (idTail, timeoutMs = 60000) => {
+/**
+ * 等某个控件出现在当前窗口。
+ *
+ *  冷启动第一次装完包,实验场要好几秒才起来,固定 sleep 3s 不可靠(实测有一次
+ *  根本没起来)。**上限给到 150s 而不是 60s**:uiautomator 在刚装完包那阵
+ *  会回 `null root node`(见 [dumpUi]),一次 poll 可能自己耗掉 20s,
+ *  60s 的预算三下就花完了 —— 那是"dump 慢",不是"应用没起来",两者不该共用一个上限。
+ */
+const waitForField = async (idTail, timeoutMs = 150000) => {
   const t0 = Date.now()
   for (;;) {
     const all = await nodes()
     if (all.some((n) => n.id.endsWith(idTail))) return true
-    if (Date.now() - t0 > timeoutMs) throw new Error(`${timeoutMs / 1000}s 内没等到 ${idTail}`)
+    if (Date.now() - t0 > timeoutMs) {
+      throw new Error(`${timeoutMs / 1000}s 内没等到 ${idTail}${dumpFailure ? `(uiautomator dump 一直失败:${dumpFailure})` : ''}`)
+    }
     await sleep(2000)
   }
 }

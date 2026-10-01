@@ -98,7 +98,7 @@ if [ -n "${SHOOTS:-}" ]; then
   mkdir -p out/media
   say "采集素材(截图 + 录屏)"
   # 脚本用 adb -s 选设备,所以要把 env 也喂给它
-  AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 420 node tools/aitest/shots.mjs out/media/shots \
+  AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 700 node tools/aitest/shots.mjs out/media/shots \
     || echo "::warning::素材脚本有失败项"
   ls -la out/media out/media/shots 2>/dev/null || true
 fi
