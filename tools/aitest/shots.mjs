@@ -56,58 +56,89 @@ function screencap(file) {
 
 const key = (...codes) => codes.forEach((c) => shell(`input keyevent ${c}`))
 
-/** uiautomator dump 的原始 XML,失败/空结果重试。
+/** uiautomator dump 的原始 XML。**必须重试**。
  *
- *  必须重试:uiautomator 刚起来时经常回
- *  `ERROR: null root node returned by UiTestAutomationBridge.` 然后什么都不吐 ——
- *  窗口还在 inflate。这是**瞬时**的,不是设备不支持(dump 本来是能用的,
- *  同一轮后面几步就全成功了),所以重试比"当成失败"对。
+ *  uiautomator 在窗口还在 inflate、或 accessibility bridge 刚重启时,会回
+ *  `ERROR: null root node returned by UiTestAutomationBridge.` 并且什么都不吐 ——
+ *  这是**瞬时**的,不是不支持(dump 本身能用,同一轮后面几步就成功了)。
+ *  2026-10-01 在 CI 上:一次 retry 只等 1.2s 不够,连着 4 步全废;
+ *  改成 8 次 × 2.5s = 20 秒上限就稳了。
+ *
+ *  全失败时把 stderr 带出去 —— 光说"找不到输入框"没法定位是 dump 挂了还是布局变了。
  */
-function dumpUi(retries = 3, gap = 1200) {
+async function dumpUi(retries = 8, gap = 2500) {
+  let lastErr = ''
   for (let k = 0; k < retries; k++) {
     try {
-      shell('uiautomator dump /sdcard/u.xml', 30000)
+      const out = execFileSync(adb, [...args, 'shell', 'uiautomator dump /sdcard/u.xml'], {
+        encoding: 'utf8',
+        timeout: 30000,
+        maxBuffer: 16 * 1024 * 1024,
+      })
+      lastErr = out.trim()
       const xml = shell('cat /sdcard/u.xml', 10000)
       if (xml && xml.includes('<node')) return xml
-    } catch {
-      /* 落到下一次重试 */
+    } catch (e) {
+      lastErr = `${e.stderr ?? ''} ${e.message ?? ''}`.trim()
     }
-    if (k < retries - 1) execFileSync('sleep', [String(gap / 1000)])
+    if (k < retries - 1) await sleep(gap)
   }
+  dumpFailure = lastErr
   return ''
 }
+let dumpFailure = ''
 
-/** 所有 EditText 的 bounds(按界面从上到下)。 */
-function editTexts() {
-  const xml = dumpUi()
-  const out = []
-  for (const m of xml.matchAll(/<node[^>]*>/g)) {
-    if (!m[0].includes('android.widget.EditText')) continue
+/** 解析 dump 里的所有 node。 */
+async function nodes(xml = null) {
+  const x = xml ?? (await dumpUi())
+  return [...x.matchAll(/<node[^>]*>/g)].map((m) => {
     const b = m[0].match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
-    if (!b) continue
-    const [, x1, y1, x2, y2] = b.map(Number)
-    out.push({ cx: Math.round((x1 + x2) / 2), cy: Math.round((y1 + y2) / 2), text: (m[0].match(/text="([^"]*)"/) ?? [])[1] ?? '' })
+    const g = (re) => (m[0].match(re) ?? [])[1] ?? ''
+    return {
+      raw: m[0],
+      id: g(/resource-id="([^"]*)"/),
+      cls: g(/class="([^"]*)"/),
+      text: g(/text="([^"]*)"/),
+      desc: g(/content-desc="([^"]*)"/),
+      cx: b ? Math.round((Number(b[1]) + Number(b[3])) / 2) : 0,
+      cy: b ? Math.round((Number(b[2]) + Number(b[4])) / 2) : 0,
+    }
+  })
+}
+
+const tap = (n) => shell(`input tap ${n.cx} ${n.cy}`)
+
+/** 按 resource-id 尾段找控件,比如 `':id/et_number'`。
+ *
+ *  **不要按顺序索引找输入框。** 实验场里输入框的顺序(playground / url / email /
+ *  number / signed / …)是布局决定的,插一个框就全错位 —— 我原来写
+ *  `editTexts()[2]` 当"数字框",其实那是邮箱框,图和文案对不上,
+ *  而且换台设备顺序还不一定一样。resource-id 稳定。
+ */
+async function byId(idTail) {
+  const all = await nodes()
+  const hit = all.find((n) => n.id.endsWith(idTail))
+  if (!hit) {
+    const have = all.filter((n) => n.id.startsWith('dev.hwkbd.ime:')).map((n) => n.id)
+    throw new Error(
+      `找不到 ${idTail}${dumpFailure ? `(uiautomator dump 失败:${dumpFailure})` : ''}` +
+        (have.length ? `\n  页面上有:${have.join(', ')}` : '\n  页面上没找到任何本应用的控件'),
+    )
   }
-  return out
+  return hit
 }
 
-const tapField = (i) => {
-  const list = editTexts()
-  const f = list[i]
-  if (!f) throw new Error(`找不到第 ${i} 个输入框(共 ${list.length} 个)`)
-  shell(`input tap ${f.cx} ${f.cy}`)
-  return f
+const tapField = async (idTail) => {
+  const n = await byId(idTail)
+  tap(n)
+  return n
 }
 
-const tapText = (needle) => {
-  const xml = dumpUi()
-  for (const m of xml.matchAll(/<node[^>]*>/g)) {
-    const t = (m[0].match(/text="([^"]*)"/) ?? [])[1] ?? ''
-    if (!t.includes(needle)) continue
-    const b = m[0].match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
-    if (!b) continue
-    const [, x1, y1, x2, y2] = b.map(Number)
-    shell(`input tap ${Math.round((x1 + x2) / 2)} ${Math.round((y1 + y2) / 2)}`)
+const tapText = async (needle) => {
+  for (const n of await nodes()) {
+    if (!`${n.text}${n.desc}`.includes(needle)) continue
+    if (!n.cx && !n.cy) continue
+    tap(n)
     return true
   }
   return false
@@ -141,7 +172,7 @@ const STEPS = [
     core: true,
     caption: '打开输入框的样子。屏幕上就这两行：上面是候选，下面是状态。',
     async run() {
-      tapField(0)
+      await tapField(':id/et_playground')
       await sleep(2500)
     },
   },
@@ -150,7 +181,7 @@ const STEPS = [
     core: true,
     caption: '打了一半：nihao。候选实时跟着变，你不用等它想完。',
     async run() {
-      tapField(0)
+      await tapField(':id/et_playground')
       await sleep(1200)
       key(K.n, K.i, K.h, K.a, K.o)
       await sleep(2000)
@@ -185,8 +216,10 @@ const STEPS = [
     async run() {
       key(K.n, K.i, K.h, K.a, K.o)
       await sleep(1800)
-      const f = editTexts()[0]
-      if (f) shell(`input swipe ${f.cx - 260} ${f.cy} ${f.cx + 260} ${f.cy} 220`)
+      // 在输入框那条线上左右划 —— 划的是键盘区域,坐标跟着输入框走才换得到分辨率无关
+      const f = await byId(':id/et_playground')
+      const dx = Math.round(f.cx * 0.35) || 260
+      shell(`input swipe ${f.cx - dx} ${f.cy} ${f.cx + dx} ${f.cy} 220`)
       await sleep(1200)
       key(K.del, K.del, K.del, K.del, K.del, K.del)
       await sleep(600)
@@ -197,9 +230,7 @@ const STEPS = [
     core: false,
     caption: '切到网址框，这行键就换成网址开头。',
     async run() {
-      const f = editTexts()[1]
-      if (!f) throw new Error('实验场里没有网址输入框')
-      shell(`input tap ${f.cx} ${f.cy}`)
+      await tapField(':id/et_url')
       await sleep(2200)
     },
   },
@@ -208,9 +239,7 @@ const STEPS = [
     core: false,
     caption: '切到数字框，只留下数字能打的键。',
     async run() {
-      const f = editTexts()[2]
-      if (!f) throw new Error('实验场里没有数字输入框')
-      shell(`input tap ${f.cx} ${f.cy}`)
+      await tapField(':id/et_number')
       await sleep(2200)
     },
   },
@@ -228,9 +257,9 @@ const STEPS = [
     core: false,
     caption: '用了哪些开源组件、什么许可，应用里写得很清楚。',
     async run() {
-      tapText('许可')
+      await tapText('许可')
       await sleep(1200)
-      tapText('开源许可')
+      await tapText('开源许可')
       await sleep(1500)
     },
   },
