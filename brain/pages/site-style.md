@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [design, theme]
 created: "2026-09-30T12:15:33"
-updated: "2026-09-30T12:16:40"
+updated: "2026-10-01T11:17:41"
 ---
 
 <!-- compiled_truth -->
@@ -21,10 +21,16 @@ updated: "2026-09-30T12:16:40"
 - **导航**:`position: sticky` + `backdrop-filter: saturate(180%) blur(20px)` + 半透明底。
 - **组件**:按钮胶囊形(`border-radius: 980px`);特性卡片 18px 圆角、悬停轻微上浮;不加厚边框。
 - **节奏**:段落间距 96–120px,分区之间用 `#f5f5f7` 交替。
+- **命中区域**:触控设备上可点元素不低于 44px(按钮、导航项、转化动作);
+  视觉宽度该窄的(如 ¶ 锚点)用伪元素扩命中区,不改布局。详见 [[site-mobile]]。
 
-**验证限制要记住**:这台机器当时没有连浏览器工具,视觉只能靠构建产物里的 HTML/类名核对,
-不能真看渲染效果。所以改动要保守 —— 用 VitePress 已有的 CSS 变量和类名做覆盖,别去魔改
-组件结构;改完至少 `npm run build` 过一遍,并把"视觉未肉眼验证"这件事如实告诉用户。
+**验证手段(2026-10-01 更新,原先的限制已解除)**:这台机器没有连上桌面浏览器工具,
+但**可以**用本机 `/usr/bin/chromium-browser` + `puppeteer-core` 无头实测 ——
+能看真实渲染截图,也能量投影后的几何(`getBoundingClientRect`)和命中区域。
+版式改动因此可以做到"量过再改",不必只靠类名推断。具体做法与判据见 [[site-mobile]]。
+改动仍要保守:优先用 VitePress 已有的 CSS 变量和类名做覆盖,别魔改组件结构;
+改完跑 `npm run build`,并把**没有真机验证**这件事如实告诉用户
+(无头 Chromium 只覆盖桌面渲染,Titan 2 是按视口模拟的,不是那台机器)。
 
 
 ## Timeline
@@ -39,4 +45,16 @@ updated: "2026-09-30T12:16:40"
   kind: decision
   summary: "Apple 风格:大字重标题紧字距、#f5f5f7 分段底色、半透明毛玻璃导航、胶囊按钮、大留白"
   source: "2026-09-30 用户定:采用 Apple 的网站风格"
+  affects: [site-style]
+
+- time: 2026-10-01T11:17:27
+  kind: decision
+  summary: "视觉验证限制已解除:浏览器工具当时未连接,现在改用本机 /usr/bin/chromium-browser + puppeteer-core 无头实测(35 组视口),能看真实渲染与投影几何。见 [[site-mobile]]"
+  source: "2026-10-01 移动端修复"
+  affects: [site-style, site-mobile]
+
+- time: 2026-10-01T11:17:41
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: brain update-truth
   affects: [site-style]
