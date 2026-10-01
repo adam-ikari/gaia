@@ -53,7 +53,7 @@ export default defineConfig({
     },
   },
   title: '盖亚输入法',
-  description: '给 Unihertz Titan 2 量身定做的拼音输入法：三层键盘、五指选字、上滑飞字。',
+  description: '给 Unihertz Titan 2 量身定做的拼音输入法：三层键盘、五键选字、上滑飞字。',
   lastUpdated: true,
   cleanUrls: true,
 
@@ -65,7 +65,7 @@ export default defineConfig({
       'meta',
       {
         property: 'og:description',
-        content: '三层键盘、五指选字、上滑飞字。为 Unihertz Titan 2 量身定做。',
+        content: '三层键盘、五键选字、上滑飞字。为 Unihertz Titan 2 量身定做。',
       },
     ],
     ...umamiHead,
