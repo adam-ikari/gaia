@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [copy, voice, titan2]
 created: "2026-09-30T12:56:04"
-updated: "2026-09-30T12:56:04"
+updated: "2026-10-01T13:00:10"
 ---
 
 <!-- compiled_truth -->
@@ -27,6 +27,23 @@ updated: "2026-09-30T12:56:04"
    "拖到位""这行键""屏幕左下角"。技术细节要么删掉,要么换成一句人话。
 2. **不讲实现,不讲仓库**。不提包名、构建脚本、内部命名、CI 细节;权限/数据这类事按事实陈述,
    不解释机制。
+
+## 写交互前先读代码,别照着印象写(2026-10-01 用户纠正「上滑是上滑键盘」)
+
+**手势的"表面"和"分区维度"都是能被写错、且写错了看不出来的东西。** 站上把飞字写成
+「按住候选往上拖」——表面错了(真机是在**键盘表面**上滑,候选栏上滑只是同样联动的次要路径),
+文案还跟着 `SwipeFeel.vue` 一起错:那个组件只有一行候选词、没有键盘。
+
+对照代码核过的几条事实(应用仓库 `hwkbd_ime`):
+
+- **分区按横向,不按纵向**:`ImeService.kt:541` 的 `zoneOf(x) = x / xMax * 5`(xMax=1440)。
+  手指落在哪一列 → 决定选哪个词;竖直位移只决定**抬起多远算够**(threshold 默认 160,
+  设置页三档 100/160/240),死区 = threshold/4,死区内整体忽略,过阈值立即提交不等抬手。
+- **点击与上滑是两条路径、一个终点**:都汇到 `ImeController.selectCandidate(468)`,
+  经 `displayOrder` 把显示位换算成逻辑位再 `commitText`。所以两种手势上屏的是同一条词。
+- **候选栏自己也支持上滑**(`CandidateBarView.kt:619` 的 `beginFlyDrag`),是同一组件内的另一条路。
+
+⇒ 演示交互的组件,形状必须和真机一致(哪个表面、分区怎么切),否则它演示的不是这个东西。
 
 **产品口径(用户明确纠正过两次)**:盖亚输入法是**给 Unihertz Titan 2 量身定做**的,不是"兼容全键盘"。
 别家机型没测过,站上要这么写,别写"多数机型可用"。
@@ -50,4 +67,16 @@ updated: "2026-09-30T12:56:04"
   kind: decision
   summary: "文案以 adamblog 的 blog-writing skill 为准:去 AI 味 + 不用生僻词;口径改为 Titan 2 量身定做"
   source: "2026-09-30 用户指定"
+  affects: [site-copy]
+
+- time: 2026-10-01T12:59:34
+  kind: decision
+  summary: "「上滑」的说法统一成在键盘上划,且必须带上分区维度:区号由手指落点的横向位置决定(屏宽五等分,ImeService.kt:541 zoneOf),竖直位移只决定何时上屏 —— 站上原先写成「按住候选往上拖」,既说错了表面也说错了分区"
+  source: "2026-10-01 用户纠正 + 读 ImeService.kt/CandidateBarView.kt 核对"
+  affects: [site-copy, site-mobile]
+
+- time: 2026-10-01T13:00:10
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: brain update-truth
   affects: [site-copy]
