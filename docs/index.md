@@ -38,7 +38,7 @@ actions:
 <div class="gaia-band-head">
 <p class="gaia-eyebrow">每个细节</p>
 <h2>一处都不含糊。</h2>
-<p class="gaia-band-sub">下面这些画面是自动测试一轮跑下来的。</p>
+<p class="gaia-band-sub">下面这些画面是自动测试一轮跑下来的，屏幕尺寸和真机一样。</p>
 </div>
 
 <Shots />

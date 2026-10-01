@@ -37,7 +37,9 @@ onMounted(async () => {
 <template>
   <div v-if="loaded && shots.length" class="gshots">
     <figure v-for="s in shots" :key="s.file" class="gshot">
-      <img :src="`${base}media/shots/${s.file}`" :alt="s.caption" loading="lazy" decoding="async" width="360" height="780" />
+      <!-- width/height 是给浏览器占位的比例,写错会先按错的框排版再跳一下。
+           Titan 2 是正方形 1440×1440,所以这里也必须是正方形。 -->
+      <img :src="`${base}media/shots/${s.file}`" :alt="s.caption" loading="lazy" decoding="async" width="1440" height="1440" />
       <figcaption>{{ s.caption }}</figcaption>
     </figure>
   </div>
@@ -46,7 +48,8 @@ onMounted(async () => {
 <style scoped>
 .gshots {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  /* 正方形比长条高,格子给宽一点,一行才排得下四五张 */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 20px 16px;
   max-width: 1080px;
   margin: 0 auto;
@@ -60,7 +63,8 @@ onMounted(async () => {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 22px;
+  /* 正方形屏的圆角比长条屏大一些,免得四角显得方 */
+  border-radius: 26px;
   border: 1px solid var(--vp-c-divider);
   background: var(--vp-c-bg-soft);
 }

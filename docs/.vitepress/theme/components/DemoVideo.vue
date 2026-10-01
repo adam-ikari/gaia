@@ -20,8 +20,8 @@ const poster = `${import.meta.env.BASE_URL}media/shots/gaia-demo-poster.png`
       loop
       playsinline
       preload="metadata"
-      width="360"
-      height="780"
+      width="1440"
+      height="1440"
     />
     <p class="gaia-video-cap">
       从打开输入框到翻页的完整一段。自动测试跑下来的，没剪。
@@ -39,15 +39,17 @@ const poster = `${import.meta.env.BASE_URL}media/shots/gaia-demo-poster.png`
   display: block;
   margin: 0 auto;
   width: 100%;
-  max-width: 320px;
-  border-radius: 32px;
+  /* 正方形,和截图同一套版式 */
+  max-width: 360px;
+  aspect-ratio: 1 / 1;
+  border-radius: 28px;
   border: 1px solid var(--vp-c-divider);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
   background: #000;
 }
 
 .gaia-video-cap {
-  max-width: 320px;
+  max-width: 360px;
   margin: 16px auto 0;
   font-size: 13px;
   line-height: 1.6;
