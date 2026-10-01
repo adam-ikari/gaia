@@ -97,8 +97,15 @@ jobs:
           # 采集必须发生在**这个 step 内部**:模拟器的生命周期 == emulator-runner 这个 step,
           # step 一结束它就被拆掉。之前把安装/采集拆到后续 step,结果后续 step 起来时
           # `adb devices` 已经空了(2026-09-30 连续三轮都栽在这)。
+          # **这个 action 用 /usr/bin/sh 执行 script,而 runner 上的 sh 是 dash**:
+          # dash 不认 `set -o pipefail`,会直接报
+          #   `/usr/bin/sh: 1: set: Illegal option -o pipefail` → exit 2,
+          # 于是模拟器刚 boot 完就被拆掉,看起来像"起来 45 秒就死"。
+          # 我照着 action 文档抄了 `set -euo pipefail`,连续三轮都栽在这 —— 
+          # 诊断全错方向(以为是 KVM / GPU / 设备消失),真因只是一行 shell 方言。
+          # 这里只用 POSIX 的 `set -u`,逐条判错,不要 pipefail / -e。
           script: |
-            set -uo pipefail
+            set -u
             # 开机的兜底:action 自己也在等,但它判定成功后脚本才跑
             booted=0
             for i in $(seq 1 60); do
