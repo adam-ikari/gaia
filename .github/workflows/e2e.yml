@@ -94,49 +94,67 @@ jobs:
 
       # ---------------------------------------------------------------- 环境准备
       - name: 等待开机 + 安装 + 启用输入法
+        env:
+          # **必须显式指定 adb 路径与设备序列号**。emulator-runner 自己用的是
+          # /usr/local/lib/android/sdk/platform-tools/adb -s emulator-5554;
+          # 而普通 step 里 PATH 上的 adb 可能不是同一个(或它没带 ANDROID_SERIAL),
+          # 于是 `adb shell getprop` 静默无输出 —— 上一轮 24 次轮询一条回显都没有,
+          # 看着像 boot 不完,其实是命令没打到设备上。
+          ADB: /usr/local/lib/android/sdk/platform-tools/adb
+          SERIAL: emulator-5554
         run: |
           set -uo pipefail
-          # action 自己会等 boot 完成(实测 55s),这里只是兜底再确认一次
+          adb() { timeout 60 "$ADB" -s "$SERIAL" "$@"; }
+          export -f adb 2>/dev/null || true
+
+          echo "--- 设备列表:"; timeout 30 "$ADB" devices || true
+
           booted=0
           for i in $(seq 1 24); do
-            if [ "$(timeout 15 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')" = "1" ]; then
+            if [ "$(timeout 20 "$ADB" -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')" = "1" ]; then
               booted=1; break
             fi
             sleep 5
           done
           if [ "$booted" != "1" ]; then
-            echo "::error::boot_completed 超时"
+            echo "::error::boot_completed 超时(SERIAL=$SERIAL)"
+            timeout 30 "$ADB" -s "$SERIAL" shell getprop 2>&1 | head -5 || true
             exit 1
           fi
           echo "boot completed after $i polls"
 
           # 动画全关:截图要静止帧
-          timeout 20 adb shell settings put global window_animation_scale 0 || true
-          timeout 20 adb shell settings put global transition_animation_scale 0 || true
-          timeout 20 adb shell settings put global animator_duration_scale 0 || true
-          timeout 20 adb shell wm dismiss-keyguard || true
+          timeout 20 "$ADB" -s "$SERIAL" shell settings put global window_animation_scale 0 || true
+          timeout 20 "$ADB" -s "$SERIAL" shell settings put global transition_animation_scale 0 || true
+          timeout 20 "$ADB" -s "$SERIAL" shell settings put global animator_duration_scale 0 || true
+          timeout 20 "$ADB" -s "$SERIAL" shell wm dismiss-keyguard || true
 
-          timeout 300 adb install -r -t app/build/outputs/apk/debug/app-debug.apk || {
+          timeout 300 "$ADB" -s "$SERIAL" install -r -t app/build/outputs/apk/debug/app-debug.apk || {
             echo "::error::安装失败"; exit 1; }
-          timeout 30 adb shell ime enable dev.hwkbd.ime/.service.ImeService || true
-          timeout 30 adb shell ime set dev.hwkbd.ime/.service.ImeService || true
+          timeout 30 "$ADB" -s "$SERIAL" shell ime enable dev.hwkbd.ime/.service.ImeService || true
+          timeout 30 "$ADB" -s "$SERIAL" shell ime set dev.hwkbd.ime/.service.ImeService || true
           # 停掉模拟器自带的拉丁键盘,免得跟输入法抢
-          timeout 20 adb shell ime disable com.android.inputmethod.latin 2>/dev/null || true
-          echo "--- 输入法:"; timeout 30 adb shell ime list -s || true
+          timeout 20 "$ADB" -s "$SERIAL" shell ime disable com.android.inputmethod.latin 2>/dev/null || true
+          echo "--- 输入法:"; timeout 30 "$ADB" -s "$SERIAL" shell ime list -s || true
 
       # ---------------------------------------------------------------- 采集与回归
       - name: 站点素材(截图 + 录屏)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.shots }}
+        env:
+          # 脚本用 adb -s,靠这个环境变量选设备
+          AITEST_DEVICE: emulator-5554
+          ADB: /usr/local/lib/android/sdk/platform-tools/adb
         run: |
-          set -uo pipefail
           mkdir -p out/media
           timeout 420 node tools/aitest/shots.mjs out/media/shots || echo "素材脚本有失败项"
           ls -la out/media out/media/shots 2>/dev/null || true
 
       - name: 跑场景
         if: ${{ inputs.scenes != '' }}
+        env:
+          AITEST_DEVICE: emulator-5554
+          ADB: /usr/local/lib/android/sdk/platform-tools/adb
         run: |
-          set -uo pipefail
           for s in $(echo '${{ inputs.scenes }}' | tr ',' ' '); do
             echo "=== $s"
             timeout 300 node tools/aitest/harness.mjs run "$s" || echo "场景 $s 失败"
