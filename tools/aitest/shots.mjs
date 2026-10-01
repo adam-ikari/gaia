@@ -30,7 +30,7 @@
  * 退出码:0 = 核心步骤全过;1 = 有核心步骤失败(产物仍在,可先看图再判断)
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -355,6 +355,69 @@ function stopRecording() {
   }
 }
 
+/**
+ * 修好并校验 mp4。
+ *
+ * **screenrecord 出的是没有 faststart 的文件**:`moov` atom 在文件末尾,
+ * 浏览器要**整个下完**才知道时长和分辨率 —— 而站点的视频是懒加载的,
+ * 访客看到的是「转圈很久然后才播」。加上 `-movflags +faststart` 把 moov 挪到开头。
+ *
+ * 更要紧的是它会**坏**:2026-10-01 站点上那个 1.2MB 的 mp4 连 `moov` 都没有,
+ * `ffprobe` 直接报 `Invalid data found`,浏览器播不了。screenrecord 被
+ * `killall -9` 杀掉时缓冲区还没落盘,尾部就截断了 —— 而**截断的 mp4 依然是合法文件**,
+ * `adb pull` 会成功返回,不看内容就发现不了。所以这里必须**验**,不能只信 pull 没报错。
+ *
+ * 两条都要:能播(`ffprobe` 读得出流信息)且 moov 在前(faststart 后再验一次)。
+ * 修不了就删掉并报出来 —— 让站点知道没有视频,好过让站点挂一个黑框。
+ */
+function finalizeVideo(file) {
+  if (!existsSync(file)) return { ok: false, why: '文件不存在' }
+  const bytes = readFileSync(file).length
+  if (bytes < 100_000) return { ok: false, why: `只有 ${bytes} 字节,太短` }
+
+  const probe = (f) => {
+    try {
+      const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,width,height', '-of', 'csv=p=0', f], {
+        encoding: 'utf8',
+        timeout: 60000,
+      }).trim()
+      return out
+    } catch (e) {
+      return null
+    }
+  }
+
+  const before = probe(file)
+  if (!before) return { ok: false, why: 'ffprobe 读不出流(screenrecord 被杀导致尾部截断?)' }
+
+  // moov 前置:重封装,不重编码(重编码慢且有损)
+  //
+  // 临时名**必须以 .mp4 结尾**:ffmpeg 靠扩展名判断输出格式,叫 `x.mp4.faststart`
+  // 会被当成未知格式直接失败(踩过 —— 报 "Unable to find a suitable output format")。
+  // 所以在原文件名里插一段,而不是接在后面。
+  const dot = file.lastIndexOf('.')
+  const tmp = `${file.slice(0, dot)}.faststart${file.slice(dot)}`
+  try {
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', file, '-c', 'copy', '-movflags', '+faststart', tmp], {
+      timeout: 300000,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+  } catch (e) {
+    rmSync(tmp, { force: true })
+    const why = (e.stderr?.toString() || e.message).split('\n').filter(Boolean)[0] ?? '未知原因'
+    return { ok: false, why: `faststart 失败:${why}` }
+  }
+
+  // 换掉原文件,并确认换完之后仍然可读 —— 重封装本身也可能截断
+  const after = probe(tmp)
+  if (!after) {
+    rmSync(tmp, { force: true })
+    return { ok: false, why: 'faststart 之后反而读不出了' }
+  }
+  renameSync(tmp, file)
+  return { ok: true, info: after, bytes: readFileSync(file).length }
+}
+
 /** 每一步 = 出一张图 + 一句给站点用的话。
  *
  *  **图必须对得起那句话。** 之前 04/05 两步的文案写「五键选字」「滑动翻页」,
@@ -574,14 +637,19 @@ async function main() {
   stopRecording()
   await sleep(1500)
   let videoOk = false
+  const videoFile = join(outDir, 'gaia-demo.mp4')
   try {
-    execFileSync(adb, [...args, 'pull', recPath, join(outDir, 'gaia-demo.mp4')], {
-      timeout: 180000,
-      stdio: 'ignore',
-    })
-    videoOk = true
+    execFileSync(adb, [...args, 'pull', recPath, videoFile], { timeout: 180000, stdio: 'ignore' })
+    const v = finalizeVideo(videoFile)
+    if (v.ok) {
+      videoOk = true
+      console.log(`录屏 ✓ ${v.info} · ${(v.bytes / 1048576).toFixed(2)}MB · moov 已前置`)
+    } else {
+      console.log(`录屏不可用(已删除):${v.why}`)
+      rmSync(videoFile, { force: true })
+    }
   } catch (e) {
-    console.log(`录屏拉取失败:${e.message}`)
+    console.log(`录屏拉取失败:${e.message.split('\n')[0]}`)
   }
   shell(`rm -f ${recPath}`)
 
@@ -599,9 +667,13 @@ async function main() {
 
   writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ ...manifest, video: videoOk }, null, 2))
   console.log(`\n截图 ${manifest.shots.length} 张 → ${outDir}`)
-  console.log(`录屏:${videoOk ? 'gaia-demo.mp4 ✓' : '失败'}`)
+  console.log(`录屏:${videoOk ? 'gaia-demo.mp4 ✓' : '不可用(站点会整块不渲染)'}`)
   console.log(`失败步骤 ${fail} 个(其中核心 ${coreFail} 个)`)
-  process.exitCode = coreFail > 0 ? 1 : 0
+  // 录屏坏了**要让这轮红**。理由:录屏坏掉时 manifest 会写 video:false,站点确实不渲染,
+  // 但产物目录里躺着的东西会被下一个人当成"这轮是好的"。2026-10-01 就是这么把一个
+  // 播不了的 mp4 提交进站点仓库的 —— 截图全绿、退出码 0,没人发现问题。
+  if (!videoOk) console.log('⚠ 录屏不可用,站点首页这一屏会空着')
+  process.exitCode = coreFail > 0 || !videoOk ? 1 : 0
 }
 
 main().catch((e) => {
