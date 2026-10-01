@@ -105,16 +105,19 @@ jobs:
         run: |
           set -uo pipefail
           export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          SDK="$ANDROID_SDK_ROOT"
-          echo "SDK=$SDK"
-          yes 2>/dev/null | sdkmanager --sdk_root="$SDK" --licenses >/dev/null || true
-          sdkmanager --sdk_root="$SDK" --install 'system-images;android-34;default;x86_64' >/dev/null
-          avdmanager --sdk_root="$SDK" delete avd -n titan2 >/dev/null 2>&1 || true
+          # **avdmanager 不认 `--sdk_root`** —— 给了它就打印一份用法然后 rc=1
+          # (2026-10-01 踩过)。它只看 ANDROID_SDK_ROOT / ANDROID_HOME 环境变量,
+          # 所以这里把两个变量都摆明白;sdkmanager 才收 --sdk_root。
+          export ANDROID_SDK_ROOT ANDROID_HOME="$ANDROID_SDK_ROOT"
+          echo "SDK=$ANDROID_SDK_ROOT"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'system-images;android-34;default;x86_64' >/dev/null
+          avdmanager delete avd -n titan2 >/dev/null 2>&1 || true
           # 输出与退出码都要看见:上一次这一步只给了句
           # "Do you wish to create a custom hardware profile? [no]" 加一个 exit code 1,
           # 一个字的错都没说 —— 等于没信息。
           rc=0
-          out="$(echo no | avdmanager --sdk_root="$SDK" create avd -n titan2 \
+          out="$(echo no | avdmanager create avd -n titan2 \
                   -k "system-images;android-34;default;x86_64" --abi x86_64 --force 2>&1)" || rc=$?
           echo "$out"
           echo "avdmanager rc=$rc"
