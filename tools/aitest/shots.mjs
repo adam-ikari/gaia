@@ -129,6 +129,17 @@ async function byId(idTail) {
   return hit
 }
 
+/** 等某个控件出现在当前窗口(冷启动时实验场要好几秒才起来,固定 sleep 不可靠)。 */
+const waitForField = async (idTail, timeoutMs = 60000) => {
+  const t0 = Date.now()
+  for (;;) {
+    const all = await nodes()
+    if (all.some((n) => n.id.endsWith(idTail))) return true
+    if (Date.now() - t0 > timeoutMs) throw new Error(`${timeoutMs / 1000}s 内没等到 ${idTail}`)
+    await sleep(2000)
+  }
+}
+
 /** 收掉未上屏的组词(把光标推到末尾再删几个键)。
  *
  *  **组词态下,点别的输入框拿不到焦点** —— 实测焦点会一直留在原来那个框上,
@@ -433,12 +444,18 @@ async function main() {
   }
   if (!imeReady) throw new Error(`输入法没注册进 ime list:${IME}(装好了吗?)`)
   shell(`ime set ${IME}`)
+  shell(`am start -n ${PKG}/.playground.PlaygroundActivity >/dev/null 2>&1`)
+  // 顺序不能反:**输入法服务是在第一个输入框拿到焦点时才起来的**,
+  // 词库又是在服务 onCreate 里加载 —— 所以「先等词库」在冷启动时是死等
+  // (2026-10-01 实测:等满 180s 超时,因为那时服务还没建,日志根本不会有)。
+  // 正确顺序:开实验场 → 等它真的出来 → 点一下输入框(服务起来)→ 再等词库。
+  await waitForField(':id/et_playground')
+  await tapField(':id/et_playground')
+  await sleep(1500)
   // 词库就绪之前候选是空的,那组图等于没截 —— 先等它,再开始录屏
   process.stdout.write('▶ 等词库 ... ')
   const dictOk = await waitDict()
   console.log(dictOk ? '✓' : '✗')
-  shell(`am start -n ${PKG}/.playground.PlaygroundActivity >/dev/null 2>&1`)
-  await sleep(3000)
 
   // 录屏包住整场:起点在第一张截图之前、终点在最后一张之后,mp4 里就是完整的一段交互,
   // 而不是"先录一段空屏再录一段操作"。--time-limit 是 kill 没成功时的兜底。
