@@ -8,8 +8,21 @@
  *   这里用 `exec-out screencap -p`,模拟器和多屏设备都能出图。
  * - 站点要的是"每张图配一句话",所以这里顺带产出 manifest.json。
  *
- * 用法:
+ * 用法(**手机直连,不用模拟器**):
+ *   ./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk
  *   node tools/aitest/shots.mjs [输出目录]     # 默认 evidence/shots
+ *
+ * 产出(可直接喂给站点 docs/public/media/):
+ *   NN-name.png   每个步骤一张截图
+ *   gaia-demo.mp4 全程录屏(screenrecord,8Mbps)
+ *   gaia-demo.jpg 封面(站点的 <video poster>)
+ *   manifest.json 图文对照表
+ *
+ * 为什么在真机跑而不是 CI 模拟器(2026-09-30 实测):GitHub runner 的 x86_64 模拟器起来
+ * 约 45 秒就自己死(KVM 权限已修好,不是权限问题),而且**模拟器的分辨率、键盘、insets 都跟
+ * Titan 2 不同** —— 拿它的图冒充真机是错的。这个脚本分辨率无关(点输入框靠 uiautomator 读
+ * bounds,不写死坐标),所以真机直连是对的做法。
+ *
  * 环境变量:
  *   ADB           adb 路径(默认 adb)
  *   AITEST_DEVICE adb -s 序列号(多设备时指定)
@@ -202,6 +215,14 @@ async function main() {
   shell(`am start -n ${PKG}/.playground.PlaygroundActivity >/dev/null 2>&1`)
   await sleep(3000)
 
+  // 录屏包住整场:起点在第一张截图之前、终点在最后一张之后,mp4 里就是完整的一段交互,
+  // 而不是"先录一段空屏再录一段操作"。--time-limit 是 kill 没成功时的兜底。
+  const recPath = '/sdcard/gaia-demo.mp4'
+  shell(`rm -f ${recPath}`)
+  // 用 setsid/nohup 甩到后台:`adb shell '... &'` 在 shell 退出时可能连带被杀
+  shell(`nohup screenrecord --time-limit 300 --bit-rate 8000000 ${recPath} >/dev/null 2>&1 &`, 5000)
+  const recStarted = Date.now()
+
   for (const s of STEPS) {
     process.stdout.write(`▶ ${s.name} ... `)
     try {
@@ -217,9 +238,29 @@ async function main() {
     }
   }
 
-  writeFileSync(join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  // 停录屏再拉:先给 2 秒让最后一段写盘,否则 mp4 尾部会缺
+  await sleep(2000)
+  shell(`pkill -f screenrecord || true`)
+  await sleep(1500)
+  let videoOk = false
+  try {
+    execFileSync(adb, [...args, 'pull', recPath, join(outDir, 'gaia-demo.mp4')], {
+      timeout: 180000,
+      stdio: 'ignore',
+    })
+    // 顺带出一张封面:站点的 <video poster> 用它,首帧常常还没渲染出候选
+    screencap(join(outDir, 'gaia-demo.jpg'))
+    videoOk = true
+  } catch (e) {
+    console.log(`录屏拉取失败:${e.message}`)
+  }
+  shell(`rm -f ${recPath}`)
+  console.log(`录屏时长 ${Math.round((Date.now() - recStarted) / 1000)}s`)
+
+  writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ ...manifest, video: videoOk }, null, 2))
   console.log(`\n截图 ${manifest.shots.length} 张 → ${outDir}`)
-  console.log(`失败步骤 ${fail} 个（其中核心 ${coreFail} 个）`)
+  console.log(`录屏:${videoOk ? 'gaia-demo.mp4 ✓' : '失败'}`)
+  console.log(`失败步骤 ${fail} 个(其中核心 ${coreFail} 个)`)
   process.exitCode = coreFail > 0 ? 1 : 0
 }
 
