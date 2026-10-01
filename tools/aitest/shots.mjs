@@ -144,11 +144,20 @@ const tapText = async (needle) => {
   return false
 }
 
-// 键码 = Android KeyEvent。**v 是拼音分节符**(不是撇号):词库里「你好」记作 `ni'hao`,
-// 而 [ChineseLanguage.mapText] 把 v 映射成分节符,所以要打 `nivhao`。
-// 之前这脚本打的是 `nihao` —— 词库里没有这条,组词没有候选,截出来的图只有一个
-// 降级出来的「你毛」,看着像功能坏了。
-const K = { n: 42, i: 37, v: 50, h: 41, a: 29, o: 43, space: 62, del: 67, shift: 59, alt: 58 }
+// 键码 = Android KeyEvent 的常量值(对着 android.jar 的 `javap -constants` 抄,别背)。
+//
+// 这里踩过两次:
+// - `h` 一度写成 **41**,而 41 是 **KEYCODE_M**。于是脚本一直在打 `nimao`,
+//   词库里当然没有,组词出不来「你好」,截出来的图只有一个降级候选 ——
+//   **图还是拍出来了,没人看得出来是键码写错**。所以下面每个步骤都带 verify。
+// - `alt` 一度写成 58,那是 KEYCODE_ALT_RIGHT;左键是 57。
+//
+// 另外 **v 是拼音分节符**,不是撇号:词库里「你好」记作 `ni'hao`,
+// [ChineseLanguage.mapText] 把 v 映射成分节符,所以要打 `nivhao`。
+const K = {
+  a: 29, h: 36, i: 37, n: 42, o: 43, v: 50,
+  space: 62, del: 67, shift: 59, alt: 57,
+}
 
 /** 等内置词库加载完。
  *
@@ -218,6 +227,10 @@ const STEPS = [
       key(K.n, K.i, K.v, K.h, K.a, K.o)
       await sleep(2000)
     },
+    async verify() {
+      const t = (await byId(':id/et_playground')).text
+      return t.includes("ni'hao") ? null : `组词区该是 ni'hao,实际是「${t}」`
+    },
   },
   {
     name: '03-committed',
@@ -226,6 +239,10 @@ const STEPS = [
     async run() {
       key(K.space)
       await sleep(1500)
+    },
+    async verify() {
+      const t = (await byId(':id/et_playground')).text
+      return t.includes('你好') ? null : `上屏后该有「你好」,实际是「${t}」`
     },
   },
   {
@@ -273,6 +290,10 @@ const STEPS = [
     async run() {
       await tapField(':id/et_number')
       await sleep(2200)
+    },
+    async verify() {
+      const t = (await byId(':id/et_number')).text
+      return t === '' ? null : `数字框应该是空的,实际是「${t}」`
     },
   },
   {
@@ -341,8 +362,20 @@ async function main() {
       await s.run()
       const file = join(outDir, `${s.name}.png`)
       screencap(file)
-      manifest.shots.push({ file: `${s.name}.png`, caption: s.caption })
-      console.log('✓')
+      const entry = { file: `${s.name}.png`, caption: s.caption }
+      manifest.shots.push(entry)
+      // 自检:**图拍到了不等于图里是对的**。键码写错、输入法改了行为,图都照样拍出来,
+      // 只有对着输入框的实际内容断言才看得出来。图照拍(要看就看得见),
+      // 但不符要报出来并让退出码非 0 —— 不能悄悄混进站点。
+      if (s.verify) {
+        const bad = await s.verify()
+        if (bad) {
+          entry.warn = bad
+          fail++
+          if (s.core) coreFail++
+          console.log(`⚠ ${bad}(图已拍,但对不上)`)
+        } else console.log('✓')
+      } else console.log('✓')
     } catch (e) {
       fail++
       if (s.core) coreFail++
