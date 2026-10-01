@@ -1,74 +1,77 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
 /**
- * 下载表。数据源是**本仓库**的 latest Release —— 应用仓库是私有的，
- * 那边的下载链接需要登录态，访客拿不到，所以包挂在公开的站点仓库上。
+ * 下载。**链接是写死的，版本信息才是走 API 取的** —— 这个顺序是刻意的。
  *
- * 站点只提供正式版：调试包不进这张表（也不发布到本仓库）。
+ * 为什么不用 API 拼链接：GitHub 未认证 REST 配额是 **60 次/小时、按出口 IP 计**。
+ * 同一出口 IP 后面的人互相抢这 60 次，访客偶发 403 是常态（不是配置错）。
+ * 而原来的写法把**链接本身**绑在这个配额上：一旦 403，页面连按钮都不渲染，
+ * 只剩一句「无法连接 GitHub」—— 整站唯一的转化动作在限流时整块消失。
+ *
+ * 关键事实：`github.com/<repo>/releases/latest/download/<文件名>` 这条路径
+ * 由 GitHub 站点直接服务（302 到 release-assets），**不走 REST 配额**。
+ * 文件名固定，latest 是 GitHub 自己解析的，所以它既不消耗配额、
+ * 又永远指向最新包。把按钮指向它，下载就与 API 无关了。
+ *
+ * API 现在只用来锦上添花：版本号、大小、下载次数。取不到就都不显示，
+ * 但按钮照常能按 —— 装饰信息缺失不该让功能失效。
+ *
+ * 包挂在**公开的站点仓库**上（应用仓库是私有的，那边的链接要登录态）。
+ * 站点只提供正式版：调试包不进这里。
  */
 const REPO = 'adam-ikari/gaia'
+const ASSET = 'app-release.apk'
 
-type Asset = { name: string; size: number; browser_download_url: string; download_count?: number }
+/** 静态兜底链接：不依赖任何 API，永久有效（只要该仓库有 latest release）。 */
+const DOWNLOAD_URL = `https://github.com/${REPO}/releases/latest/download/${ASSET}`
 
-const state = ref<'loading' | 'ready' | 'none' | 'error'>('loading')
+/** API 成功时才有的补充信息 */
 const tag = ref('')
-const assets = ref<Asset[]>([])
+const size = ref('')
+const count = ref<number | null>(null)
 
-const rows = computed(() => assets.value.map((a) => ({ ...a, size: mb(a.size) })))
-
-function mb(size: number) {
-  return `${(size / 1024 / 1024).toFixed(1)} MB`
+function mb(bytes: number) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 onMounted(async () => {
+  /*
+   * 全部包在独立的 try 里，任何一步失败都只是少了点装饰信息。
+   * 刻意**不再**往界面上抛「无法连接 / 请稍后重试」—— 那句话没有可执行的下一步，
+   * 之前它还顶掉了下载按钮，现在更不该由它出现。
+   *
+   * 限流是常态而非异常（60 次/小时共享），所以不做重试：重试只会更快耗光配额，
+   * 而且用户看到的内容不会因此变好。
+   */
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
-    if (res.status === 404) {
-      state.value = 'none'
-      return
-    }
-    if (!res.ok) throw new Error(String(res.status))
+    if (!res.ok) return
     const data = await res.json()
     tag.value = data.tag_name ?? ''
     // 只认 release 包；防御性过滤，万一以后传错了也不会露出来
-    assets.value = (data.assets ?? []).filter((a: Asset) => /release/i.test(a.name))
-    state.value = assets.value.length ? 'ready' : 'none'
+    const asset = (data.assets ?? []).find(
+      (a: { name: string }) => a.name === ASSET
+    )
+    if (asset) {
+      size.value = mb(asset.size)
+      count.value = typeof asset.download_count === 'number' ? asset.download_count : null
+    }
   } catch {
-    state.value = 'error'
+    /* 拿不到就算了，按钮不依赖这些 */
   }
 })
 </script>
 
 <template>
   <div class="gi-dl">
-    <p v-if="state === 'loading'">正在读取发布信息…</p>
+    <a class="gi-dl-btn" :href="DOWNLOAD_URL" download>下载安装包</a>
 
-    <p v-else-if="state === 'none'">下载包正在准备，稍后再来。</p>
-
-    <p v-else-if="state === 'error'">无法连接 GitHub 获取发布信息，请稍后刷新重试。</p>
-
-    <template v-else>
-      <p>当前版本 <strong>{{ tag }}</strong>：</p>
-      <table>
-        <thead>
-          <tr>
-            <th>文件</th>
-            <th>大小</th>
-            <th>下载</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in rows" :key="r.name">
-            <td>
-              <a class="gi-dl-btn" :href="r.browser_download_url">下载 {{ r.name }}</a>
-            </td>
-            <td>{{ r.size }}</td>
-            <td>{{ r.download_count ?? 0 }} 次</td>
-          </tr>
-        </tbody>
-      </table>
-    </template>
+    <!-- 补充信息：API 拿到了才显示。取不到时按钮照常能用，这里什么都不出现。 -->
+    <p v-if="tag" class="gi-dl-meta">
+      当前版本 <strong>{{ tag }}</strong><template v-if="size"> · {{ size }}</template
+      ><template v-if="count !== null"> · 已下载 {{ count }} 次</template>
+    </p>
   </div>
 </template>
 
@@ -79,22 +82,37 @@ onMounted(async () => {
 }
 
 .gi-dl-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  /* 这是整站唯一真正的转化动作。padding 9px + 15px 字只有 42px 高，
-     差 2px 到手指的舒服尺寸 —— 直接给足，别算。 */
-  min-height: 44px;
-  padding: 9px 20px;
-  border-radius: 980px;
+  justify-content: center;
+  /* 整站唯一真正的转化动作，撑满一行：文件名长、按错成本高，没有理由做小 */
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 20px;
+  border-radius: 14px;
   background: var(--vp-c-brand-1);
   color: #fff;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 500;
   text-decoration: none;
+  /* 触摸设备上按下去不要有 300ms 延迟和高亮块 */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 .gi-dl-btn:hover {
-  background: var(--vp-c-brand-1);
-  opacity: 0.85;
+  background: #0077ed;
+}
+
+.gi-dl-btn:active {
+  background: #0069d6;
+  transform: scale(0.99);
+}
+
+.gi-dl-meta {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--vp-c-text-2);
 }
 </style>
