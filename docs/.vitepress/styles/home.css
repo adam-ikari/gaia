@@ -150,14 +150,6 @@
   text-align: center;
 }
 
-/* band 头下面那句补充说明(比如「这些画面是自动测试跑下来的」) */
-.gaia-band-head .gaia-band-sub {
-  margin: 14px 0 0;
-  font-size: 17px;
-  line-height: 1.6;
-  color: var(--vp-c-text-2);
-}
-
 .gaia-band-copy {
   max-width: 620px;
 }

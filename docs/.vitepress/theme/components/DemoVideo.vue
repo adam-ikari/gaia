@@ -24,7 +24,7 @@ const poster = `${import.meta.env.BASE_URL}media/shots/gaia-demo-poster.png`
       height="1440"
     />
     <p class="gaia-video-cap">
-      从打开输入框到翻页的完整一段。自动测试跑下来的，没剪。
+      从打开输入框到翻页的完整一段，没剪。
     </p>
   </div>
 </template>
