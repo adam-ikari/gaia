@@ -53,16 +53,34 @@ jobs:
       # API 34 / x86_64:targetSdk 34 就是为它调的,minSdk 26 向上兼容。
       # `disable-animations`:模拟器的动画默认开着,截图会拍到动画中间帧,
       # 站点素材必须是静止帧。
+      # KVM 是这个工作流能不能跑通的前提(2026-09-30 首次跑就死在没权限上,
+      # 表现为模拟器起不来、boot 轮询超时 —— 看起来像脚本挂住,其实是模拟器没启动)。
+      # 官方文档:ubuntu runner 需把 runner 用户加进 kvm 组并改 /dev/kvm 权限。
+      - name: 打开 KVM 权限
+        run: |
+          set -uo pipefail
+          if [ -e /dev/kvm ]; then
+            echo "/dev/kvm 存在,尝试授权"
+            sudo usermod -aG kvm "$USER" 2>/dev/null || echo "usermod 失败(可能已有权限)"
+            sudo chown "$USER" /dev/kvm 2>/dev/null || true
+            ls -l /dev/kvm
+          else
+            echo "::error::本机没有 /dev/kvm —— runner 是无硬件加速的 VM,x86_64 模拟器跑不起来"
+            exit 1
+          fi
+
+      # arch 由上面那步的结果决定:有 KVM 走 x86_64(快),没有就退出而不是白等 10 分钟。
       - name: 启动模拟器
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_5
-          script: |
-            adb shell input keyevent 82
           disable-animations: true
-          disable-snapshot: true
+          # disable-snapshot 不是该 action 的合法入参(会被 warning 忽略),去掉;
+          # 冷启动慢由 emulator-boot-timeout 兜底
+          emulator-boot-timeout: 600
+          # -no-boot-anim:不等开机动画,直接进系统;开机动画会让 boot_completed 迟迟不上报
           emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader_indirect -no-boot-anim
 
       # ---------------------------------------------------------------- 前置
@@ -75,13 +93,23 @@ jobs:
           timeout 120 adb wait-for-device || echo "wait-for-device 超时,继续轮询"
 
           booted=0
-          for i in $(seq 1 48); do
+          for i in $(seq 1 60); do
             s=$(timeout 15 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n' || true)
             if [ "$s" = "1" ]; then booted=1; break; fi
+            # 设备彻底不在了(模拟器进程崩了)就别再空转
+            if ! timeout 10 adb devices | grep -q "device$"; then
+              if [ "$i" -gt 6 ]; then
+                echo "::error::模拟器已不在设备列表里(第 $i 次轮询),它起没起来就挂了"
+                exit 1
+              fi
+            fi
             sleep 5
           done
-          if [ "$booted" != "1" ]; then echo "::error::模拟器未在 4 分钟内报 boot_completed"; exit 1; fi
-          echo "boot completed after ${i} polls"
+          if [ "$booted" != "1" ]; then
+            echo "::error::模拟器未在 5 分钟内报 boot_completed(检查上面 KVM 步骤的输出)"
+            exit 1
+          fi
+          echo "boot completed after $i polls"
 
           # 动画全关:截图要静止帧,动画开着会拍到中间态
           timeout 20 adb shell settings put global window_animation_scale 0 || true
@@ -97,6 +125,8 @@ jobs:
           timeout 30 adb shell ime enable dev.hwkbd.ime/.service.ImeService || true
           timeout 30 adb shell ime set dev.hwkbd.ime/.service.ImeService || true
           echo "--- 已启用的输入法:"; timeout 30 adb shell ime list -s || true
+          # 模拟器默认的拉丁键盘会跟输入法抢;停用它,保证切过去的确实是盖亚
+          timeout 20 adb shell ime disable com.android.inputmethod.latin 2>/dev/null || true
 
       - name: 列表场景
         run: node tools/aitest/harness.mjs list
