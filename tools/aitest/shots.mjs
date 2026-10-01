@@ -180,6 +180,11 @@ const clearField = async (idTail) => {
   // 表现为"这一格没拿到焦点,焦点还在上一格",而图看起来只是内容不对。
   // 所以点完要**问一句**焦点在不在,不在就再点。这比针对某一步加延时可靠:
   // 同样的事可能发生在任何一步。
+  // **要点别的框之前**先收掉未上屏的拼音 —— 组词期间 App 里点不动任何东西
+  // (见上面 cancelComposition 的说明)。
+  // 注意是「每步开头」而不是「每步结尾」:下一步可能正要靠上一步的组词
+  // (03 的空格就是上 02 的屏),提前收了就没东西可上屏了。
+  await cancelComposition()
   let got = ''
   for (let k = 0; k < 4; k++) {
     await tapField(idTail)
@@ -494,8 +499,6 @@ async function main() {
           console.log(`⚠ ${bad}(图已拍,但对不上)`)
         } else console.log('✓')
       } else console.log('✓')
-      // 每一步都以「没有未上屏的拼音」收尾,下一步才点得动别的框
-      await cancelComposition()
     } catch (e) {
       fail++
       if (s.core) coreFail++
