@@ -46,11 +46,21 @@ const args = serial ? ['-s', serial] : []
 const shell = (cmd, timeout = 20000) =>
   execFileSync(adb, [...args, 'shell', cmd], { encoding: 'utf8', timeout, maxBuffer: 16 * 1024 * 1024 }).trim()
 
+/** PNG 头里的宽高。IHDR 在固定偏移(签名 8 + 长度 4 + "IHDR" 4),不用解码整张图。 */
+const pngSize = (buf) => ({ w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) })
+
+/** 第一张图的尺寸,给 01 的自检用。 */
+let firstShot = null
+
 /** 截图:`exec-out screencap -p` 直出 PNG,不过 sdcard,也不用 pull。 */
 function screencap(file) {
   const buf = execFileSync(adb, [...args, 'exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 })
   if (!buf || buf.length < 1000) throw new Error(`截图异常:${file} 只有 ${buf ? buf.length : 0} 字节`)
   writeFileSync(file, buf)
+  if (!firstShot) {
+    firstShot = pngSize(buf)
+    console.log(`\n截图尺寸 ${firstShot.w}×${firstShot.h}`)
+  }
   return file
 }
 
@@ -320,6 +330,14 @@ const STEPS = [
     async run() {
       await clearField(':id/et_playground')
       await sleep(2000)
+    },
+    async verify() {
+      // 站点的版式按正方形排(img width/height 都写死),所以图必须真的是正方形。
+      // Titan 2 是 1440×1440;CI 上靠 `wm size 1440x1440` 对齐(见 ci-capture.sh),
+      // 真机直连天然就是这个尺寸。拍成 1080×2340 的话站上会被拉变形。
+      if (!firstShot) return '没拍到截图'
+      const { w, h } = firstShot
+      return w === h ? null : `图是 ${w}×${h},不是正方形 —— 站点版式按正方形排的`
     },
   },
   {
