@@ -144,7 +144,11 @@ const tapText = async (needle) => {
   return false
 }
 
-const K = { n: 42, i: 37, h: 41, a: 29, o: 43, space: 62, del: 67, shift: 59, alt: 58 }
+// 键码 = Android KeyEvent。**v 是拼音分节符**(不是撇号):词库里「你好」记作 `ni'hao`,
+// 而 [ChineseLanguage.mapText] 把 v 映射成分节符,所以要打 `nivhao`。
+// 之前这脚本打的是 `nihao` —— 词库里没有这条,组词没有候选,截出来的图只有一个
+// 降级出来的「你毛」,看着像功能坏了。
+const K = { n: 42, i: 37, v: 50, h: 41, a: 29, o: 43, space: 62, del: 67, shift: 59, alt: 58 }
 
 /** 等内置词库加载完。
  *
@@ -207,11 +211,11 @@ const STEPS = [
   {
     name: '02-composing',
     core: true,
-    caption: '打了一半：nihao。候选实时跟着变，你不用等它想完。',
+    caption: '打了一半：nivhao。候选实时跟着变，你不用等它想完。',
     async run() {
       await tapField(':id/et_playground')
       await sleep(1200)
-      key(K.n, K.i, K.h, K.a, K.o)
+      key(K.n, K.i, K.v, K.h, K.a, K.o)
       await sleep(2000)
     },
   },
@@ -242,7 +246,7 @@ const STEPS = [
     core: false,
     caption: '左右滑动键盘，候选词就跟着翻页。',
     async run() {
-      key(K.n, K.i, K.h, K.a, K.o)
+      key(K.n, K.i, K.v, K.h, K.a, K.o)
       await sleep(1800)
       // 在输入框那条线上左右划 —— 划的是键盘区域,坐标跟着输入框走才换得到分辨率无关
       const f = await byId(':id/et_playground')
