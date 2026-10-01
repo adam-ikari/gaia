@@ -6,32 +6,32 @@ name: E2E (模拟器)
 # 为什么用 workflow_dispatch 而不是每次 push 都跑:模拟器冷启动到能打字要 1–2 分钟,
 # 每次 push 都跑会把 CI 拖成分钟级,而真正的回归价值在"发版前跑一遍"。
 #
-# ## 这个文件踩过的坑(2026-09-30 连烧六轮才想通,每一轮都以为是模拟器起不来)
+# 模拟器的屏幕 = **Titan 2 的网格**(1440x1440 @ 320dpi = 576dp 宽),
+# 见下面「手写一个 Titan 2 屏幕的 AVD」那步。
 #
-# **1. 模拟器的生命周期 == 「启动模拟器」这**一个** step。**
-#    step 一结束,action 立刻 `emu kill`。日志长这样:
-#      Starting emulator → Boot completed in 56010 ms → [group]Terminate Emulator → emu kill
-#    所以安装 APK、启用输入法、截图、录屏**必须全在这个 step 内部**,
-#    拆到后面的 step,等它们跑起来 `adb devices` 已经空了。
-#    `emu kill` 之后的 `libc++abi: terminating` 是收尾噪音,不是启动失败(我误读过一次)。
+# ## 这个文件踩过的坑(都在 2026-09-30 / 10-01,前面几轮都以为是模拟器起不来)
 #
-# **2. workflow 的 `script:` 是用 `/usr/bin/sh` 逐行执行的**,不是当脚本文件跑:
-#      [command]/usr/bin/sh -c set -u
-#      [command]/usr/bin/sh -c for i in $(seq 1 60); do
-#      /usr/bin/sh: 1: Syntax error: end of file unexpected (expecting "done")
-#    多行 shell 结构必挂,`set -o pipefail` 也会挂(dash 没这选项)。
-#    ⇒ `script:` 只有一行 `bash tools/aitest/ci-capture.sh`,逻辑全在那个文件里。
-#
-# **3. adb 路径与序列号要显式给。** PATH 上的 adb 不保证是 action 用的那个,
+# 1. **模拟器的生命周期 == 「启动模拟器」这**一个** step。**
+#    step 一结束,action 立刻 `emu kill`。所以安装 APK、启用输入法、截图、录屏
+#    **必须全在这个 step 内部**,拆到后面的 step,等它们跑起来 `adb devices` 已经空了。
+#    `emu kill` 之后的 `libc++abi: terminating` 是收尾噪音,不是启动失败。
+# 2. **workflow 的 `script:` 是用 `/usr/bin/sh` 逐行执行的**,不是当脚本文件跑:
+#    多行 shell 结构会报 `Syntax error: end of file unexpected`,
+#    `set -o pipefail` 会报 `Illegal option`(dash 没有 pipefail)。
+#    ⇒ `script:` 只有一行 `bash tools/aitest/ci-capture.sh`。
+# 3. **adb 路径与序列号要显式给。** PATH 上的 adb 不保证是 action 用的那个,
 #    `adb shell getprop` 会静默无输出,看着像 boot 不完。
-#    → ci-capture.sh 里 `ADB_BIN` / `SERIAL` 有默认值,workflow 再显式传一遍。
+# 4. **KVM 权限。** runner 默认没 /dev/kvm 权限。
+# 5. **不能事后 `wm size` / `wm density`。** 改了会把系统搞瘫(launcher
+#    `ArithmeticException: divide by zero`,之后 `am start -W` 一直回
+#    `LaunchState: UNKNOWN (0)`)。只能开机前配好。
+# 6. **`avdmanager` 在这台 runner 上不可靠**:`create avd` 回 rc=0 却什么都没建,
+#    `$HOME/.android` 下连 `titan2*` 都没有。它不认 `--sdk_root`(给了就打印用法)。
+#    ⇒ AVD 改成手写 —— 它本来就只是两个文本文件。
 #
-# **4. KVM 权限。** runner 默认没 /dev/kvm 权限,x86_64 模拟器起不来。
-#    → 见「打开 KVM 权限」那步。
-#
-# (顺带:`-gpu swiftshader_indirect` 在 emulator 37 报 "Failed to find ColorBuffer",
-#  间接渲染路径已废弃,现在用 `-gpu swiftshader`;`-no-boot-anim` 不能去掉,
-#  留着它 boot_completed 迟迟不上报。)
+# 顺带:`-gpu swiftshader_indirect` 在 emulator 37 报 "Failed to find ColorBuffer"
+# (间接渲染路径已废弃),现在用 `-gpu swiftshader`;`-no-boot-anim` 不能去掉,
+# 留着它 boot_completed 迟迟不上报。
 on:
   workflow_dispatch:
     inputs:
@@ -88,71 +88,69 @@ jobs:
             exit 1
           fi
 
-      # ---- AVD 屏幕 = Titan 2 的网格(1440x1440 @ 320dpi = 576dp 宽)----
+      # ---- 手写一个 Titan 2 屏幕的 AVD ----
       #
-      # 为什么非建不可、不能事后 `wm size` 改(2026-10-01 实测踩过):
-      # 改 `wm size`/`wm density` 会把系统搞瘫 —— launcher 直接
-      # `ArithmeticException: divide by zero` 崩掉,之后 `am start -W` 一直回
-      # `LaunchState: UNKNOWN (0)` / `TotalTime: 0`,Activity 根本起不来。
-      # 反复 start 也没用(试了 10 轮,180s 全废)。**只能开机前就配好。**
+      # AVD 就是两个文本文件:`<name>.ini`(指针)+ `<name>.avd/config.ini`。
+      # 之所以手写而不用 `avdmanager`:
+      #   - 它在 runner 上回 rc=0 却什么都没建(见文件头坑 6);
+      #   - 它不认 `--sdk_root`。
+      # 用它反而更可控:屏幕尺寸就是要改的那几个 `hw.lcd.*`。
       #
-      # 为什么不带 `--device`:带了会往 config.ini 写 `skin.name`/`skin.path`
-      # (手机的皮肤),窗口还是手机的形状。要的就是「只有 hw.lcd.*,皮肤按它生成」。
+      # **1440x1440 @ 320dpi**:320dpi = 2.5 密度,1440 / 2.5 = 576dp,
+      # 和 Titan 2 原生宽度一致(用户改过显示大小后是 598dp,那是另一回事,
+      # 见 brain 的 paging-feel)。
       #
-      # 320dpi = 2.5 密度 ⇒ 1440 / 2.5 = 576dp,和 Titan 2 原生宽度一致
-      # (用户改过显示大小后是 598dp,那是另一回事,见 brain 的 paging-feel)。
-      - name: 建 Titan 2 屏幕的 AVD
+      # 中区宽度跟着变:状态行中区 = 屏宽 − 2 × bar_side_box − 12dp。
+      # 手机(1080dp 屏)上只有 159dp,Titan 2 上是 346dp —— 差一倍多,
+      # L4 一行装得下几把键、哪些要溢出到 L5 全都不一样。**按手机的宽度拍,版式就是错的。**
+      - name: 手写一个 Titan 2 屏幕的 AVD
         run: |
           set -uo pipefail
           export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          # **avdmanager 不认 `--sdk_root`** —— 给了它就打印一份用法然后 rc=1
-          # (2026-10-01 踩过)。它只看 ANDROID_SDK_ROOT / ANDROID_HOME 环境变量,
-          # 所以这里把两个变量都摆明白;sdkmanager 才收 --sdk_root。
           export ANDROID_SDK_ROOT ANDROID_HOME="$ANDROID_SDK_ROOT"
-          echo "SDK=$ANDROID_SDK_ROOT"
           yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'system-images;android-34;default;x86_64' >/dev/null
-          avdmanager delete avd -n titan2 >/dev/null 2>&1 || true
-          # 输出与退出码都要看见:上一次这一步只给了句
-          # "Do you wish to create a custom hardware profile? [no]" 加一个 exit code 1,
-          # 一个字的错都没说 —— 等于没信息。
-          rc=0
-          out="$(echo no | avdmanager create avd -n titan2 \
-                  -k "system-images;android-34;default;x86_64" --abi x86_64 --force 2>&1)" || rc=$?
-          echo "$out"
-          echo "avdmanager rc=$rc"
-          # 建失败要当场停:建不出来还往下走,后面会用 action 的默认 AVD,
-          # 于是拍出来是手机的屏幕,而**看起来一切正常**。
-          [ "$rc" = 0 ] || { echo "::error::avdmanager create 失败(rc=$rc)"; exit 1; }
-          # 别猜路径:avdmanager 按 ANDROID_AVD_HOME / ANDROID_SDK_HOME 落盘,
-          # 猜错就是「文件不存在」,而真正的 AVD 好好地建在别处。
-          # **每个可能出错的命令都要 `|| true`**:`run:` 默认是 `bash -e`,
-          # 这里又开了 `pipefail` —— 于是 `find … | head -1` 在目录不存在时返回非 0,
-          # **整步静默退出 1,一个字都不打**(2026-10-01 踩过:明明 `avdmanager rc=0`、
-          # AVD 好好地建出来了,却在下一步无声地死掉)。找完把找过哪几个地方打出来。
-          avddir=""
-          for root in "${ANDROID_AVD_HOME:-}" "$HOME/.android/avd" "$ANDROID_SDK_ROOT/.android/avd"; do
-            [ -n "$root" ] && [ -d "$root" ] || continue
-            d="$(find "$root" -maxdepth 1 -type d -name 'titan2.avd' 2>/dev/null | head -1 || true)"
-            if [ -n "$d" ]; then avddir="$d"; break; fi
-          done
-          echo "找过: '${ANDROID_AVD_HOME:-}' | $HOME/.android/avd | $ANDROID_SDK_ROOT/.android/avd"
-          if [ -z "$avddir" ]; then
-            echo "::error::三个可能的根目录下都找不到 titan2.avd"
-            find "$HOME/.android" -maxdepth 3 -name 'titan2*' 2>/dev/null || true
+
+          img="$ANDROID_SDK_ROOT/system-images/android-34/default/x86_64"
+          if [ ! -d "$img" ]; then
+            echo "::error::系统镜像没装上:$img 不存在"
             exit 1
           fi
-          cfg="$avddir/config.ini"
-          {
-            echo "hw.lcd.width=1440"
-            echo "hw.lcd.height=1440"
-            echo "hw.lcd.density=320"
-            echo "hw.initialOrientation=portrait"
-            echo "hw.keyboard=yes"
-            echo "skin.dynamic=yes"
-          } >> "$cfg"
-          echo "--- 屏幕配置($cfg):"
-          grep -E 'hw.lcd|skin' "$cfg"
+
+          avdhome="$HOME/.android/avd"
+          rm -rf "$avdhome/titan2.avd" "$avdhome/titan2.ini"
+          mkdir -p "$avdhome/titan2.avd"
+
+          cat > "$avdhome/titan2.ini" <<EOF
+          avd.ini.encoding=UTF-8
+          path=$avdhome/titan2.avd
+          path.rel=avd/titan2.avd
+          target=android-34
+          EOF
+
+          cat > "$avdhome/titan2.avd/config.ini" <<'EOF'
+          avd.ini.encoding=UTF-8
+          AvdId=titan2
+          abi.type=x86_64
+          tag.id=default
+          tag.display=Default Android System Image
+          image.sysdir.1=system-images/android-34/default/x86_64/
+          hw.cpu.arch=x86_64
+          hw.cpu.ncore=4
+          hw.ramSize=2048
+          hw.gpu.enabled=yes
+          hw.gpu.mode=swiftshader
+          hw.keyboard=yes
+          hw.lcd.width=1440
+          hw.lcd.height=1440
+          hw.lcd.density=320
+          hw.initialOrientation=portrait
+          disk.dataPartition.size=2G
+          skin.dynamic=yes
+          EOF
+
+          echo "--- 屏幕配置:"
+          grep -E 'hw.lcd|image.sysdir|skin' "$avdhome/titan2.avd/config.ini"
 
       # 装 APK、启用输入法、截图录屏全在这**一个** step 里跑完(坑 1)。
       # script 只写一行(坑 2),逻辑在 tools/aitest/ci-capture.sh。
@@ -167,7 +165,7 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          # 用上一步建好的 AVD,**别让 action 重建**(重建会按 profile 写回手机的屏幕)
+          # 用上一步手写的 AVD,**别让 action 重建**(重建会写回手机的屏幕)
           avd-name: titan2
           force-avd-creation: false
           # runner 默认只给 2 核,AVD 会警告 "will run more smoothly with 4 CPU cores"
