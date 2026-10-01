@@ -449,7 +449,13 @@ class ImeController(
         state.layerState = next
         // 只在"锁定态有/无"发生变化时震:双击锁上、再敲解锁这两个确认点。
         // 借一层(单击)不震 —— 那是打字过程中的常态(2026-09-30)。
-        if ((cur is LayerState.Locked) != (next is LayerState.Locked)) haptics?.lock()
+        if ((cur is LayerState.Locked) != (next is LayerState.Locked)) {
+            haptics?.lock()
+            // 锁上/解锁是**看得见的状态变化**,但状态行不在 uiautomator 的 dump 里
+            // (输入法是另一个窗口),端到端脚本没法断言「到底锁上没有」。
+            // 这行日志就是给那种断言用的(见 tools/aitest/shots.mjs 的 07-alt-layer)。
+            android.util.Log.i("ImeController", "layer lock: ${next is LayerState.Locked}")
+        }
     }
 
     // ------------------------------------------------------------------ 候选与组词

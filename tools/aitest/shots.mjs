@@ -174,15 +174,20 @@ const K = {
   space: 62, del: 67, shift: 59, alt: 57,
 }
 
-/** logcat 里某个字符串出现了几行。用来断言「动作真的发生了」——
- *  候选条不在 uiautomator 的 dump 里(它是另一个窗口),但输入法自己会打日志。 */
-const countLog = async (needle) =>
-  shell('logcat -d -b main -s ImeService:I 2>/dev/null || true', 20000)
-    .split('\n')
-    .filter((l) => l.includes(needle)).length
+/** 只看输入法自己的两个 tag。层锁定的日志在 ImeController,其余在 ImeService。 */
+const LOGCAT = 'logcat -d -b main -s ImeService:I ImeController:I 2>/dev/null || true'
 
-/** 翻页那一步把前后的计数存这儿,给 verify 用。 */
+/** logcat 里某个字符串出现了几行。用来断言「动作真的发生了」——
+ *  候选条与状态行都不在 uiautomator 的 dump 里(输入法是另一个窗口),
+ *  所以「有没有锁上层」「翻没翻页」只能靠输入法自己打的日志来断言。 */
+const countLog = async (needle) =>
+  shell(LOGCAT, 20000).split('\n').filter((l) => l.includes(needle)).length
+
+/** 翻页 / 层锁定这两步把前后的计数存这儿,给各自的 verify 用。
+ *  (verify 拿不到 step 的局部变量,而计数是异步取的,所以走模块级变量。) */
 let flyPages = { before: 0, after: 0 }
+let lockBefore = 0
+let lockAfter = 0
 
 /** 等内置词库加载完。
  *
@@ -194,7 +199,7 @@ let flyPages = { before: 0, after: 0 }
 async function waitDict(timeoutMs = 180000) {
   const t0 = Date.now()
   for (;;) {
-    const log = shell('logcat -d -b main -s ImeService:I 2>/dev/null || true', 20000)
+    const log = shell(LOGCAT, 20000)
     const m = log.match(/dict loaded: (\d+) entries, (\d+) ms/)
     if (m) {
       console.log(`词库就绪:${m[1]} 条 / ${m[2]}ms(等了 ${Math.round((Date.now() - t0) / 1000)}s)`)
@@ -326,9 +331,17 @@ const STEPS = [
     core: false,
     caption: '连按两下 Alt，这一层就锁住：左边多一项 alt，中间那排键换成这一层的，再按一下解开。',
     async run() {
+      // 必须先回到拼音态的普通文本框:上一步停在数字框,数字态里 alt 那一项
+      // 显示的是「0-9」这类字符集,锁没锁都看不出区别 —— 图就白拍了。
+      await clearField(':id/et_playground')
+      lockBefore = await countLog('layer lock: true')
       // 双击 = 锁定([ImeController] 的主轴是敲击次数,单击只是借用一下)
       shell(`input keyevent ${K.alt} ${K.alt}`)
       await sleep(1500)
+      lockAfter = await countLog('layer lock: true')
+    },
+    async verify() {
+      return lockAfter > lockBefore ? null : '连按两下 Alt,输入法日志里没有出现锁定记录'
     },
   },
   {
