@@ -30,7 +30,7 @@
  * 退出码:0 = 核心步骤全过;1 = 有核心步骤失败(产物仍在,可先看图再判断)
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -145,6 +145,34 @@ const tapText = async (needle) => {
 }
 
 const K = { n: 42, i: 37, h: 41, a: 29, o: 43, space: 62, del: 67, shift: 59, alt: 58 }
+
+/** 等内置词库加载完。
+ *
+ *  34 万条词库在后台线程读 assets + 建索引,实测模拟器上要 **29.5 秒**
+ *  (logcat 里 `dict loaded: 348723 entries, 29477 ms`)。没就绪时组词**没有候选**,
+ *  候选行是空的 —— 截出来就是一张"只有输入框"的图,看着像功能坏了。
+ *  所以采集之前先等它,最多 180 秒;真超时也继续,只是提醒一句。
+ */
+async function waitDict(timeoutMs = 180000) {
+  const t0 = Date.now()
+  for (;;) {
+    const log = shell('logcat -d -b main -s ImeService:I 2>/dev/null || true', 20000)
+    const m = log.match(/dict loaded: (\d+) entries, (\d+) ms/)
+    if (m) {
+      console.log(`词库就绪:${m[1]} 条 / ${m[2]}ms(等了 ${Math.round((Date.now() - t0) / 1000)}s)`)
+      return true
+    }
+    if (/dict load FAILED/.test(log)) {
+      console.log('::warning::词库加载失败,截图里不会有候选')
+      return false
+    }
+    if (Date.now() - t0 > timeoutMs) {
+      console.log('::warning::等词库超时,截图里可能没有候选')
+      return false
+    }
+    await sleep(5000)
+  }
+}
 
 /** 停掉 screenrecord。
  *
@@ -288,6 +316,10 @@ async function main() {
   }
   if (!imeReady) throw new Error(`输入法没注册进 ime list:${IME}(装好了吗?)`)
   shell(`ime set ${IME}`)
+  // 词库就绪之前候选是空的,那组图等于没截 —— 先等它,再开始录屏
+  process.stdout.write('▶ 等词库 ... ')
+  const dictOk = await waitDict()
+  console.log(dictOk ? '✓' : '✗')
   shell(`am start -n ${PKG}/.playground.PlaygroundActivity >/dev/null 2>&1`)
   await sleep(3000)
 
@@ -324,15 +356,22 @@ async function main() {
       timeout: 180000,
       stdio: 'ignore',
     })
-    // 顺带出一张封面:站点的 <video poster> 用它,首帧常常还没渲染出候选。
-    // screencap 只出 PNG,所以文件名也用 .png —— 把 PNG 存成 .jpg 靠浏览器嗅探才显示,
-    // 换个不嗅探的环境就露馅。
-    screencap(join(outDir, 'gaia-demo-poster.png'))
     videoOk = true
   } catch (e) {
     console.log(`录屏拉取失败:${e.message}`)
   }
   shell(`rm -f ${recPath}`)
+
+  // 封面 = 第一张截图,不是"录完那一刻的屏幕"。
+  // 录完时人在许可设置页,拿它当 <video poster> 会先给人看一页法律条文。
+  // screencap 只出 PNG,所以文件名也用 .png —— 把 PNG 存成 .jpg 靠浏览器嗅探才显示。
+  const poster = join(outDir, 'gaia-demo-poster.png')
+  const first = join(outDir, '01-idle.png')
+  if (existsSync(first)) {
+    copyFileSync(first, poster)
+  } else {
+    screencap(poster)
+  }
   console.log(`录屏时长 ${Math.round((Date.now() - recStarted) / 1000)}s`)
 
   writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ ...manifest, video: videoOk }, null, 2))
