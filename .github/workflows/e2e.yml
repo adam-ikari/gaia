@@ -88,6 +88,39 @@ jobs:
             exit 1
           fi
 
+      # ---- AVD 屏幕 = Titan 2 的网格(1440x1440 @ 320dpi = 576dp 宽)----
+      #
+      # 为什么非建不可、不能事后 `wm size` 改(2026-10-01 实测踩过):
+      # 改 `wm size`/`wm density` 会把系统搞瘫 —— launcher 直接
+      # `ArithmeticException: divide by zero` 崩掉,之后 `am start -W` 一直回
+      # `LaunchState: UNKNOWN (0)` / `TotalTime: 0`,Activity 根本起不来。
+      # 反复 start 也没用(试了 10 轮,180s 全废)。**只能开机前就配好。**
+      #
+      # 为什么不带 `--device`:带了会往 config.ini 写 `skin.name`/`skin.path`
+      # (手机的皮肤),窗口还是手机的形状。要的就是「只有 hw.lcd.*,皮肤按它生成」。
+      #
+      # 320dpi = 2.5 密度 ⇒ 1440 / 2.5 = 576dp,和 Titan 2 原生宽度一致
+      # (用户改过显示大小后是 598dp,那是另一回事,见 brain 的 paging-feel)。
+      - name: 建 Titan 2 屏幕的 AVD
+        run: |
+          set -uo pipefail
+          export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'system-images;android-34;default;x86_64' >/dev/null
+          avdmanager delete avd -n titan2 >/dev/null 2>&1 || true
+          echo no | avdmanager create avd -n titan2 -k "system-images;android-34;default;x86_64" --force
+          cfg="$HOME/.android/avd/titan2.avd/config.ini"
+          {
+            echo "hw.lcd.width=1440"
+            echo "hw.lcd.height=1440"
+            echo "hw.lcd.density=320"
+            echo "hw.initialOrientation=portrait"
+            echo "hw.keyboard=yes"
+            echo "skin.dynamic=yes"
+          } >> "$cfg"
+          echo "--- 屏幕配置:"
+          grep -E 'hw.lcd|skin' "$cfg"
+
       # 装 APK、启用输入法、截图录屏全在这**一个** step 里跑完(坑 1)。
       # script 只写一行(坑 2),逻辑在 tools/aitest/ci-capture.sh。
       - name: 启动模拟器 + 准备 + 采集
@@ -101,7 +134,9 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          profile: pixel_5
+          # 用上一步建好的 AVD,**别让 action 重建**(重建会按 profile 写回手机的屏幕)
+          avd-name: titan2
+          force-avd-creation: false
           # runner 默认只给 2 核,AVD 会警告 "will run more smoothly with 4 CPU cores"
           cores: 4
           disable-animations: true

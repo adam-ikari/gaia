@@ -64,22 +64,20 @@ a shell settings put global transition_animation_scale 0 || true
 a shell settings put global animator_duration_scale 0 || true
 a shell wm dismiss-keyguard || true
 
-# ---- 屏幕改成 Titan 2 ----
-# 模拟器默认是 1080x2340 的**手机**,而 Titan 2 是 1440x1440 的**正方形**、原生 576dp 宽
-# (1440 / 2.5)。这一条差别不是「分辨率不同」那么轻:
-# 状态行中区宽 = 屏宽 − 2 × bar_side_box − 12dp。手机上只有 159dp,Titan 2 上是 346dp ——
-# 差一倍多,于是 L4 一行装得下几把键、哪些装不下要溢出到 L5,全都变了。
-# 2026-10-01 实测:手机上拍到的「网址框」图里 L4 还是默认键,网址那一串被挤去了 L5,
-# 而实验场自己的说明写着「L4 http://」—— 按 Titan 2 的宽度就不会这样。
-# 所以这里直接把显示屏改成 Titan 2 的网格,而不是拿手机的图去冒充。
-#
-# **只在 CI 这条路径上做。** 真机采集绝不能改 wm size/density ——
-# 那是把设备改成不是它自己的样子(见 tools/aitest/shots.mjs,那里一行都不改)。
-say "屏幕改成 Titan 2:1440x1440 @ 320dpi(= 576dp 宽)"
-a shell wm size 1440x1440
-a shell wm density 320
-sleep 5
-say "现在: $(a shell wm size | tr '\n' ' ')| $(a shell wm density | tr '\n' ' ')"
+# ---- 核对屏幕就是 Titan 2 的网格 ----
+# **不要在这里 `wm size` / `wm density`。** 2026-10-01 实测:改这两个会把系统搞瘫 ——
+# launcher 直接 `ArithmeticException: divide by zero` 崩掉,之后 `am start -W` 一直回
+# `LaunchState: UNKNOWN (0)`,Activity 根本起不来(反复 start 十轮也不行)。
+# 屏幕是在**开机前**写进 AVD 的 config.ini 的(见 e2e.yml 的「建 Titan 2 屏幕的 AVD」)。
+# 这里只**核对**,对不上就报错 —— 拍出来的版式全错,比失败更糟。
+say "核对屏幕: $(a shell wm size | tr '\n' ' ')| $(a shell wm density | tr '\n' ' ')"
+if ! a shell wm size | grep -q '1440x1440'; then
+  echo "::error::屏幕不是 1440x1440,截图版式会不对(AVD 的 hw.lcd.* 没生效?)"
+  exit 1
+fi
+if ! a shell wm density | grep -q 'Override density: 320\|Physical density: 320'; then
+  echo "::warning::密度不是 320dpi(=576dp 宽),dp 版式可能和 Titan 2 不一致"
+fi
 
 if ! timeout 300 "$ADB_BIN" -s "$SERIAL" install -r -t "$APK"; then
   echo "::error::安装失败"
