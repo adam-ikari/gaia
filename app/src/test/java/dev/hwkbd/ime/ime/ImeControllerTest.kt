@@ -301,6 +301,49 @@ class ImeControllerTest {
         assertEquals(listOf("捏"), r.h.commits)
     }
 
+    // ---------------- 选字的表现回调(2026-10-02 用户「按键选词也需要飞字动画」)
+
+    @Test
+    fun `每条选字入口都触发飞字回调 且词与真正上屏的一致`() {
+        // 九处选字入口共用一个回调。逐个入口验一遍:漏掉哪条,那条就又是"词直接冒出来"。
+        // 这里覆盖状态机内部那几条(Shift/Sym/Alt/Ctrl/方向键/空格)+ 直接调 selectCandidate;
+        // 候选栏点选与上滑走的是同一个 controller 方法,在 service 侧接回调,覆盖路径相同。
+        val cases: List<Pair<String, (Rig) -> Unit>> = listOf(
+            "Shift 选首位" to { r -> r.key(KeyEvent.KEYCODE_SHIFT_LEFT) },
+            "Alt 选末位" to { r -> r.key(KeyEvent.KEYCODE_ALT_LEFT) },
+            "方向键上 选高亮" to { r ->
+                r.key(KeyEvent.KEYCODE_DPAD_DOWN)
+                r.key(KeyEvent.KEYCODE_DPAD_UP)
+            },
+            "空格选首选" to { r -> r.key(KeyEvent.KEYCODE_SPACE) },
+            "直接调 selectCandidate" to { r -> r.c.selectCandidate(2) },
+        )
+        for ((label, act) in cases) {
+            val r = rig()
+            r.type("ni")
+            val seen = mutableListOf<Pair<Int, String>>()
+            r.c.onCandidateSelected = { zone, word -> seen += zone to word }
+            act(r)
+            assertEquals("$label 应触发一次回调", 1, seen.size)
+            // 回调给的词必须就是真正上屏的那个 —— 视图照它起动画,飞错词就露馅了
+            assertEquals("$label 回调的词应等于上屏的词", listOf(r.h.commits.last()), listOf(seen[0].second))
+        }
+    }
+
+    @Test
+    fun `选不中时不给回调`() {
+        // 回调放在两个 ?: return 之后:显示位越界、或者当前页没词,都不该有动画 ——
+        // 那会让视图凭空飞一个不存在的词
+        val r = rig()
+        val seen = mutableListOf<Int>()
+        r.c.onCandidateSelected = { zone, _ -> seen += zone }
+        r.c.selectCandidate(0) // 还没组词,没有候选
+        assertTrue("无候选时不该回调", seen.isEmpty())
+        r.type("ni")
+        r.c.selectCandidate(99) // 显示位越界
+        assertTrue("显示位越界不该回调", seen.isEmpty())
+    }
+
     @Test
     fun `方向键翻页与高亮确认`() {
         val r = rig()

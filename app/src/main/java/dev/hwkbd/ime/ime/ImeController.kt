@@ -461,6 +461,23 @@ class ImeController(
     // ------------------------------------------------------------------ 候选与组词
 
     /**
+     * 选字时的**表现回调**:上屏之前叫一次,告诉视图层「哪个显示位的词要飞走」。
+     *
+     * 2026-10-02 用户「按键选词也需要飞字动画」。此前**只有上滑手势那一条路**有飞字
+     * (在 service 的 `commitFly` 里),按键选字(Shift / Sym / Alt / Ctrl / 方向键 /
+     * 空格 / 候选栏点选)全是词直接冒出来 —— 同一个动作两套表现,像是两个输入法。
+     * 挂在这里而不是去 9 个调用点各补一遍:调用点有 9 处,漏一处就又出现一条没动画的路。
+     *
+     * **为什么不用 [ImeHost]**:那个接口刻意不含任何视图概念,它是状态机与 Android 层
+     * 之间的唯一通道,单测靠它跑 JVM。往里加「飞一下」就把它变成 Android 依赖。
+     * 这里用可空回调:状态机只负责「该通知」,放什么动画由 service 决定。
+     *
+     * @param displayIndex 显示位(左→右 = 4 2 1 3 5)
+     * @param word 即将上屏的词 —— 与真正提交的是同一个,视图照它起动画不会飞错
+     */
+    var onCandidateSelected: ((displayIndex: Int, word: String) -> Unit)? = null
+
+    /**
      * 选显示位 i 的候选上屏。显示位与物理五键对应(左→右 = 4 2 1 3 5):
      * 0=Shift(候选4) 1=Sym(候选2) 2=空格(候选1,首选) 3=Ctrl(候选3) 4=Alt(候选5)。
      * 候选栏点选/上滑 5 区/五键选字/高亮确认都用显示位;Ctrl+QWERT 不选字(原样转发)。
@@ -469,6 +486,9 @@ class ImeController(
         val logical = state.currentPageLogical()
         val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
+        // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
+        // 放在两个 `?: return` 之后 —— 选不中就不该有动画。
+        onCandidateSelected?.invoke(displayIndex, c.word)
         host.commitText(c.word)
         inputMethod().onCommitted(c.word)
         clearComposition()

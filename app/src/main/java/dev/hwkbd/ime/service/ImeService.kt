@@ -160,6 +160,14 @@ class ImeService : InputMethodService() {
         // 总开关从 PREF_HAPTIC 读(设置 → 常规 → 震动反馈)
         haptics = Haptics(this).apply { enabled = ImeRuntime.prefs.getBoolean(PREF_HAPTIC, true) }
         controller = ImeController(host, KeyLayoutStore.load(this), registry, haptics)
+        // **所有选字入口的飞字动画都从这里出发**(2026-10-02 用户「按键选词也需要飞字动画」)。
+        // 挂在 controller 的回调上而不是某个手势分支里:选字有九处入口(候选栏点选/上滑、
+        // Shift/Sym/Alt/Ctrl 五键、方向键、空格、高亮确认),逐个补一遍必然漏。
+        controller.onCandidateSelected = { zone, word ->
+            candidateBar?.startFlyAnim(zone, word)
+            // 组词已经被清掉了,候选行得留到动画画完再归位,否则词在半路就没了
+            mainHandler.postDelayed({ updateUi() }, FLY_SETTLE_MS)
+        }
         renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
@@ -628,11 +636,12 @@ class ImeService : InputMethodService() {
             candidateBar?.cancelFlyDrag()
             return
         }
-        val word = controller.state.pageSlots().getOrNull(zone)?.word ?: ""
-        candidateBar?.startFlyAnim(zone, word)
+        // **动画不在这里起**了:由 [ImeController.onCandidateSelected] 统一触发
+        // (2026-10-02 用户「按键选词也需要飞字动画」)。九处选字入口共用同一个回调,
+        // 才不会出现"上滑有飞字、按键没有"这种按入口不一致的表现。
         controller.selectCandidate(zone)
-        mainHandler.postDelayed({ updateUi() }, 260) // 动画结束后两态归位
     }
+
 
     // ------------------------------------------------------------------ 窗口策略
 
@@ -1009,6 +1018,18 @@ class ImeService : InputMethodService() {
 
         /** 每页候选固定 5 条,与键盘面平分 5 区上滑一一对应。 */
         const val PAGE_SIZE = 5
+
+        /**
+         * 飞字动画的归位延时(ms):上屏后候选行要**留在屏上这么久**,动画才画得出来。
+         *
+         * [ImeController.selectCandidate] 会立刻清组词,于是两态要等这个延时才归位 ——
+         * 不等的话词在半路就没了,只剩一个"啪"地出现在输入框里。
+         *
+         * 260 沿用手势那条路上一直用的值(2026-10-02 挪到统一回调时没改):它要盖住
+         * 飞字的**完成段**(见 [dev.hwkbd.ime.ui.CandidateBarView.startFlyAnim],
+         * 时长由松手速度决定)。按键选字的完成段从 0 起,通常比手势那条更短。
+         */
+        private const val FLY_SETTLE_MS = 260L
 
         /** InputDevice.SOURCE_TOUCHPAD(避免 SDK 版本差异直接用常量)。 */
         private const val SOURCE_TOUCHPAD_MASK = 0x100008
