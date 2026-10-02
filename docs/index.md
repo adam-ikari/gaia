@@ -38,7 +38,7 @@ actions:
 ::: band ink
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>框不一样，键不一样。</h2>
-<p>切到网址框，中间那排换成 http://、https://、www.；切到邮箱框，换成 @ 和 .com、.net、.org 这些后缀；切到数字框，数字直接锁上。</p>
+<p>切到网址框，中间那排换成网址开头的键；切到邮箱框，换成 @ 和常用后缀；切到数字框，数字直接锁上。</p>
 </div>
 :::
 
