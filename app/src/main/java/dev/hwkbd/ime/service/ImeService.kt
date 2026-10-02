@@ -299,7 +299,8 @@ class ImeService : InputMethodService() {
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        // 层映射可能被设置页改过,每次开始输入重新加载(开销可忽略)
+        // L4 自定义键每次开始输入重载(开销可忽略)。**L1-L3 不在这里变**:
+        // 键位编辑器已下线,[KeyLayoutStore.load] 只从文件取 L4,物理三层永远走出厂表。
         controller.layout = KeyLayoutStore.load(this)
         // **输入类型决定上下文**:网址/邮件框换 L4 键位套,数字类聚焦即锁数字层
         controller.setFieldKind(FieldKind.from(attribute?.inputType ?: InputType.TYPE_NULL))

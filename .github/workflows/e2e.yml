@@ -199,3 +199,61 @@ jobs:
           name: e2e-evidence
           path: out/
           if-no-files-found: warn
+
+      # ---------------------------------------------------------------- 推到站点
+  # 把 status-row.png 推进站点仓库 `docs/public/media/shots/`。
+  #
+  # ## 为什么单独一个 job 而不是接在采集后面
+  #
+  # 采集要**模拟器活着**才有意义(坑 1),推文件不要。两者生命周期不同,
+  # 混在一个 step 里意味着"推送失败"会把采集的结论一起搞红,分不清是谁的问题。
+  # 中间隔 artifact 传文件。
+  #
+  # ## 没配 token 就整步跳过,不把流水线搞红
+  #
+  # 应用仓库是私有的,`adam-ikari/gaia` 是公开的;跨仓库写需要 `WEB_RELEASE_TOKEN`
+  # (fine-grained PAT,只授权 `adam-ikari/gaia` 的 Contents: write)。
+  # 在这个 token 配好之前,站点那张图会一直是上一版 —— 所以要在这里喊一声,
+  # 而不是让人对着"CI 全绿但图没更新"猜原因。
+  publish-media:
+    needs: e2e
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.shots }}
+    runs-on: ubuntu-latest
+    env:
+      # 没配就是空串,下面的 step 级 if 据此跳过
+      WEB_TOKEN: ${{ secrets.WEB_RELEASE_TOKEN }}
+      SITE_REPO: adam-ikari/gaia
+      SITE_PATH: docs/public/media/shots
+    steps:
+      - name: 拿素材
+        uses: actions/download-artifact@v4
+        with:
+          name: site-media
+          path: media
+
+      - name: 推 status-row 到站点仓库
+        # step 级 if 而不是 job 级:job 级 if 会把整个 job 标成 skipped,
+        # 看不出"是没配 token"还是"跑挂了"。这里让 job 照常跑完、只跳这一步。
+        if: env.WEB_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.WEB_TOKEN }}
+        run: |
+          test -f media/shots/status-row.png || { echo "::error::素材里没有 status-row.png"; exit 1; }
+          identify -format 'status-row.png %wx%h\n' media/shots/status-row.png
+          git init -q publish
+          cd publish
+          git remote add origin "https://x-access-token:${WEB_TOKEN}@github.com/${SITE_REPO}.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q -b main FETCH_HEAD
+          mkdir -p "${SITE_PATH}"
+          cp ../media/shots/status-row.png "${SITE_PATH}/status-row.png"
+          # **`git add -A` 不能省**:第一次推时 ${SITE_PATH} 是新建目录,全是未跟踪文件,
+          # 而 `commit -a` 只暂存**已跟踪**的 —— 少了它就是 "nothing added to commit"
+          # 退出码 1,推送永远不执行(Actions 默认 bash -e,这一步会红)。
+          git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "media: 更新状态行截图(E2E 自动采集)"
+          git push -q origin HEAD:main
+
+      - name: 提醒没配 token
+        if: env.WEB_TOKEN == ''
+        run: echo "::warning::没配 WEB_RELEASE_TOKEN,status-row.png 没推到 adam-ikari/gaia —— 站点那张图还是上一版(需要 fine-grained PAT:Contents write on adam-ikari/gaia)"

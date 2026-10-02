@@ -695,6 +695,38 @@ async function main() {
   }
   shell(`rm -f ${recPath}`)
 
+  // ---- 裁出站点要的那一条 ----
+  // 站点只摆**输入法那一条**,不是整屏:实测 1440px 里属于输入法的只有最底下 96px(6.7%),
+  // 其余是实验场(调试页),摆出来等于告诉访客「这是我们的测试页面」。
+  //
+  // ## 源图是 `02-composing`,不是 `04-page-swipe`(2026-10-02 逐张看过才发现)
+  //
+  // 之前按名字猜「翻页那张候选最多」,裁出来是**空条** —— 只剩两侧箭头和分隔线,
+  // 一个候选都没有:划完页那一刻候选行是空的。
+  // `02-composing` 才是候选行该有的样子:喔 噢 **哦** 篓 区,五格全满、首选落在正中间带高亮,
+  // 正好是首页「每页五个,无需挪手」那段讲的东西。
+  //
+  // 别换成 `01-idle`/`07-alt-layer`:那两张裁出来是**状态行**(拼 全 + L4 键帽 + 齿轮),
+  // 组词态才是候选行。状态行是另一屏的内容,摆出来讲的是另一件事。
+  //
+  // **裁剪失败要让这轮红**:它每次都跑、每次都该成功,失败意味着"输入法的条根本没画出来"
+  // 或者检测逻辑跟版式对不上了 —— 两种都不该悄悄放过去(同一个理由:不让坏图进站点)。
+  const cropSrc = join(outDir, '02-composing.png')
+  const cropOut = join(outDir, 'status-row.png')
+  let cropOk = false
+  try {
+    const info = execFileSync('node', [join(HERE, 'crop-status-row.mjs'), cropSrc, cropOut], {
+      encoding: 'utf8',
+    }).trim()
+    cropOk = true
+    console.log(`状态行裁剪 ✓ ${info}`)
+  } catch (e) {
+    const why = (e.stderr || e.message || '').toString().split('\n').filter(Boolean).pop() || '(没有输出)'
+    console.log(`状态行裁剪 ✗ ${why}`)
+    fail++
+    coreFail++
+  }
+
   // 封面 = 第一张截图,不是"录完那一刻的屏幕"。
   // 录完时人在许可设置页,拿它当 <video poster> 会先给人看一页法律条文。
   // screencap 只出 PNG,所以文件名也用 .png —— 把 PNG 存成 .jpg 靠浏览器嗅探才显示。
@@ -707,15 +739,17 @@ async function main() {
   }
   console.log(`录屏时长 ${Math.round((Date.now() - recStarted) / 1000)}s`)
 
-  writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ ...manifest, video: videoOk }, null, 2))
+  writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ ...manifest, video: videoOk, statusRow: cropOk }, null, 2))
   console.log(`\n截图 ${manifest.shots.length} 张 → ${outDir}`)
   console.log(`录屏:${videoOk ? 'gaia-demo.mp4 ✓' : '不可用(站点会整块不渲染)'}`)
+  console.log(`状态行:${cropOk ? 'status-row.png ✓' : '裁剪失败(站点这张图会是上一版或没有)'}`)
   console.log(`失败步骤 ${fail} 个(其中核心 ${coreFail} 个)`)
   // 录屏坏了**要让这轮红**。理由:录屏坏掉时 manifest 会写 video:false,站点确实不渲染,
   // 但产物目录里躺着的东西会被下一个人当成"这轮是好的"。2026-10-01 就是这么把一个
   // 播不了的 mp4 提交进站点仓库的 —— 截图全绿、退出码 0,没人发现问题。
+  // 状态行同理:它是站点唯一一张真图,裁不出来就是"这轮没产出素材",不是"这轮成功"。
   if (!videoOk) console.log('⚠ 录屏不可用,站点首页这一屏会空着')
-  process.exitCode = coreFail > 0 || !videoOk ? 1 : 0
+  process.exitCode = coreFail > 0 || !videoOk || !cropOk ? 1 : 0
 }
 
 main().catch((e) => {

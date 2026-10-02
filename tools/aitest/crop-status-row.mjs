@@ -12,13 +12,18 @@
  * 黑边上沿**不固定**：候选有多少、L4 有几把键、状态行处于两态中的哪一态，
  * 都会改变它。实测同一轮 9 张图里出现过 1344 / 1393 / 1401 三种上沿。
  *
- * ## 为什么必须验
+ * ## 为什么必须验(两处,各挡一类坏图)
  *
- * 简单算法(自底往上找第一个亮行)在两种图上会**静默给出错误答案**:
- * - 设置页是深色的 → 整屏都暗 → 报「黑条高 1439px」
- * - 许可页没有输入法条 → 整屏都亮 → 报「黑条高 0px」
- * 这两种都会裁出一张无意义的图。所以下面每一步都检查，失败就报错退出，
- * 让 CI 红 —— 不能让一张坏图悄悄进站点(这正是之前那个播不了的 mp4 的教训)。
+ * 一、**上沿检测**:简单算法(自底往上找第一个暗行)在两种图上会**静默给出错误答案**:
+ * - 设置页是深色整屏 → 报「黑条高 1439px」
+ * - 许可页没有输入法条、整屏都亮 → 报「黑条高 0px」
+ *
+ * 二、**内容检测**:上沿找对了不等于里面有东西。空条(只剩两侧箭头和分隔线、
+ * 一个候选都没有)照样能裁成一张 1440×95 的图,推上站点就是一条黑边 ——
+ * 看不出错,但也没信息。见 [measureContrast] 的判据说明。
+ *
+ * 两处都是失败即报错退出、让 CI 红 —— 不能让一张坏图悄悄进站点
+ * (这正是之前那个播不了的 mp4 的教训:截图全绿、退出码 0,没人发现问题)。
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -64,16 +69,43 @@ export function findStatusBar(file) {
   return { top, height: barHeight }
 }
 
-/** 暗带里有没有内容（全黑说明输入法没画东西，裁出来是废图）。 */
-function hasContent(file, top, height) {
+/**
+ * 暗带里到底画了东西没有。
+ *
+ * ## 判据用**标准差**,不用最亮值(2026-10-02 修)
+ *
+ * 原来判的是 `%[maxima] > 40`。两个毛病:
+ * 1. **ImageMagick 7 的 `%[maxima]` 返回的是量子值(0–65535),不是 0–255** ——
+ *    所以 `> 40` 实际等价于「非零」,几乎任何东西都能过。实测一张**空条**
+ *    (只剩两侧箭头和分隔线、一个候选都没有)的 maxima 是 9475,顺利通过。
+ * 2. 即便换成 0–255,「有箭头」也不等于「有候选」——箭头一直在。
+ *
+ * 标准差量的是**局部反差**:一条画了字/键帽的条,相邻像素忽明忽暗;
+ * 空条除了几条暗线几乎均匀。实测(1440×95 的条):
+ *
+ * ```
+ *   空条(04-page-swipe)   0.0074   ← 只有箭头和分隔线
+ *   数字框(06)            0.0608
+ *   空闲态(01)            0.1127
+ *   组词态(02)            0.1218
+ * ```
+ *
+ * 差一个数量级,而且**与主题明暗无关**(反差大小不取决于底色亮不亮),
+ * 这是选它而不是选「亮像素占比」的原因 —— 后者在浅色主题下整条都亮,失去区分力。
+ *
+ * @returns {{sd:number}|null} sd 低于阈值返回 null,调用方据此报错
+ */
+const MIN_CONTRAST = 0.02
+
+function measureContrast(file, top, height) {
   const { w } = pngSize(file)
-  const stats = execFileSync(
+  const sd = execFileSync(
     'convert',
     [file, '-crop', `${w}x${height}+0+${top}`, '+repage', '-colorspace', 'Gray',
-      '-format', '%[maxima]', 'info:'],
+      '-format', '%[fx:standard_deviation]', 'info:'],
     { encoding: 'utf8' }
   ).trim()
-  return Number(stats) > 40
+  return { sd: Number(sd) }
 }
 
 const [, , input, output] = process.argv
@@ -91,11 +123,15 @@ if (!bar) {
   console.error('裁剪失败:没找到底部状态行(整屏同色?这张图可能没有输入法条)')
   process.exit(1)
 }
-if (!hasContent(input, bar.top, bar.height)) {
-  console.error('裁剪失败:状态行是空的(全黑),输入法没画东西')
+const { sd } = measureContrast(input, bar.top, bar.height)
+if (!(sd >= MIN_CONTRAST)) {
+  console.error(
+    `裁剪失败:这条只有箭头和分隔线,没画内容(标准差 ${sd.toFixed(4)} < ${MIN_CONTRAST})—— ` +
+      '输入法没画东西,或者这一帧它本来就是空的。换一张源图,别拿空条去站点。'
+  )
   process.exit(1)
 }
 
 const { w } = pngSize(input)
 execFileSync('convert', [input, '-crop', `${w}x${bar.height}+0+${bar.top}`, '+repage', output])
-console.log(`状态行 ${w}x${bar.height} @y=${bar.top} → ${output}`)
+console.log(`输入法条 ${w}x${bar.height} @y=${bar.top} 反差=${sd.toFixed(4)} → ${output}`)

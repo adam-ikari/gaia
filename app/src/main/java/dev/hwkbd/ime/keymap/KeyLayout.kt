@@ -179,6 +179,20 @@ class KeyLayout(
         return keys.values.toList()
     }
 
+    /**
+     * 只换掉 **L4 部分**(默认套 + 上下文套),物理三层 L1/L2/L3 用本对象的。
+     *
+     * **给"文件里可能还留着 L1-L3 段,但那已经不算数"这件事准备的**(见 [dev.hwkbd.ime.keymap.KeyLayoutStore.load])。
+     * 键位编辑器已经下线,现在没有任何代码路径能写出 L1-L3;可早年用过编辑器的机器
+     * `filesDir/keymap.txt` 里还留着,直接 `parseText` 会拿那份旧快照盖掉出厂表 ——
+     * 于是改了对出厂表的代码,那些机器上却看不到。
+     *
+     * 只取 L4 是安全的:上下文套在文件里没写某段时,`l4Combined` 会回落 `builtinProfile`
+     * 的出厂预置(见本类 `l4Combined` 注释),所以"文件里没有"不会变成"该套变空"。
+     */
+    fun withL4From(source: KeyLayout): KeyLayout =
+        KeyLayout(maps, source.l4, source.l4Profiles)
+
     fun formatText(): String = buildString {
         for (layer in Layer.values()) {
             append('[').append(layer.name).append("]\n")

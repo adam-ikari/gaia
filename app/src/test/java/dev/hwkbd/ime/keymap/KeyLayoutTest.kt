@@ -104,6 +104,33 @@ class KeyLayoutTest {
     }
 
     @Test
+    fun `withL4From 只换 L4 物理三层不动`() {
+        // 模拟"早年用过编辑器的机器":文件里留着 [L1]/[L2]/[L3] 段,且与出厂表不同
+        val fromFile = KeyLayout.parseText(
+            "[L1]\nq=!!\n[L2]\nw=@@\n[L3]\ne=##\n[L4]\n分号=;\n",
+        ).layout!!
+        val factory = KeyLayout.default()
+        val merged = factory.withL4From(fromFile)
+
+        // 三层一个都不许变 —— 这正是 KeyLayoutStore.load 现在做的事
+        assertEquals(KeyOut.Text("a"), merged.lookup(Layer.L1, KeyEvent.KEYCODE_A))
+        assertEquals(KeyOut.Text("~"), merged.lookup(Layer.L3, KeyEvent.KEYCODE_E))
+        assertEquals(KeyOut.Text("1"), merged.lookup(Layer.L2, KeyEvent.KEYCODE_W))
+        // L4 拿文件的:自定义键在,核心键在前
+        assertEquals(listOf("；", "\$", "分号"), merged.l4Combined().map { it.label })
+    }
+
+    @Test
+    fun `withL4From 文件没有上下文套时回落到出厂预置`() {
+        // 文件里只写了 [L4] 默认套,没写 [L4 url] —— l4Combined 要回落出厂网址套,
+        // 不能因为"文件里没有"就变成空
+        val fromFile = KeyLayout.parseText("[L4]\n分号=;\n").layout!!
+        val merged = KeyLayout.default().withL4From(fromFile)
+        val url = merged.l4Combined(KeyLayout.L4_PROFILE_URL).map { it.label }
+        assertTrue("网址套不该空: $url", url.contains("http://"))
+    }
+
+    @Test
     fun `L4 固定核心键永远在前 自定义键在后 重复去重`() {
         // 核心键内容定点:； 与 $(2026-09-29 用户定案:`\` 从固定键删除——L3 的 Sym+z 能敲出它)
         assertEquals(listOf("；", "\$"), KeyLayout.L4_CORE.map { it.label })
