@@ -6,10 +6,8 @@ tagline: 打字的时候，眼睛可以留在屏幕上。
 note: 只为 Unihertz Titan 2
 actions:
   - text: 下载
-    link: /guide/install
+    link: https://github.com/adam-ikari/gaia/releases/latest/download/app-release.apk
     primary: true
-  - text: 看功能
-    link: /guide/features
 ---
 
 ::: band ink
@@ -19,7 +17,7 @@ actions:
 </div>
 :::
 
-::: band stone
+::: band ink
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>跟手的动画，一切操作符合直觉。</h2>
 <p>候选不止一页时左右划就翻页，整页跟着手走；动画正播着，再划一下就转过来。</p>
@@ -34,14 +32,14 @@ actions:
 </div>
 :::
 
-::: band ink
+::: band white
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>框不一样，键不一样。</h2>
 <p>切到网址框，中间那排换成网址开头的键；切到邮箱框，换成 @ 和常用后缀；切到数字框，数字直接锁上。</p>
 </div>
 :::
 
-::: band white
+::: band stone
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>越打越顺手。</h2>
 <p>内置 34.8 万个词，常用的会自己往前挪。懒得打全拼就敲首字母：nh 就是「你好」。</p>

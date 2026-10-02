@@ -54,7 +54,7 @@ export default defineConfig({
   },
   title: '盖亚输入法',
   description: '给 Unihertz Titan 2 量身定做的拼音输入法：三层键盘、五键选字、上滑飞字。',
-  lastUpdated: true,
+  lastUpdated: false,
   cleanUrls: true,
 
   head: [
@@ -72,33 +72,13 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    nav: [
-      { text: '功能', link: '/guide/features' },
-      { text: '下载', link: '/guide/install' },
-      { text: '常见问题', link: '/guide/faq' },
-      { text: '关于', link: '/guide/about' },
-    ],
-
-    sidebar: {
-      '/guide/': [
-        {
-          text: '盖亚输入法',
-          items: [
-            { text: '功能', link: '/guide/features' },
-            { text: '下载', link: '/guide/install' },
-            { text: '常见问题', link: '/guide/faq' },
-            { text: '关于', link: '/guide/about' },
-          ],
-        },
-      ],
-    },
-
-    outline: { level: [2, 3], label: '本页目录' },
-
-    docFooter: { prev: '上一页', next: '下一页' },
-    lastUpdatedText: '最后更新',
+    // 只剩首页，所以没有导航、没有侧栏、没有目录。导航栏里不放「下载」——
+    // 页面上任何位置的「下载」都直接指向 APK，中间不隔页面。
+    nav: false,
+    sidebar: false,
+    outline: false,
+    docFooter: false,
     darkModeSwitchLabel: '外观',
-    sidebarMenuLabel: '目录',
     returnToTopLabel: '回到顶部',
 
     footer: {
