@@ -49,6 +49,21 @@ class L4PanelView @JvmOverloads constructor(
     var onL4Key: ((KeyOut) -> Unit)? = null
 
     /**
+     * **本次手势允许走横滑吗**:起手那一下问一次,整条手势记住结论。
+     *
+     * service 注入 [dev.hwkbd.ime.ime.KeyEventGate](按键后 200ms 静默窗)。**L5 横滑也在其列**
+     * (2026-10-02 用户定「所有的键盘滑动都无效」)。**键帽点按不走这里** —— 它走子 View 的
+     * `setOnClickListener`,与手势分支无关,所以「敲一个键、紧接着点 L4 上的键」不受影响。
+     *
+     * 问在 DOWN 而不是每次 MOVE:半路才接管的话画面已经跟着手指走了,松手却不翻页,
+     * 那读起来是延迟,比一开始就不响应更糟。
+     */
+    var swipeGate: (() -> Boolean)? = null
+
+    /** 本次手势的横滑许可(DOWN 时定,见 [swipeGate])。默认 true = 没接门就是全放行。 */
+    private var swipeArmed = true
+
+    /**
      * 溢出回调:(有无溢出, L4 装下的前缀长度=分页下标);service 据此控制齿轮左侧的
      * 键盘图标显隐,并回填上方 L5 行的起始下标。
      */
@@ -479,11 +494,14 @@ class L4PanelView @JvmOverloads constructor(
                 swipeDownX = ev.x
                 swipeDownY = ev.y
                 swipeTracking = false
+                // 滑动许可只在这里问一次(见 swipeGate);键帽点按不看它
+                swipeArmed = swipeGate?.invoke() != true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = ev.x - swipeDownX
                 val dy = ev.y - swipeDownY
                 if (
+                    swipeArmed &&
                     kotlin.math.abs(dx) > DragGesture.dead(swipeThresholdPx()) &&
                     kotlin.math.abs(dx) > kotlin.math.abs(dy)
                 ) {
@@ -503,6 +521,9 @@ class L4PanelView @JvmOverloads constructor(
                 swipeDownX = ev.x
                 swipeDownY = ev.y
                 swipeTracking = false
+                // 与 onInterceptTouchEvent 各问一次:两条路径的 DOWN 不一定都走到
+                // (被父截走时只有 onIntercept 见过 DOWN),两处都定才不会出现半条手势没许可
+                swipeArmed = swipeGate?.invoke() != true
                 swipeSpeed.reset()
                 swipeSpeed.add(ev.eventTime, ev.x)
                 // 接管正在播的动画:手指从当前位移接着走,不突跳(和候选行翻页同一套接管逻辑)
@@ -514,7 +535,7 @@ class L4PanelView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 val dx = ev.x - swipeDownX
                 val dy = ev.y - swipeDownY
-                if (!swipeTracking &&
+                if (!swipeTracking && swipeArmed &&
                     kotlin.math.abs(dx) > DragGesture.dead(swipeThresholdPx()) &&
                     kotlin.math.abs(dx) > kotlin.math.abs(dy)
                 ) {

@@ -52,13 +52,12 @@ class ImeService : InputMethodService() {
     private lateinit var controller: ImeController
 
     /**
-     * 按键之后的滑动静默窗(2026-10-02 用户定案:按键后 200ms 不响应**键盘**滑动事件,
-     * 随后补定「无论是否消费」)。
+     * 按键之后的滑动静默窗(2026-10-02 用户定案:按键后 200ms 不响应键盘滑动事件,
+     * 补定「无论是否消费」、再补定「**所有的**键盘滑动都无效」)。
      *
-     * **只有键盘表面(TOUCHPAD)那一种滑动查它** —— 也就是本类的飞字手势 [handleFlyMotion]。
-     * 候选行与 L5 的横滑是**屏幕**手势,不再查:那两处一被挡就整条手势不起拖动,
-     * 于是跟手动画整个不出现(2026-10-02 真机报「左右滑动没有跟手动画」后收窄,
-     * 完整理由见 [dev.hwkbd.ime.ime.KeyEventGate] 的类注释)。
+     * **三个滑动入口全查**:飞字手势(本类 [handleFlyMotion],键盘表面 TOUCHPAD)、
+     * 候选行([CandidateBarView])、L5 横滑([L4PanelView] tailMode)。
+     * 点按与长按一律不查 —— 完整理由见 [dev.hwkbd.ime.ime.KeyEventGate] 的类注释。
      */
     private val keyGate = KeyEventGate()
 
@@ -166,7 +165,9 @@ class ImeService : InputMethodService() {
         // Shift/Sym/Alt/Ctrl 五键、方向键、空格、高亮确认),逐个补一遍必然漏。
         controller.onCandidateSelected = { zone, word ->
             candidateBar?.startFlyAnim(zone, word)
-            // 组词已经被清掉了,候选行得留到动画画完再归位,否则词在半路就没了
+            // 组词已经被清掉了,候选行得留到动画画完再归位,否则词在半路就没了。
+            // **真正归位的是 [CandidateBarView.onFlyFinished]**(动画自己报完成);
+            // 这一句只是兜底,防"动画压根没跑起来"(例如候选行不在屏上)时没人归位。
             mainHandler.postDelayed({ updateUi() }, FLY_SETTLE_MS)
         }
         renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
@@ -245,6 +246,8 @@ class ImeService : InputMethodService() {
         l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
             tailMode = true // L5 行 = L4 装不下的尾巴([tailFrom] 起)+ 用户短语(排在后面)
             onL4Key = { commitL4Tapped(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
+            // L5 横滑也接静默窗(用户 2026-10-02 定「所有的键盘滑动都无效」)
+            swipeGate = { keyGate.swipeBlocked() }
             onPageChange = { p, total ->
                 // 页数可能随输入类型/主题变少,夹一下免得指到不存在的页
                 if (p >= total) page = (total - 1).coerceAtLeast(0)
@@ -256,6 +259,9 @@ class ImeService : InputMethodService() {
         }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
             onL4Key = { commitL4Tapped(it) }
+            // L4 中区不接横滑(那条路留给飞字手势,见 L4PanelView 类注释),这里接门是为将来:
+            // 万一它开始接手势,静默窗规则不用再记得补一处
+            swipeGate = { keyGate.swipeBlocked() }
             onOverflowChange = { hasL5, cut ->
                 l5HasOverflow = hasL5
                 if (!hasL5) l5RowShown = false // 没溢出了就收回,避免下次出现时自动弹开
@@ -281,6 +287,13 @@ class ImeService : InputMethodService() {
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
+            // 候选行横滑也接静默窗。**点按/长按不看它** —— 敲一个键紧接着点候选上屏是
+            // 最常见的手速,一起挡掉比不挡更糟
+            swipeGate = { keyGate.swipeBlocked() }
+            // 飞字动画自己报完成 → 立刻重新渲染,两态才切得回去。
+            // 缺这一步的报障:「偶发拼音都消费完还显示候选词栏」(候选行靠
+            // isFlyAnimating 保持可见,动画结束时只有 invalidate、不渲染)
+            onFlyFinished = { updateUi() }
         }
         root.findViewById<ImageButton>(R.id.btn_settings).apply {
             setOnClickListener {
