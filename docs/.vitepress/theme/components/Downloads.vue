@@ -5,16 +5,30 @@
 </template>
 
 <script setup lang="ts">
+import { withBase } from 'vitepress'
+
 /**
- * 包挂在公开的站点仓库上：应用仓库是私有的，那边的下载链接需要登录态。
- * 只提供正式版。
+ * 包由**本站点自己发**,不是链 GitHub 的 release 下载链接。
+ * 只提供正式版;应用仓库是私有的,那边的 release 匿名下不到。
  *
- * 为什么是静态 URL、为什么不取 API、为什么页面上只有这一个链接 ——
- * 见 brain `site-analytics`。
+ * ## 为什么是同源路径
+ *
+ * 原来是 `https://github.com/adam-ikari/gaia/releases/latest/download/app-release.apk`,
+ * 那条链要跳两次(github.com → release-assets.githubusercontent.com)。在 Titan 2 的
+ * 浏览器上点它直接落到 Chrome 的「网页可能暂时无法连接,或者它已永久性地移动到
+ * 新网址」错误页 —— 真机复现,同一台机器 curl 是 200。跨域两跳是手机浏览器最容易
+ * 下载失败的形态。
+ *
+ * 现在这个文件由 Pages 自己发(deploy.yml 从本仓库 release 取来放进产物):
+ * 同源、一次 200、零跳转。代价是没有版本号文件名。
+ *
+ * 用 `/media/gaia.apk` + `withBase` 而不是写死 `/gaia/media/gaia.apk`:base 已在
+ * config.mts 里,写两处就多一个能忘的地方。**不过 `withBase` 不能省** —— 不加的话
+ * 产物里就是 `/media/gaia.apk`,浏览器解析到域名根目录,404。
+ *
+ * 为什么页面上只有这一个链接、为什么不取 API 显示版本号 —— 见 brain `site-analytics`。
  */
-const REPO = 'adam-ikari/gaia'
-const ASSET = 'app-release.apk'
-const DOWNLOAD_URL = `https://github.com/${REPO}/releases/latest/download/${ASSET}`
+const DOWNLOAD_URL = withBase('/media/gaia.apk')
 </script>
 
 <style scoped>

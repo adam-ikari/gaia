@@ -27,8 +27,53 @@ jobs:
 
       - run: npm ci
 
+      # ---------------------------------------------------------------- APK 镜像
+      # 把本仓库最新 release 的正式包取到 docs/public/media/,让 VitePress 拷进产物。
+      #
+      # ## 为什么不让站点直接链 GitHub 的 release 下载链接
+      #
+      # 原来链的是 `github.com/<repo>/releases/latest/download/app-release.apk`,
+      # 那条链要跳两次:github.com →(302)release-assets.githubusercontent.com →(200)。
+      # 在 Titan 2 的浏览器上点它,直接落到 Chrome 的
+      # 「网页可能暂时无法连接,或者它已永久性地移动到了新网址」错误页 —— 真机上复现,
+      # 同一台机器 curl 却是 200。跨域 + 两跳 + 那个域默认 HTTP/3,是手机浏览器最容易
+      # 处理失败的一种下载形态。
+      #
+      # 改成由 Pages 自己发这个文件后:同源、一次 200、零跳转,走 Pages 的 CDN。
+      # 代价是没有版本号文件名(固定叫 gaia.apk),换来的是"点了就下"。
+      #
+      # ## 为什么不需要任何 secret
+      #
+      # 这个 job 跑在**本仓库**里,内置的 GITHUB_TOKEN 对本仓库的 release 有读权限 ——
+      # 不需要跨仓库 PAT(应用仓库那个 WEB_RELEASE_TOKEN 在这里用不上)。
+      #
+      # ## 为什么不把 APK 提交进 git
+      #
+      # 6.2MB 一份,每次发版都进历史,仓库很快就几十 MB。放进 public/ 但只在 CI 里写,
+      # git 完全看不见它。
+      - name: 取最新 APK 放进 public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p docs/public/media
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          echo "最新 release: $tag"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+            -p app-release.apk -D docs/public/media
+          mv docs/public/media/app-release.apk docs/public/media/gaia.apk
+          # 落到 Pages 上就是 https://adam-ikari.github.io/gaia/media/gaia.apk
+          ls -la docs/public/media/
+          # 下次构建产物里要是没它,站点就静悄悄退回跳 GitHub —— 这里先自己验一遍
+          test -s docs/public/media/gaia.apk || { echo "::error::APK 没取到"; exit 1; }
+
       - name: Build site
         run: npm run build
+
+      - name: 产物里必须有 APK
+        run: |
+          test -s docs/.vitepress/dist/media/gaia.apk || {
+            echo "::error::构建产物里没有 media/gaia.apk,下载链接会 404"; exit 1; }
+          ls -la docs/.vitepress/dist/media/
 
       - uses: actions/upload-pages-artifact@v5
         with:

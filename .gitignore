@@ -2,3 +2,10 @@ node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 *.log
+
+# 下载用的 APK:由 deploy.yml 在 CI 里从本仓库 release 取来放进 public/,
+# 跟着产物发布但**不进 git**。提交它会让仓库历史每次发版胖 6.2MB。
+# 本地想验下载链路的话:`gh release download <tag> -R adam-ikari/gaia
+# -p app-release.apk -D docs/public/media && mv docs/public/media/app-release.apk
+# docs/public/media/gaia.apk`
+docs/public/media/

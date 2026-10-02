@@ -5,7 +5,7 @@ tagline: 专为全键盘设计。
 note: 只为 Unihertz Titan 2
 actions:
   - text: 下载
-    link: https://github.com/adam-ikari/gaia/releases/latest/download/app-release.apk
+    link: /media/gaia.apk
     primary: true
 ---
 
