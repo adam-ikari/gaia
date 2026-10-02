@@ -501,6 +501,30 @@ class ImeService : InputMethodService() {
 
             /** 拖动放弃(松手未过阈值 / 转为横滑 / 事件取消)。 */
             fun onFlyAbort()
+
+            /**
+             * 横滑翻页起手:横向占优且过了死区。@return 是否接管
+             *
+             * **跟手绘制、过阈值当帧提交、到头橡皮筋全部由候选栏做**(见
+             * [dev.hwkbd.ime.ui.CandidateBarView.pageDragBegin])。这里只负责判方向、
+             * 在该放弃的时候(没组词)返回 false。
+             */
+            fun onPageDragBegin(dir: Float, x: Float, eventTime: Long): Boolean
+
+            /** 横滑翻页跟手。 */
+            fun onPageDragMove(x: Float, eventTime: Long)
+
+            /** 横滑翻页收尾:过提交线才翻,到头弹回。 */
+            fun onPageDragEnd(x: Float)
+
+            /**
+             * 横滑翻页**被打断**(系统取消,不是用户抬手)。
+             *
+             * 与抬手分开:被打断的橡皮筋直接归零,**不弹轻震** ——
+             * 「到头了」那下震是给用户主动确认的,系统抢走手势时不该有。
+             * 与候选行自己的 ACTION_CANCEL 同一套语义。
+             */
+            fun onPageDragCancel()
         }
 
         private var downX = 0f
@@ -510,6 +534,16 @@ class ImeService : InputMethodService() {
         private var zone = -1
         private var dragging = false
         private var committed = false
+
+        /**
+         * 横滑翻页是否已接管(2026-10-02)。
+         *
+         * **此前键盘面上的左右划只在 ACTION_UP 判一次,然后直接 `pageStep()`** ——
+         * 抬手才翻、整条拖动不画位移、到头什么都不发生,于是"翻页的跟手动画和
+         * 到头弹性"在键盘表面上从来没有过(用户报「还是没有」,而候选行上一直是好的)。
+         * 现在横滑在 MOVE 里就接管,跟手与橡皮筋交给候选栏画。
+         */
+        private var paging = false
 
         /** 飞字触发上滑距离(屏幕坐标单位),设置页三档 100/160/240,默认 160。 */
         var threshold = 160f
@@ -548,7 +582,7 @@ class ImeService : InputMethodService() {
         private val deadZone: Float get() = deadPx
 
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
-        fun onMotion(action: Int, x: Float, y: Int): Int? {
+        fun onMotion(action: Int, x: Float, y: Int, eventTime: Long = 0L): Int? {
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = x
@@ -558,17 +592,34 @@ class ImeService : InputMethodService() {
                     zone = -1
                     dragging = false
                     committed = false
+                    paging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (!tracking || committed) return null
                     val dy = downY - y
                     val dx = x - downX
-                    // 回拖或横向为主:放弃飞字(翻页在 UP 判定)
-                    if (dy <= 0f || kotlin.math.abs(dx) >= dy) {
+                    val adx = kotlin.math.abs(dx)
+                    // **横滑翻页:已在拖就继续喂**(跟手 + 到头橡皮筋都由候选栏画)
+                    if (paging) {
+                        listener.onPageDragMove(x, eventTime)
+                        return null
+                    }
+                    // 横向占优且过了死区 → 起手翻页拖动(与候选行同一个死区常量)。
+                    // 必须在 MOVE 里接管:抬手才判的话整条拖动不画位移,跟手动画就没有。
+                    if (adx > deadZone && adx > dy) {
+                        val dir = if (dx < 0f) 1f else -1f
+                        if (listener.onPageDragBegin(dir, x, eventTime)) {
+                            paging = true
+                            listener.onPageDragMove(x, eventTime)
+                            return null
+                        }
+                    }
+                    // 回拖或横向为主:放弃飞字(翻页要么已接管,要么没到死区)
+                    if (dy <= 0f || adx >= dy) {
                         abortDrag()
                         return null
                     }
-                    // 死区:上滑还不到阈值 1/4 时整体忽略(已起拖的拖回死区则淡回放弃)
+                    // 死区:上滑还不到死区时整体忽略(已起拖的拖回死区则淡回放弃)
                     if (dy <= deadZone) {
                         abortDrag()
                         return null
@@ -589,6 +640,17 @@ class ImeService : InputMethodService() {
                     val wasTracking = tracking
                     tracking = false
                     if (committed) return null
+                    // **翻页拖动中 → 收尾**(过线翻页 / 没过线反向收回 / 到头橡皮筋弹回),
+                    // 由候选栏按它自己的提交线判定,这里不重复判一次。
+                    if (paging) {
+                        paging = false
+                        val wasFlyDragging = dragging
+                        dragging = false
+                        if (wasFlyDragging) listener.onFlyAbort()
+                        if (action == MotionEvent.ACTION_CANCEL) listener.onPageDragCancel()
+                        else listener.onPageDragEnd(x)
+                        return null
+                    }
                     val wasDragging = dragging
                     dragging = false
                     if (wasDragging) listener.onFlyAbort()
@@ -599,7 +661,8 @@ class ImeService : InputMethodService() {
                     val dt = System.currentTimeMillis() - downAt
                     android.util.Log.i(TAG, "fly judge: dy=${dy.toInt()} dx=${dx.toInt()} dt=$dt thr=${threshold.toInt()}")
                     if (dt > 1500) return null
-                    // 横向主位移 → 翻页:左滑=下一页(内容拖拽隐喻,与候选栏手势一致)
+                    // 横向主位移 → 翻页:**兜底**,只在这条手势压根没进过 MOVE 接管时
+                    // (比如事件被系统合并成一次 DOWN+UP)才轮得到它。有跟手动画的路走上面。
                     if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
                     // 纵向主位移(向上):兜底(拖动过程的 MOVE 丢失时仍能提交)
                     if (dy > threshold && dy > adx) return zoneOf(downX)
@@ -628,7 +691,7 @@ class ImeService : InputMethodService() {
         // 喂给 FlyDetector 的话它会正常起拖,画面跟着手指走,松手却什么都不做。
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) flyArmed = !keyGate.swipeBlocked()
         if (!flyArmed) return true
-        val zone = flyDetector.onMotion(ev.actionMasked, ev.rawX, ev.rawY.toInt())
+        val zone = flyDetector.onMotion(ev.actionMasked, ev.rawX, ev.rawY.toInt(), ev.eventTime)
         if (zone == null) return true
         when {
             zone >= 0 -> commitFly(zone) // 兜底提交路径
@@ -655,6 +718,29 @@ class ImeService : InputMethodService() {
 
         override fun onFlyAbort() {
             candidateBar?.cancelFlyDrag()
+        }
+
+        /**
+         * 横滑翻页起手:横向占优且过了死区就交给候选栏接管。
+         *
+         * **没组词时不接管** —— 没有候选词就没有页可翻,让事件继续往下走(抬手时
+         * 那条 `pageStep` 兜底自己会 no-op)。返回 false 就是"这次不接管"。
+         */
+        override fun onPageDragBegin(dir: Float, x: Float, eventTime: Long): Boolean {
+            if (!controller.state.hasComposition) return false
+            return candidateBar?.pageDragBegin(dir, x, eventTime) == true
+        }
+
+        override fun onPageDragMove(x: Float, eventTime: Long) {
+            candidateBar?.pageDragMove(x, eventTime)
+        }
+
+        override fun onPageDragEnd(x: Float) {
+            candidateBar?.pageDragEnd(x)
+        }
+
+        override fun onPageDragCancel() {
+            candidateBar?.pageDragCancel()
         }
     })
 
@@ -724,6 +810,9 @@ class ImeService : InputMethodService() {
         l5Panel?.swipeCommitFrac = pageFrac
         l4Panel?.swipeCommitFrac = pageFrac
         flyDetector.pageThresholdPx = pagePx
+        // 键盘表面的横滑翻页现在走候选栏那套跟手/橡皮筋,所以把它的提交线也喂进去。
+        // 候选行自己翻页仍按行宽比例(pageCommitFrac),两者量纲不同、各按各的。
+        candidateBar?.externalCommitPx = pagePx
         // 屏宽注入:5 区按屏宽平分 = 每区 2 个物理键列(Titan 2 正好 10 列)
         flyDetector.xMax = resources.displayMetrics.widthPixels.toFloat()
         candidateBar?.flyThresholdPx = flyThreshold // 候选行内起手的上滑用同一阈值

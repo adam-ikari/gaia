@@ -27,7 +27,7 @@ class GesturePhysicsTest {
     private fun slide(dxLeft: Float) =
         pageDragSlide(
             x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
-            commitFrac = PAGE_COMMIT_FRAC, dead = dead,
+            commitPx = threshold, dead = dead,
         )
 
     private fun travel(dxLeft: Float) =
@@ -66,8 +66,34 @@ class GesturePhysicsTest {
     @Test
     fun `opposite direction yields no progress`() {
         // dir=+1(下一页)时往右拖:不认成同一次翻页(方向由 beginPageDrag 定)
-        assertEquals(0f, pageDragSlide(1300f, 1000f, 1f, viewW, PAGE_COMMIT_FRAC, dead), 0.01f)
-        assertEquals(0f, pageDragSlide(700f, 1000f, -1f, viewW, PAGE_COMMIT_FRAC, dead), 0.01f)
+        assertEquals(0f, pageDragSlide(1300f, 1000f, 1f, viewW, threshold, dead), 0.01f)
+        assertEquals(0f, pageDragSlide(700f, 1000f, -1f, viewW, threshold, dead), 0.01f)
+    }
+
+    @Test
+    fun `两条翻页路共用跟手与橡皮筋 但提交线各按各的量纲`() {
+        // 键盘表面上左右划也是翻页(2026-10-02 修:此前它只在抬手时 pageStep 一下,
+        // 整条拖动不画位移、到头什么都不发生 ⇒ 「弹性动画和跟手动画还是没有」)。
+        // 现在它走候选栏同一套 begin/move/end,所以跟手与橡皮筋只有一份实现。
+        //
+        // **但提交线必须各按各的**:键盘面能划的距离小,按行宽 1/3(=475px)取的话
+        // 轻轻一划根本翻不动 —— 所以那边用指尖位移档位(默认 60px)注入。
+        val kbCommit = 60f // = FlyDetector.pageThresholdPx 默认档
+
+        fun progressAt(travel: Float, commit: Float) =
+            pageDragProgress(1000f - travel, 1000f, 1f, viewW, commit, dead)
+
+        assertTrue(
+            "键盘面上 70px 一划就该过它的提交线",
+            progressAt(70f, kbCommit) >= 1f,
+        )
+        assertTrue(
+            "但同一 70px 在候选行的提交线(行宽 1/3)下过不了 —— 这正是量纲必须分开的原因",
+            progressAt(70f, threshold) < 1f,
+        )
+        // 跟手是两处共有的:位移 = 手指位移,与提交线无关
+        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, kbCommit, dead), 0.01f)
+        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, threshold, dead), 0.01f)
     }
 
     // ---------------------------------------------------------------- 惯性

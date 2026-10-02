@@ -111,8 +111,6 @@ class CandidateBarView @JvmOverloads constructor(
      */
     private val pageDeadPx: Float get() = DragGesture.DEAD_DP * density
 
-    private val pageThresholdPx: Float get() = width * pageCommitFrac
-
     private val bgPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_bg) }
     private val pressedPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_pressed) }
     private val dividerPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_divider) }
@@ -393,7 +391,7 @@ class CandidateBarView @JvmOverloads constructor(
         val w = width.toFloat()
         if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
         val travel = pageDragTravel(x, pageDragBaseX, pageDir)
-        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageCommitFrac, pageDeadPx)
+        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageCommitPx(), pageDeadPx)
         pageDragTravel = travel
         if (slide != pageSlide) {
             pageSlide = slide
@@ -404,11 +402,90 @@ class CandidateBarView @JvmOverloads constructor(
         // 提交后画面**不由动画接管**(见 [onPageIndexChanged] 里 `pageDragging` 那条分支)——
         // 手指还按着,位移继续由这里驱动,松手时 [endPageDrag] 收尾。
         if (!pageCommitted &&
-            DragGesture.progress(travel, w * pageCommitFrac, pageDeadPx) >= 1f
+            DragGesture.progress(travel, pageCommitPx(), pageDeadPx) >= 1f
         ) {
             onPage?.invoke(if (pageDir > 0f) 1 else -1)
             haptics?.confirm()
         }
+    }
+
+    /**
+     * **横滑接管**:有相邻页就起跟手翻页,到头就起橡皮筋。@return 是否接管了。
+     *
+     * ## 为什么要抽出来(2026-10-02 真机报「弹性动画和跟手动画还是没有」)
+     *
+     * 此前这段决策只写在 [onTouchEvent] 的 MOVE 分支里,而**键盘表面上左右划也是翻页**
+     * —— 那条路的事件根本到不了候选行,于是它走的是 [ImeService] 里一条
+     * 「抬手 → `pageStep()`」的旧路径:**抬手才翻、整条拖动不画位移、到头什么都不发生**。
+     * 同一个"翻页"有两套实现,于是"跟手和弹性到底有没有"取决于手落在哪块屏幕上。
+     *
+     * 抽出来之后两条路共用:跟手 1:1、过阈值当帧提交、到头橡皮筋拉伸+弹回+轻震,
+     * 全部只有一份实现,不会再分叉。**各自不同的只有提交线的量纲**(见 [externalCommitPx])。
+     */
+    private fun takeOverPageDrag(dir: Float, x: Float, eventTimeMs: Long): Boolean {
+        // 翻页接管时正在上滑的词要放回去,别两条拖动同时跑
+        if (flyP >= 0f && flyAnim == null) cancelFlyDrag()
+        val neighbour = if (dir > 0f) pageNextSlots else pagePrevSlots
+        // 那一侧有页 → 跟手翻页;没有页 → **橡皮筋拉伸**(到头也有反馈,
+        // 此前是整条拖动都不接管,手指在动屏幕纹丝不动,像卡了)
+        return if (neighbour.isNotEmpty() && neighbour.any { it != null }) {
+            beginPageDrag(dir, x, eventTimeMs)
+            true
+        } else {
+            beginRubber(dir, x)
+        }
+    }
+
+    /**
+     * 键盘表面横滑翻页的**提交线**(px),由 [ImeService] 注入指尖位移档位。
+     *
+     * **0 = 用候选行自己的量纲**(行宽 × [pageCommitFrac])。
+     *
+     * 两处翻页共用跟手绘制与橡皮筋,但**提交线必须各按各的**:键盘表面上能划的距离
+     * 本来就小(触摸区就那么大),照搬"行宽 1/3 = 475px"会让轻轻一划根本翻不动。
+     * 所以候选行按行宽比例取,键盘面按指尖位移档位取 —— 见
+     * [ImeService.FlyDetector.pageThresholdPx]。
+     */
+    var externalCommitPx = 0f
+
+    /** 本次翻页拖动的提交线(px):有外部注入就用外部的,否则按候选行自己的行宽比例。 */
+    private fun pageCommitPx(): Float {
+        val external = externalCommitPx
+        return if (external > 0f) external else width * pageCommitFrac
+    }
+
+    /**
+     * 键盘表面横滑翻页:**起手**。@return 是否接管(到头时接管的是橡皮筋,一样返回 true)
+     *
+     * 与候选行自己收到的那条横滑走的是同一个 [takeOverPageDrag],所以手感不会分叉。
+     * 坐标用哪个空间都行 —— 位移只取差值([pageDragTravel] 只用 `x - baseX`)。
+     */
+    fun pageDragBegin(dir: Float, x: Float, eventTimeMs: Long = 0L): Boolean =
+        takeOverPageDrag(dir, x, eventTimeMs)
+
+    /** 键盘表面横滑翻页:**跟手**。橡皮筋与翻页拖动各自喂自己那条。 */
+    fun pageDragMove(x: Float, eventTimeMs: Long = 0L) {
+        when {
+            rubberDrag.active -> setRubber(x, eventTimeMs)
+            pageDragging -> setPageDrag(x, eventTimeMs)
+        }
+    }
+
+    /** 键盘表面横滑翻页:**收尾**。跟手拖动走翻页判定,橡皮筋走弹回。 */
+    fun pageDragEnd(x: Float) {
+        when {
+            rubberDrag.active -> {
+                setRubber(x)
+                endRubber()
+            }
+            pageDragging -> endPageDrag(x)
+        }
+    }
+
+    /** 键盘表面横滑翻页:**被打断**(事件取消)——当作松手,别把候选行卡在拖动态。 */
+    fun pageDragCancel() {
+        if (rubberDrag.active) cancelRubber()
+        if (pageDragging) endPageDrag(pageDragBaseX)
     }
 
     /**
@@ -425,7 +502,7 @@ class CandidateBarView @JvmOverloads constructor(
         pageDragging = false
         val step = if (pageDir > 0f) 1 else -1
         val full = width.toFloat()
-        val threshold = full * pageCommitFrac
+        val threshold = pageCommitPx()
         // 速度取沿翻页方向的符号:往下一页(dir=+1)时手指向左,速度也要是"朝新页"才算甩
         val v = pageSpeed.velocity() * pageDir
         val landing = Fling.projectLanding(pageSlide, full, v)
@@ -684,17 +761,8 @@ class CandidateBarView @JvmOverloads constructor(
                 // 翻页先判:横滑接管时正在上滑的词要放回去,别两条拖动同时跑
                 var takeOverPage = false
                 if (swipeArmed && swipePageEnabled && adx > pageDeadPx && adx > ady) {
-                    if (flyP >= 0f && flyAnim == null) cancelFlyDrag()
                     val dir = if (dx < 0f) 1f else -1f
-                    val neighbour = if (dir > 0f) pageNextSlots else pagePrevSlots
-                    // 那一侧有页 → 跟手翻页;没有页 → **橡皮筋拉伸**(到头也有反馈,
-                    // 此前是整条拖动都不接管,手指在动屏幕纹丝不动,像卡了)
-                    if (neighbour.isNotEmpty() && neighbour.any { it != null }) {
-                        beginPageDrag(dir, event.x, event.eventTime)
-                        takeOverPage = true
-                    } else if (beginRubber(dir, event.x)) {
-                        takeOverPage = true
-                    }
+                    takeOverPage = takeOverPageDrag(dir, event.x, event.eventTime)
                 }
                 when {
                     // 越界橡皮筋优先:到头的那一侧要给出拉伸反馈,不能跟翻页抢
@@ -1090,11 +1158,11 @@ internal fun pageDragProgress(
     baseX: Float,
     dir: Float,
     viewW: Float,
-    commitFrac: Float,
+    commitPx: Float,
     dead: Float,
 ): Float {
     val travel = pageDragTravel(x, baseX, dir)
-    return DragGesture.progress(travel, threshold = viewW * commitFrac, dead = dead)
+    return DragGesture.progress(travel, threshold = commitPx, dead = dead)
 }
 
 /**
@@ -1112,11 +1180,11 @@ internal fun pageDragSlide(
     baseX: Float,
     dir: Float,
     viewW: Float,
-    commitFrac: Float,
+    commitPx: Float,
     dead: Float,
 ): Float = DragGesture.slide(
     travel = pageDragTravel(x, baseX, dir),
-    threshold = viewW * commitFrac,
+    threshold = commitPx,
     limit = viewW,
     dead = dead,
 )

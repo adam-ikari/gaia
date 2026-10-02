@@ -27,7 +27,7 @@ class CandidateBarPageDragTest {
     private fun progress(dxLeft: Float): Float =
         pageDragProgress(
             x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
-            commitFrac = PAGE_COMMIT_FRAC, dead = DEAD,
+            commitPx = commitPx, dead = DEAD,
         )
 
     @Test
@@ -91,12 +91,12 @@ class CandidateBarPageDragTest {
         // 往回翻要靠下一次手势接管(见 beginPageDrag 的角色对调),这是刻意的。
         assertEquals(
             0f,
-            pageDragProgress(1300f, 1000f, 1f, viewW, PAGE_COMMIT_FRAC, DEAD),
+            pageDragProgress(1300f, 1000f, 1f, viewW, commitPx, DEAD),
             1e-6f,
         )
         assertEquals(
             0f,
-            pageDragProgress(700f, 1000f, -1f, viewW, PAGE_COMMIT_FRAC, DEAD),
+            pageDragProgress(700f, 1000f, -1f, viewW, commitPx, DEAD),
             1e-6f,
         )
     }
@@ -104,8 +104,8 @@ class CandidateBarPageDragTest {
     @Test
     fun `previous-page direction is the mirror of next-page`() {
         // 同一段手指位移,dir=-1(上一页)且手指往右移 = 等价于往左移且 dir=+1
-        val viaNext = pageDragProgress(700f, 1000f, 1f, viewW, PAGE_COMMIT_FRAC, DEAD)
-        val viaPrev = pageDragProgress(1300f, 1000f, -1f, viewW, PAGE_COMMIT_FRAC, DEAD)
+        val viaNext = pageDragProgress(700f, 1000f, 1f, viewW, commitPx, DEAD)
+        val viaPrev = pageDragProgress(1300f, 1000f, -1f, viewW, commitPx, DEAD)
         assertEquals(viaNext, viaPrev, 1e-6f)
     }
 }
