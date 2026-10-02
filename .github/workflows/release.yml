@@ -6,14 +6,14 @@ on:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
@@ -46,7 +46,7 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             app/build/outputs/apk/release/app-release.apk
@@ -55,7 +55,7 @@ jobs:
 
       # 产物转交给下面的 publish-site 任务:跨 job 只能靠 artifact 传文件
       - name: 上传 APK 构件
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apks
           path: |
@@ -64,17 +64,27 @@ jobs:
           if-no-files-found: error
 
   # 把包同步到公开站点仓库 adam-ikari/gaia 的同名 Release。
-  # 为什么必须单独一个仓库:应用仓库是私有的,那里的 Release 下载链接需要登录态,
-  # 站点访客拿不到;站点仓库是公开的,匿名可下。站点的 Downloads.vue 读的就是它。
+  #
+  # ## 这个 job 默认什么都不做,而且**退出码是 0**
+  #
+  # 跨仓库写只能靠 PAT(`WEB_RELEASE_TOKEN`),内置 `GITHUB_TOKEN` 只对本仓库有效。
+  # 这个 secret 目前**没有配**,所以下面那步一直 skipped —— 流水线全绿,
+  # 但站点上的包还是上一个版本。2026-10-02 就这样让 v0.4.2 和 v0.4.3 都只存在于
+  # 私有仓库,站点下载链接停在 v0.4.1,而 CI 全程显示成功。
+  #
+  # 所以现在多两件事:
+  # 1. 没配 token 时打 `::warning::` 说明站点链接不会更新(不是静默跳过);
+  # 2. 真正的同步走 `tools/release/sync-apk-to-site.sh`,由发版的人跑一次,
+  #    不需要任何 secret、不会过期。配了 token 之后这个 job 才会接手,两条不冲突。
   publish-site:
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # 没配这个 secret 就整步跳过,不阻塞发版(所以用 step 级 if 而不是 job 级)
       WEB_TOKEN: ${{ secrets.WEB_RELEASE_TOKEN }}
       SITE_REPO: adam-ikari/gaia
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: apks
           path: apks
@@ -86,16 +96,29 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # 幂等:重跑时先删掉同名资产再传,--clobber 也覆盖同名文件,
-          # 两种情况都不会在 Release 里堆出两份 APK。
+          # 幂等:同名 release 已存在就只覆盖资产,不重建(重建会冲掉已有的说明文字)。
           if gh release view "$TAG" --repo "$SITE_REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" apks/*.apk --repo "$SITE_REPO" --clobber
           else
             gh release create "$TAG" \
               --repo "$SITE_REPO" \
-              --title "盖亚输入法 $TAG" \
+              --title "Gaia $TAG" \
               --notes "由 hwkbd_ime 的发版流水线自动同步。" \
               apks/app-release.apk#app-release.apk \
               apks/app-debug.apk#app-debug.apk
           fi
-          echo "已同步到 $SITE_REPO @ $TAG"
+          # **同步完要验匿名可下**。不验的话,包在仓库里但 latest 指向别处,
+          # 或者传输坏了,流水线照样是绿的 —— 站点访客拿到的是上一次的包。
+          code=$(curl -sIL --max-time 120 -o /dev/null -w '%{http_code}' \
+            "https://github.com/$SITE_REPO/releases/latest/download/app-release.apk")
+          echo "匿名下载 HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::同步后匿名下载不是 200,别当成成功" >&2
+            exit 1
+          fi
+
+      - name: 没配 token,提醒手动同步
+        if: env.WEB_TOKEN == ''
+        run: |
+          echo "::warning::没配 WEB_RELEASE_TOKEN —— 这个 job 没有同步任何东西,站点下载链接仍指向旧版本。"
+          echo "::warning::发版后请跑一次: tools/release/sync-apk-to-site.sh ${{ github.ref_name }}"
