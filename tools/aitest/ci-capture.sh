@@ -121,29 +121,16 @@ a shell ime set "$IME" || true
 a shell ime disable com.android.inputmethod.latin 2>/dev/null || true
 say "输入法:"; a shell ime list -s || true
 
-# ---- 站点素材 ----
+# ---- 素材 ----
 # **必须留在这个 step 里**:文件头第 1 条说过,step 一结束 action 就 `emu kill`。
-# 拆到后面的 step(比如单独一个「裁图」step)跑起来时 `adb devices` 已经空了。
+# 拆到后面的 step 跑起来时 `adb devices` 已经空了。
 if [ -n "${SHOOTS:-}" ]; then
   mkdir -p out/media
-  say "采集素材(截图 + 录屏 + 裁状态行)"
-  # 脚本用 adb -s 选设备,所以要把 env 也喂给它。
-  # 状态行的裁剪在 shots.mjs 末尾自己做(见那里为什么挑 04-page-swipe),
-  # 不单独跑一遍 —— 两处各裁一次会出现"图是 A、裁的是 B"这种对不上的情况。
-  AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 900 node tools/aitest/shots.mjs out/media/shots
-  shots_rc=$?
-  # 这一步失败要红:素材是站点的输入,悄悄产出半套比明着失败难查
-  if [ "$shots_rc" != "0" ]; then
-    echo "::error::素材采集有失败项(退出码 $shots_rc)"
-  fi
-  ls -la out/media/shots 2>/dev/null || true
-  # 站点要的那一张单独报出来,免得"跑绿了但没图"
-  if [ -f out/media/shots/status-row.png ]; then
-    say "status-row.png $(identify -format '%wx%h' out/media/shots/status-row.png 2>/dev/null || echo '(identify 不可用)')"
-  else
-    echo "::error::没产出 status-row.png,站点这张图推不上去"
-    exit 1
-  fi
+  say "采集素材(截图 + 录屏)"
+  # 脚本用 adb -s 选设备,所以要把 env 也喂给它
+  AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 900 node tools/aitest/shots.mjs out/media/shots \
+    || echo "::warning::素材脚本有失败项"
+  ls -la out/media out/media/shots 2>/dev/null || true
 fi
 
 # ---- 回归场景 ----
