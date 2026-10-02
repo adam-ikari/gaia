@@ -30,6 +30,10 @@ node_modules/
 # AI 测试证据
 tools/aitest/evidence/
 
+# 素材采集的本地产物(截图/录屏/裁剪结果)。1.5MB 一次性图片,
+# 真机重跑一次就变,进 git 只会让每次发版 diff 都带一堆二进制。
+out/
+
 # 并行会话调试残留
 _tmp_*
 _tmp_s1.png
