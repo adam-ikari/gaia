@@ -15,22 +15,21 @@ actions:
 ::: band ink
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>每页五个，无需挪手。</h2>
-<p>首选占住正中间，空格就是它；另外四个分别在 Shift、Sym、Ctrl、Alt 上。手不离开键盘，在键盘上往上滑就能上屏。</p>
-<p>跟手的动画，一切操作符合直觉。</p>
+<p>首选占住正中间，空格就是它；另外四个分别在 Shift、Sym、Ctrl、Alt 上。在键盘上往上滑就能上屏。</p>
 </div>
 :::
 
 ::: band stone
 <div class="gaia-band-inner gaia-band-narrow">
-<h2>翻页多远算翻过去，能调。</h2>
-<p>候选不止一页时，左右划就翻页。往上滑是另一件事，选字上屏。</p>
+<h2>跟手的动画，一切操作符合直觉。</h2>
+<p>候选不止一页时左右划就翻页，整页跟着手走；动画正播着，再划一下就转过来。</p>
 </div>
 :::
 
 ::: band white
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>键盘分三层。</h2>
-<p>字母、符号、编程。Alt 和 Sym 换层：按一下临时用，双击锁住，连按三次轮着换；长按就一直用，松手回来。</p>
+<p>字母、符号、编程。Alt 和 Sym 换层：单按一下用一次，双击锁住这一层，连按三次就在三层之间轮着切。</p>
 <p>Titan 2 没有独立数字行，符号得靠换层才打得出。</p>
 </div>
 :::
@@ -46,7 +45,6 @@ actions:
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>越打越顺手。</h2>
 <p>内置 34.8 万个词，常用的会自己往前挪。懒得打全拼就敲首字母：nh 就是「你好」。</p>
-<p>词库可以自己导入导出，用得多的词留在自己的词频里。</p>
 </div>
 :::
 
