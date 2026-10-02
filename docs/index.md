@@ -15,7 +15,7 @@ actions:
 ::: band ink
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>每页五个，无需挪手。</h2>
-<p>首选占住正中间，空格就是它；另外四个分别在 Shift、Sym、Ctrl、Alt 上。手不离开键盘，在候选栏上往上划就能上屏。</p>
+<p>首选占住正中间，空格就是它；另外四个分别在 Shift、Sym、Ctrl、Alt 上。手不离开键盘，在键盘上往上滑就能上屏。</p>
 <p>跟手的动画，一切操作符合直觉。</p>
 </div>
 :::
