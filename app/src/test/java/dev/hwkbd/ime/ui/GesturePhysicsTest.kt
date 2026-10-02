@@ -78,22 +78,56 @@ class GesturePhysicsTest {
         //
         // **但提交线必须各按各的**:键盘面能划的距离小,按行宽 1/3(=475px)取的话
         // 轻轻一划根本翻不动 —— 所以那边用指尖位移档位(默认 60px)注入。
-        val kbCommit = 60f // = FlyDetector.pageThresholdPx 默认档
+        val kbTotal = 60f // = FlyDetector.pageThresholdPx 默认档,口径是**手指总行程**
 
-        fun progressAt(travel: Float, commit: Float) =
-            pageDragProgress(1000f - travel, 1000f, 1f, viewW, commit, dead)
+        // 设置页的档位换算到"从基线量":基线落在死区被跨过的那一帧,所以要减掉死区
+        val kbFromBase = externalCommitFromBase(kbTotal, dead)
 
-        assertTrue(
-            "键盘面上 70px 一划就该过它的提交线",
-            progressAt(70f, kbCommit) >= 1f,
+        fun progressAt(travelFromBase: Float, commitFromBase: Float) =
+            pageDragProgress(1000f - travelFromBase, 1000f, 1f, viewW, commitFromBase, 0f)
+
+        assertEquals(
+            "键盘面上划满 ${kbTotal}px(总行程)就该翻页 —— 死区那截不能额外加算进去",
+            1f, progressAt(kbFromBase, kbFromBase), 1e-3f,
         )
         assertTrue(
-            "但同一 70px 在候选行的提交线(行宽 1/3)下过不了 —— 这正是量纲必须分开的原因",
-            progressAt(70f, threshold) < 1f,
+            "还没划满就不该翻",
+            progressAt(kbFromBase - 1f, kbFromBase) < 1f,
+        )
+        assertTrue(
+            "但同一段行程在候选行的提交线(行宽 1/3)下过不了 —— 这正是量纲必须分开的原因",
+            progressAt(kbFromBase, threshold) < 1f,
         )
         // 跟手是两处共有的:位移 = 手指位移,与提交线无关
-        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, kbCommit, dead), 0.01f)
+        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, kbFromBase, 0f), 0.01f)
         assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, threshold, dead), 0.01f)
+    }
+
+    @Test
+    fun `键盘表面的死区只算一次 不在基线之后再扣一遍`() {
+        // 基线落在"死区被跨过的那一帧",所以那 32px 死在基线**之前**。
+        // 从基线量的行程里若再传一次死区,progress 的分母 (threshold - dead)
+        // 就是 28 - 32 = -4 ⇒ 进度 NaN。所以外部驱动时死区传 0。
+        val kbTotal = 60f
+        val fromBase = externalCommitFromBase(kbTotal, dead) // 28
+        assertEquals(28f, fromBase, 1e-4f)
+
+        // 死区 0、提交线 28:总行程 60px(=32 死区 + 28)恰好翻页
+        assertEquals(1f, DragGesture.progress(fromBase, fromBase, 0f), 1e-3f)
+        assertTrue("差 1px 就不翻", DragGesture.progress(fromBase - 1f, fromBase, 0f) < 1f)
+
+        // 而候选行自己的拖动死区照常生效(基线就在 downX,死区没被提前吃掉)
+        assertEquals(0f, DragGesture.progress(dead - 1f, threshold, dead), 1e-6f)
+        assertTrue("过死区才有进度", DragGesture.progress(dead + 1f, threshold, dead) > 0f)
+    }
+
+    @Test
+    fun `档位比死区还小时 夹到最小可用值而不是负数`() {
+        // 死区 32px、档位只有 20px:换算是 20-32 = -12,直接用会让分母翻负号、
+        // 进度恒 0(永远翻不了页)。夹到 1 ⇒ 总行程 = 33px,是这个配置下能有的最小值。
+        val clamped = externalCommitFromBase(20f, dead)
+        assertEquals(1f, clamped, 1e-4f)
+        assertEquals("总行程 = 死区 + 1", dead + 1f, dead + clamped, 1e-4f)
     }
 
     // ---------------------------------------------------------------- 惯性

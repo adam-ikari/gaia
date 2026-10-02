@@ -178,13 +178,12 @@ class L4PanelView @JvmOverloads constructor(
 
         // **退场键的快照要在 removeAllViews 之前取** —— 之后就没有 left/right/top/bottom 了。
         // 只快照真正消失的那些:身份还在的键由进入动画以"原位移 0"处理(见 runEnterAnimation)。
-        val centerX = (measuredWidth - paddingLeft - paddingRight) / 2f
         val ghosts: List<L4PanelView.Ghost> =
             if (!hadKeys || enterDisabled) emptyList()
             else (0 until childCount)
                 .map { getChildAt(it) }
                 .filter { (it.tag as? KeyIdentity)?.out?.let { id -> id !in newIds } == true }
-                .map { toGhost(it, centerX) }
+                .map { toGhost(it) }
 
         // 跟手状态清零:键序要重建,旧键帽上的平移不该带到新键上
         swipeSlide = 0f
@@ -285,21 +284,24 @@ class L4PanelView @JvmOverloads constructor(
     // ---- 键的退场动画(2026-10-02 用户「l4l5 要有按键的消失动画」)
 
     /**
-     * 正在退场的键的**快照**:位置、外观、退场方向。
+     * 正在退场的键的**快照**:位置与外观。
      *
      * 为什么不留着真视图跑动画:[layoutPage] 按**子视图个数**排等宽槽,多挂一个
      * 「正在退场」的键就会把整排挤歪 —— 而挤歪发生在键序正在重排、最该看清的地方。
      * 真实视图一律只属于新键序;退场键由 [onDraw] 补画。
+     *
+     * **没有"退场方向"**:2026-10-02 用户「l4l5 按键消失的效果不对 应该原地消失」。
+     * 此前退场键会朝行外平移(`origin ± 侧向 × enterTravel`),于是消失的那几把
+     * 一边淡出一边横穿还留着的那几把 —— 看着像布局在乱挤,而不是"这把键没了"。
+     * 现在退场只有淡出,位置一帧不动([runExitAnimation])。
      */
     private class Ghost(
         val text: String,
         val bg: android.graphics.drawable.Drawable?,
-        /** 退场**开始前**的位置。每帧从它重算,不要就地累加偏移。 */
+        /** 退场位置(只淡出,所以每帧都等于这个值)。 */
         val origin: android.graphics.RectF,
-        /** 当前这一帧要画的位置(由动画写入)。 */
+        /** 当前这一帧要画的位置。 */
         val rect: android.graphics.RectF,
-        /** +1 往右退、-1 往左退、0 只淡出(正中间那把往哪边退都不对)。 */
-        val dir: Float,
     )
 
     private val exiting = ArrayList<Ghost>()
@@ -311,30 +313,27 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     /** 把一个即将被丢掉的旧键帽快照成 [Ghost](本视图坐标系)。必须在 `removeAllViews` **之前**调。 */
-    private fun toGhost(v: View, centerX: Float): Ghost {
+    private fun toGhost(v: View): Ghost {
         val tv = v as? android.widget.TextView
-        val g = Ghost(
+        return Ghost(
             text = tv?.text?.toString() ?: "",
             bg = v.background?.mutate(),
             origin = android.graphics.RectF(
                 v.left.toFloat(), v.top.toFloat(), v.right.toFloat(), v.bottom.toFloat(),
             ),
             rect = android.graphics.RectF(v.left.toFloat(), v.top.toFloat(), v.right.toFloat(), v.bottom.toFloat()),
-            // 正中间那把(dir=0)只淡出:往任意一边退都会横穿还留着的那几把
-            dir = when {
-                centerX <= 0f -> 0f
-                (v.left + v.right) / 2f < centerX -> -1f
-                (v.left + v.right) / 2f > centerX -> 1f
-                else -> 0f
-            },
         )
-        return g
     }
 
     /**
-     * 退场动画:**往外挪 + 淡出**,与 [runEnterAnimation] 同一套非线性缓动与时长档。
+     * 退场动画:**原地淡出**,不动位置(2026-10-02 用户「应该原地消失」)。
      *
-     * 和进入动画同时跑(不是先后),所以键序切换还是 [ENTER_MS] 那么长,不会变成两段。
+     * 此前是"往外挪 + 淡出",于是消失的那几把一边淡出一边横穿还留着的那几把,
+     * 读起来像布局在乱挤。原地淡出才读得出"这把键没了",而补位那几把各自走
+     * [runEnterAnimation] 的位移 —— 两件事分开,各自看得懂。
+     *
+     * 时长与缓动仍与进入动画同一套([ENTER_MS] + [Fling.DECELERATE]),
+     * 且两者**同时**跑,所以键序切换还是那么长,不会变成"先退后进"两段。
      */
     private fun runExitAnimation(ghosts: List<Ghost>) {
         exiting.clear()
@@ -345,18 +344,16 @@ class L4PanelView @JvmOverloads constructor(
             return
         }
         exiting += ghosts
-        val travel = exitTravel()
         exitAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
             duration = ENTER_MS
             interpolator = Fling.DECELERATE
             addUpdateListener { a ->
                 val p = a.animatedValue as Float
+                val alpha = (255 * (1f - p)).toInt().coerceIn(0, 255)
                 for (g in exiting) {
-                    // **从 origin 重算,不就地累加** —— 累加的话 p=0.5 时已经叠了两次位移,
-                    // 键会飞出比 enterTravel 远得多的地方(看着像被弹出去而不是退场)
+                    // 位置**一帧不动**:每帧都回到 origin,只写透明度
                     g.rect.set(g.origin)
-                    g.rect.offset(g.dir * travel * p, 0f)
-                    g.bg?.alpha = (255 * (1f - p)).toInt().coerceIn(0, 255)
+                    g.bg?.alpha = alpha
                 }
                 invalidate()
             }
@@ -370,9 +367,6 @@ class L4PanelView @JvmOverloads constructor(
             start()
         }
     }
-
-    /** 退场位移(px):与 [enterTravel] 取同一把尺,键不会滑出本区域。 */
-    private fun exitTravel(): Float = enterTravel()
 
     /**
      * 补画正在退场的键。真实子视图只属于新键序,退场键在这里画 —— 见 [Ghost] 为什么不做成真视图。
