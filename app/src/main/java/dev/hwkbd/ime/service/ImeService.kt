@@ -502,6 +502,18 @@ class ImeService : InputMethodService() {
         var threshold = 160f
 
         /**
+         * **横向**翻页所需的指尖位移(屏幕 px):键盘表面上左右划翻页的判据。
+         *
+         * 原先写死 60f,2026-10-02 用户「左右滑动阈值需要可调节性」改为由设置页档位注入
+         * (见 [ImeService.PAGE_THRESHOLD_TIERS])。
+         *
+         * **它与候选行的阈值不是同一个量纲**:键盘面上横向能走到的距离本来就小
+         * (60px ≈ 行宽 1/3 的九分之一),照搬候选行那个比例会变成"几乎划不动"。
+         * 所以档位表对两处分别给值。
+         */
+        var pageThresholdPx = 60f
+
+        /**
          * 屏宽(服务按 displayMetrics 注入):5 区按屏宽平分——Titan 2 物理键盘正好 10 列,
          * 每区 = 2 个键列,分区边界与物理键列对齐(用户 2026-09-29 定案)。
          */
@@ -563,7 +575,7 @@ class ImeService : InputMethodService() {
                     android.util.Log.i(TAG, "fly judge: dy=${dy.toInt()} dx=${dx.toInt()} dt=$dt thr=${threshold.toInt()}")
                     if (dt > 1500) return null
                     // 横向主位移 → 翻页:左滑=下一页(内容拖拽隐喻,与候选栏手势一致)
-                    if (adx > 60f && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
+                    if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
                     // 纵向主位移(向上):兜底(拖动过程的 MOVE 丢失时仍能提交)
                     if (dy > threshold && dy > adx) return zoneOf(downX)
                 }
@@ -678,6 +690,12 @@ class ImeService : InputMethodService() {
         val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
             ?: FLY_THRESHOLD_DEFAULT.toFloat()
         flyDetector.threshold = flyThreshold
+        // 左右滑翻页的阈值:一个开关同时喂候选行、L5、键盘表面三处
+        val (pageFrac, pagePx) = pageThreshold(p)
+        candidateBar?.pageCommitFrac = pageFrac
+        l5Panel?.swipeCommitFrac = pageFrac
+        l4Panel?.swipeCommitFrac = pageFrac
+        flyDetector.pageThresholdPx = pagePx
         // 屏宽注入:5 区按屏宽平分 = 每区 2 个物理键列(Titan 2 正好 10 列)
         flyDetector.xMax = resources.displayMetrics.widthPixels.toFloat()
         candidateBar?.flyThresholdPx = flyThreshold // 候选行内起手的上滑用同一阈值
@@ -1038,6 +1056,38 @@ class ImeService : InputMethodService() {
         const val PREF_SWIPE_SELECT = "swipe_select"
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
+
+        /** 左右滑翻页所需距离(2026-10-02 用户「左右滑动阈值需要可调节性」)。值是档位名。 */
+        const val PREF_PAGE_THRESHOLD = "page_threshold"
+
+        /** 默认档:与两处出厂常量一致(候选行/L5 = 行宽 1/3,键盘表面 = 60px)。 */
+        private const val PAGE_THRESHOLD_DEFAULT = "normal"
+
+        /**
+         * 档位表:一行 = [候选行/L5 的行宽比例, 键盘表面的位移 px]。
+         *
+         * **为什么不给一个量纲**:两处的可滑距离差一个量级 —— 候选行 1440px 宽,
+         * 1/3 就是 475px;而键盘面上横向能走到的距离本就小,60px 就该翻页。
+         * 照搬同一个比例会让键盘面"几乎划不动"。所以档位名共用、数值分别给,
+         * 用户看到的仍然只有一个开关。
+         *
+         * 比例这一列改动要同步 [dev.hwkbd.ime.ui.CandidateBarView.PAGE_COMMIT_FRAC] 与
+         * [dev.hwkbd.ime.ui.L4PanelView.L5_COMMIT_FRAC] —— 那是**无偏好时**的出厂值。
+         */
+        private val PAGE_THRESHOLD_TIERS = mapOf(
+            "sensitive" to (0.22f to 40f),
+            "normal" to (0.33f to 60f),
+            "conservative" to (0.45f to 90f),
+        )
+
+        /**
+         * 读档位 → (行宽比例, 键盘表面 px)。**认不出的值一律回落默认档**,
+         * 不抛异常:偏好文件是持久化的,将来改档位名时老机器上会读到旧值,
+         * 那时静默回落比输入法起不来好。
+         */
+        private fun pageThreshold(p: android.content.SharedPreferences): Pair<Float, Float> =
+            PAGE_THRESHOLD_TIERS[p.getString(PREF_PAGE_THRESHOLD, PAGE_THRESHOLD_DEFAULT)]
+                ?: PAGE_THRESHOLD_TIERS.getValue(PAGE_THRESHOLD_DEFAULT)
         /**
          * 震动反馈开关(默认开)。四个反馈点:Caps 锁定/解锁、层锁定/解锁、翻页提交、飞字过阈值。
          * 锁定类比确认类重一点(14ms vs 12ms)—— "锁住了"比"过了"更需要实感。

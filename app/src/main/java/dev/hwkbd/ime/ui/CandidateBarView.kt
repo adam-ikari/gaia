@@ -46,7 +46,25 @@ class CandidateBarView @JvmOverloads constructor(
     private var totalPages = 0
 
     private val density = resources.displayMetrics.density
+    /**
+     * 箭头**触摸区**每侧的宽度(px):点这一条就翻页,候选槽位也从这里开始算。
+     *
+     * **与 [arrowInset] 分开是有意的**(2026-10-02 用户「翻页左右箭头到屏幕边缘近一些」):
+     * 此前两者共用一个 `arrowWidth`,于是"箭头往边缘挪"只能靠把触摸区一起调窄来换 ——
+     * 而翻页恰恰是手指最容易滑偏的动作,触摸区不该跟着视觉走。
+     * 那个共用值 26dp 今天原封不动留给触摸用。
+     */
     private val arrowWidth = 26f * density
+
+    /**
+     * 箭头**图形中心**到该侧边缘的距离(px):13dp → **8dp**。
+     *
+     * 候选行自身已有 `bar_safe_edge`(16dp)左右内边距(避开 Titan 2 底部两角的物理圆角),
+     * 所以箭头中心离**屏幕**边缘 = 16 + 8 = 24dp(此前是 29dp)。
+     *
+     * 没有再往里压是因为字形 `◀`/`▶` 本身约 8dp 宽:中心再靠近,字形就会被行边裁掉一角。
+     */
+    private val arrowInset = 8f * density
     private val touchSlop = 12f * density
 
     /**
@@ -60,9 +78,14 @@ class CandidateBarView @JvmOverloads constructor(
      * 此前是写死的 24dp 抬手判据,在 598dp 宽(1440px 通栏)的候选行上只占 4%,随手一碰就翻页,完全不跟手。
      * 改成行宽比例后跨机型一致。死区 / 跟手 / 提交线与 L5 翻页、上滑飞字**共用**
      * [DragGesture] 那份数学(2026-09-29「手感对齐」),这里只提供阈值:
-     * 触发线 = 行宽的 [PAGE_COMMIT_FRAC],死区 = 触发线的 1/4。
+     * 触发线 = 行宽的 [pageCommitFrac],死区 = 触发线的 1/4。
+     *
+     * **可调**(2026-10-02 用户「左右滑动阈值需要可调节性」):设置页「左右滑翻页所需距离」
+     * 的档位经这里注入,[PAGE_COMMIT_FRAC] 只是出厂默认值。
      */
-    private val pageThresholdPx: Float get() = width * PAGE_COMMIT_FRAC
+    var pageCommitFrac: Float = PAGE_COMMIT_FRAC
+
+    private val pageThresholdPx: Float get() = width * pageCommitFrac
 
     private val bgPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_bg) }
     private val pressedPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_pressed) }
@@ -337,7 +360,7 @@ class CandidateBarView @JvmOverloads constructor(
         val w = width.toFloat()
         if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
         val travel = pageDragTravel(x, pageDragBaseX, pageDir)
-        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w)
+        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageCommitFrac)
         pageDragTravel = travel
         if (slide != pageSlide) {
             pageSlide = slide
@@ -359,7 +382,7 @@ class CandidateBarView @JvmOverloads constructor(
         pageDragging = false
         val step = if (pageDir > 0f) 1 else -1
         val full = width.toFloat()
-        val threshold = full * PAGE_COMMIT_FRAC
+        val threshold = full * pageCommitFrac
         // 速度取沿翻页方向的符号:往下一页(dir=+1)时手指向左,速度也要是"朝新页"才算甩
         val v = pageSpeed.velocity() * pageDir
         val landing = Fling.projectLanding(pageSlide, full, v)
@@ -832,9 +855,9 @@ private fun onTap(x: Float) {
         // 翻页箭头(到边界置暗)
         val dim = arrowPaint.alpha
         arrowPaint.alpha = if (page > 0) 0xFF else 0x40
-        canvas.drawText("◀", arrowWidth / 2f - arrowPaint.measureText("◀") / 2f, height / 2f + dip(5), arrowPaint)
+        canvas.drawText("◀", arrowInset - arrowPaint.measureText("◀") / 2f, height / 2f + dip(5), arrowPaint)
         arrowPaint.alpha = if (page < totalPages - 1) 0xFF else 0x40
-        canvas.drawText("▶", width - arrowWidth / 2f - arrowPaint.measureText("▶") / 2f, height / 2f + dip(5), arrowPaint)
+        canvas.drawText("▶", width - arrowInset - arrowPaint.measureText("▶") / 2f, height / 2f + dip(5), arrowPaint)
         arrowPaint.alpha = dim
 
         // 翻页:旧页随手指/动画滑出,新页从另一侧滑入(等宽等距 ⇒ 中线恒过中心键心/中缝)
@@ -991,9 +1014,10 @@ internal fun pageDragProgress(
     baseX: Float,
     dir: Float,
     viewW: Float,
+    commitFrac: Float = PAGE_COMMIT_FRAC,
 ): Float {
     val travel = pageDragTravel(x, baseX, dir)
-    return DragGesture.progress(travel, threshold = viewW * PAGE_COMMIT_FRAC)
+    return DragGesture.progress(travel, threshold = viewW * commitFrac)
 }
 
 /**
@@ -1011,9 +1035,10 @@ internal fun pageDragSlide(
     baseX: Float,
     dir: Float,
     viewW: Float,
+    commitFrac: Float = PAGE_COMMIT_FRAC,
 ): Float = DragGesture.slide(
     travel = pageDragTravel(x, baseX, dir),
-    threshold = viewW * PAGE_COMMIT_FRAC,
+    threshold = viewW * commitFrac,
     limit = viewW,
 )
 

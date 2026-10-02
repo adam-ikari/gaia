@@ -564,8 +564,20 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     /** 本次横滑的触发阈值(px):行宽的 [L5_COMMIT_FRAC],与候选行翻页同一比例。 */
+    // ------------------------------------------------------------------ 横滑翻页阈值
+
+    /**
+     * L5 横滑翻页的触发线 = **行宽的比例**。
+     *
+     * 出厂值 [L5_COMMIT_FRAC];实际取值由 service 从设置页的档位注入
+     * (2026-10-02 用户「左右滑动阈值需要可调节性」)。**与候选行共用同一个开关** ——
+     * 两处都是「在候选/键位那一行上左右划」,灵敏度一起变才有意义,分开调反而不知道
+     * 该调哪个。
+     */
+    var swipeCommitFrac: Float = L5_COMMIT_FRAC
+
     private fun swipeThresholdPx(): Float =
-        (measuredWidth - paddingLeft - paddingRight) * L5_COMMIT_FRAC
+        (measuredWidth - paddingLeft - paddingRight) * swipeCommitFrac
 
     /**
      * 本次横滑的位移上限(px):一整页的宽度 —— 也就是"滑到底"要走全的距离。
@@ -888,6 +900,9 @@ class L4PanelView @JvmOverloads constructor(
         /**
          * L5 横滑翻页的触发线 = **行宽的 1/3**,与候选行翻页同一个比例
          * (2026-09-29「三处手势手感对齐」)。死区取阈值的 1/4,和其他两处一样,见 [DragGesture]。
+         *
+         * **只是出厂默认**(2026-10-02 用户「左右滑动阈值需要可调节性」):
+         * 实际取值经 [L4PanelView.swipeCommitFrac] 由设置页注入。
          */
         const val L5_COMMIT_FRAC = 0.33f
     }
