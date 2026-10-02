@@ -41,6 +41,13 @@
             android:entries="@array/fly_threshold_entries"
             android:entryValues="@array/fly_threshold_values"
             android:summary="%s" />
+        <ListPreference
+            android:key="page_threshold"
+            android:defaultValue="normal"
+            android:title="@string/pref_page_threshold"
+            android:entries="@array/page_threshold_entries"
+            android:entryValues="@array/page_threshold_values"
+            android:summary="%s" />
         <SwitchPreferenceCompat
             android:key="keyboard_swipe"
             android:defaultValue="true"

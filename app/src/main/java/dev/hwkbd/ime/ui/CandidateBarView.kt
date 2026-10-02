@@ -564,8 +564,7 @@ class CandidateBarView @JvmOverloads constructor(
                 lastY = downY
                 longPressFired = false
                 // 越界橡皮筋的起点:从哪按下就从哪算(2026-09-30 用户「翻页到头要有拉伸变形动画」)
-                rubberRaw = 0f
-                rubberOn = false
+                rubberDrag.reset()
                 postDelayed(longPressRunnable, 600L)
                 performClick()
             }
@@ -573,7 +572,7 @@ class CandidateBarView @JvmOverloads constructor(
                 // 速度跟踪喂**原始位移**:SpeedTracker 自己按相邻两点差分算速度,
                 // 而这里算过的 travel 是"扣死区后的进度化位移",喂进去算出的速度是错的。
                 // 只在真的开始拖动后才喂 —— 按下到过死区之间手是静止的,不必。
-                if (pageDragging || rubberOn || flyP >= 0f) {
+                if (pageDragging || rubberDrag.active || flyP >= 0f) {
                     pageSpeed.add(event.eventTime, event.x)
                     flySpeed.add(event.eventTime, event.y)
                     rubberSpeed.add(event.eventTime, event.x)
@@ -612,7 +611,7 @@ class CandidateBarView @JvmOverloads constructor(
                 }
                 when {
                     // 越界橡皮筋优先:到头的那一侧要给出拉伸反馈,不能跟翻页抢
-                    rubberOn -> setRubber(event.x, event.eventTime)
+                    rubberDrag.active -> setRubber(event.x, event.eventTime)
                     // 横滑翻页同样改成"拖动即反馈":整页跟手指走,松手过提交线才真的翻页
                     // (与上滑同一套模型:死区 → 跟手 → 松手判定 → 没过线反向动画收回)
                     takeOverPage || pageDragging -> setPageDrag(event.x, event.eventTime)
@@ -647,7 +646,7 @@ class CandidateBarView @JvmOverloads constructor(
                 val dx = event.x - downX
                 val dy = event.y - downY
                 // 橡皮筋中 → 弹回边界(不翻页:那一侧本来就没有页)
-                if (rubberOn) {
+                if (rubberDrag.active) {
                     setRubber(event.x, event.eventTime)
                     endRubber()
                     return true
@@ -697,18 +696,24 @@ class CandidateBarView @JvmOverloads constructor(
      * 松手弹回去,而且拉得越远越拉不动。
      *
      * 做法:
-     * - `rubberRaw` = 手指超出边界的那段位移(px),方向朝外为正;
-     * - 显示位移 = `rubberRaw × 阻尼系数`,越拉越沉,封顶 [rubberLimit];
+     * - [RubberDrag.raw] = 手指超出边界的那段位移(px),方向朝外为正;
+     * - 显示位移 = [RubberDrag.raw] 经阻尼([Rubber.shift]),越拉越沉,封顶 [rubberLimit];
      * - 松手 → 弹回 0(动画,非瞬移),并给一次轻震说"到头了"。
      *
      * 只在**两侧都没有相邻页**时启用;还有页可翻时照常跟手翻页,不与之冲突。
      */
-    private var rubberOn = false
-    private var rubberRaw = 0f
-    private var rubberDir = 1f // 越界方向:+1 拖向"没有下一页"那一侧
     private var rubberAnim: ValueAnimator? = null
     /** 橡皮筋松手瞬间的指尖速度(px/s):弹回时长由它决定,拉得快就弹得快。 */
     private val rubberSpeed = SpeedTracker()
+
+    /**
+     * 橡皮筋的拖动状态(纯类,见 [RubberDrag])。
+     *
+     * **这里原来有三个字段(`rubberOn`/`rubberRaw`/`rubberDir`),搬进来是因为那条
+     * 「每帧重置基线」的 bug 只有在状态被类型管住之后才不会再来一遍** ——
+     * 详见 [RubberDrag] 的类注释。
+     */
+    private val rubberDrag = RubberDrag()
 
     /**
      * 橡皮筋阻尼长度(px):约 dip(50)。公式与封顶在 [Rubber] 里(纯函数、可单测)。
@@ -723,29 +728,27 @@ class CandidateBarView @JvmOverloads constructor(
     private fun beginRubber(dir: Float, x: Float): Boolean {
         val atEnd = (dir > 0f && pageNextSlots.none { it != null }) || (dir < 0f && pagePrevSlots.none { it != null })
         if (!atEnd) return false
-        rubberOn = true
-        rubberDir = dir
-        rubberRaw = 0f
-        pageDragBaseX = x
+        // **同方向已在拖时 begin 是空操作**(RubberDrag 保证)。这里可以每帧无条件调 ——
+        // 之前就是这里每帧重置基线,把位移清成 0,橡皮筋于是永远画不出来
+        rubberDrag.begin(dir, x)
         return true
     }
 
     /** 橡皮筋拖动进度。 */
     private fun setRubber(x: Float, eventTimeMs: Long = 0L) {
-        if (!rubberOn) return
-        val over = -(x - pageDragBaseX) * rubberDir
-        rubberRaw = kotlin.math.max(0f, over)
+        if (!rubberDrag.tracking) return
+        rubberDrag.move(x)
         invalidate()
     }
 
     /** 松手:弹回边界。 */
     private fun endRubber() {
-        if (!rubberOn) return
-        rubberOn = false
+        if (!rubberDrag.tracking) return
+        rubberDrag.stop() // 只停"手指不再驱动",方向与位移留给弹回动画用
         rubberAnim?.cancel()
-        val from = rubberRaw
+        val from = rubberDrag.raw
         if (from <= 0f) {
-            rubberRaw = 0f
+            rubberDrag.reset()
             invalidate()
             return
         }
@@ -757,13 +760,13 @@ class CandidateBarView @JvmOverloads constructor(
             duration = Fling.stopDurationMs(if (kotlin.math.abs(v) >= Fling.MIN_VELOCITY) v else from * 12f)
             interpolator = Fling.DECELERATE
             addUpdateListener { a ->
-                rubberRaw = a.animatedValue as Float
+                rubberDrag.animateTo(a.animatedValue as Float)
                 invalidate()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     rubberAnim = null
-                    rubberRaw = 0f
+                    rubberDrag.reset()
                     invalidate()
                 }
             })
@@ -772,15 +775,14 @@ class CandidateBarView @JvmOverloads constructor(
     }
 
     private fun cancelRubber() {
-        rubberOn = false
+        rubberDrag.reset()
         rubberAnim?.cancel()
         rubberAnim = null
-        rubberRaw = 0f
         invalidate()
     }
 
     /** 当前橡皮筋显示位移(px,已阻尼并封顶)。 */
-    private fun rubberShift(): Float = Rubber.shift(rubberRaw, rubberScale(), rubberLimit())
+    private fun rubberShift(): Float = Rubber.shift(rubberDrag.raw, rubberScale(), rubberLimit())
 
     /**
      * 越界拉伸的绘制:横向压缩 + 沿越界方向平移一点。
@@ -799,8 +801,8 @@ class CandidateBarView @JvmOverloads constructor(
         canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
         // 围绕中心压缩
         canvas.scale(scale, 1f, width / 2f, height / 2f)
-        // 再沿越界方向拉出(方向由 rubberDir 带)
-        canvas.translate(-rubberDir * shift, 0f)
+        // 再沿越界方向拉出(方向由 [RubberDrag.dir] 带)
+        canvas.translate(-rubberDrag.dir * shift, 0f)
         drawSlots(canvas, slots, highlight, dividers = true)
         canvas.restore()
         wordPaint.alpha = savedAlpha
@@ -840,7 +842,7 @@ private fun onTap(x: Float) {
         val wordAlpha = wordPaint.alpha
         if (flyP >= 0f) {
             drawFly(canvas) // 飞字拖动/完成段:词起升,其余候选渐隐
-        } else if (rubberRaw > 0f) {
+        } else if (rubberDrag.raw > 0f) {
             // 越界拉伸:整行横向压缩 + 沿越界方向拉出,键帽跟着变形(2026-09-30 用户要"拉伸变形动画")
             drawRubber(canvas)
         } else if (showPageTurn) {
@@ -968,8 +970,11 @@ private fun onTap(x: Float) {
 }
 
 /**
- * 翻页触发线 = **行宽的 1/3**:拖过它松手才真的翻页,否则反向动画收回原页。
+ * 翻页触发线 = **行宽的 1/3**(默认档):拖过它松手才真的翻页,否则反向动画收回原页。
  * 死区不在这里定——三处手势统一取阈值的 1/4,见 [DragGesture.DEAD_FRAC]。
+ *
+ * **可调**(2026-10-02 用户「左右滑动阈值需要可调节性」):本值只是出厂默认,
+ * 设置页的档位经 [CandidateBarView.pageCommitFrac] 注入。改动这里的常量只影响新默认值。
  */
 internal const val PAGE_COMMIT_FRAC = 0.33f
 

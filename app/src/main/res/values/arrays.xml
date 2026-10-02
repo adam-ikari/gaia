@@ -28,4 +28,15 @@
         <item>160</item>
         <item>240</item>
     </string-array>
+    <string-array name="page_threshold_entries">
+        <item>灵敏(轻划就翻)</item>
+        <item>标准(默认)</item>
+        <item>保守(划一半才翻)</item>
+    </string-array>
+    <!-- 档位名,不是数字:两处的灵敏度差一个量级(见 ImeService.PAGE_THRESHOLD_TIERS) -->
+    <string-array name="page_threshold_values">
+        <item>sensitive</item>
+        <item>normal</item>
+        <item>conservative</item>
+    </string-array>
 </resources>
