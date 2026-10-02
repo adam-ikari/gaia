@@ -2,7 +2,7 @@
 layout: apple-home
 title: 盖亚输入法
 eyebrow: 给 Titan 2 做的拼音输入法
-tagline: 打字的时候，眼睛可以留在屏幕上。
+tagline: 专为全键盘设计。
 note: 只为 Unihertz Titan 2
 actions:
   - text: 下载
