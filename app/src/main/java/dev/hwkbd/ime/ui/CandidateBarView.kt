@@ -355,17 +355,52 @@ class CandidateBarView @JvmOverloads constructor(
     /**
      * 翻页拖动开始:冻结当前页当过渡的旧页,按方向取相邻页当新页。**可重入**——
      * 正在播动画(上次松手后的正/反向)时接管:同向接着走,反向把两个角色对调、进度取镜像,
-     * 手指基线按当前 [pageU] 重定 ⇒ 接管那一帧画面不跳,能直接接着拖。
+     * 手指基线按当前 [pageSlide] 重定 ⇒ 接管那一帧画面不跳,能直接接着拖。
+     *
+     * ## 「同方向、且本来就是手指在驱动」= **空操作**(2026-10-02 修)
+     *
+     * 这条守卫的来历值得记下来:[RubberDrag] 的类注释里当年写着
+     * 「翻页那边没这个毛病,因为 `beginPageDrag` 在 `pageFrom/pageTo` 非空时**不**重置
+     * —— 不对称就在这儿」。**那个结论是错的**:`beginPageDrag` 确实不重置两个角色,
+     * 但它**每帧都重设基线**(旧版无条件下 `pageDragBaseX = x + pageSlide * pageDir`),
+     * 而 `takeOverPageDrag` 是 MOVE 分支里**每帧**调的。
+     *
+     * 于是每帧都形成一个不动点:
+     * ```
+     * baseX  = x + pageSlide * dir
+     * travel = -(x - baseX) * dir = pageSlide        ← 恒等于当前位移
+     * slide  = slide(travel, …)      = pageSlide     ← 位移原地不动
+     * ```
+     * 手指在动、位移锁死在 0 ⇒ **跟手动画从来没有、提交线永远到不了**,
+     * 抬手一律走 `endPageDrag` 的反向收回分支 —— 读起来就是"怎么划都是反向动画"。
+     * 症状与"跟手没实现"完全一致,所以前几轮都往动画参数上找,方向全错。
+     *
+     * 同一处的 `pageSpeed.reset()` 每帧执行还有第二个后果:**惯性速度恒为 0**,
+     * 甩也甩不动。
+     *
+     * 所以规矩与 [RubberDrag.begin] 对齐:**同方向重复调用必须是空操作**。
+     * 只有三种情况才算真正的起手,才允许动基线和速度:
+     * 1. 角色还没定(首次起手);
+     * 2. 方向反了(两个角色对调、位移取镜像,基线要跟着换算);
+     * 3. 同方向但手指**不在**驱动(接管上一次松手后正在飞的动画)—— 此时基线要
+     *    重定到当前位移,否则新落指的 x 与上一条手势的基线毫无关系,位移会跳。
      */
     private fun beginPageDrag(dir: Float, x: Float, eventTimeMs: Long = 0L) {
+        val rolesSet = pageFrom.isNotEmpty() && pageTo.isNotEmpty()
+        if (rolesSet && dir == pageDir && pageDragging) {
+            // 同向且手指正在驱动 → 空操作:基线与速度都不动,只继续喂样本
+            if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
+            return
+        }
         val full = width.toFloat()
         pageSpeed.reset()
         if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
-        if (pageFrom.isEmpty() || pageTo.isEmpty()) {
+        if (!rolesSet) {
             pageDir = dir
             pageFrom = slots
             pageTo = if (dir > 0f) pageNextSlots else pagePrevSlots
             pageSlide = 0f
+            pageCommitted = false
         } else if (dir != pageDir) {
             val f = pageFrom
             pageFrom = pageTo
