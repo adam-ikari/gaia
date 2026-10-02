@@ -190,22 +190,27 @@ class L4PanelView @JvmOverloads constructor(
         swipeTravel = 0f
         swipeTracking = false
         swipeSpeed.reset()
-        swipeAnim?.cancel()
-        swipeAnim = null
-        enterAnim?.cancel()
-        exitAnim?.cancel()
+        swipeSpring.cancel()
+        // 键序要重建:两支弹簧的旧回调绑的是**旧的子视图列表**,继续跑会往新键上写旧位移
+        enterProgress.cancel()
+        exitAlpha.cancel()
 
         removeAllViews()
         keys.forEach { addKey(it.label, it.out, density) }
 
         if (!hadKeys || enterDisabled) {
             exiting.clear()
-            exitAnim = null
+            enterRunning = false
+            for (i in 0 until childCount) {
+                getChildAt(i).translationX = 0f
+                getChildAt(i).alpha = 1f
+            }
             invalidate()
             return
         }
         runEnterAnimation(oldIds, newIds)
-        // 退场与进入**同时**跑:键序切换还是 ENTER_MS 那么长,不会变成"先退后进"两段
+        // 退场与进场**同时**跑,同一份 [SpringSpec.CAP_MOVE]、同一时刻起跑 ⇒ 同一个物理过程,
+        // 不会变成"先退后进"两段,也不会各自从零初速起步而中途顿一下
         runExitAnimation(ghosts)
     }
 
@@ -239,12 +244,6 @@ class L4PanelView @JvmOverloads constructor(
         tv.tag = KeyIdentity(out.format())
     }
 
-    /**
-     * 进入动画时长(ms)。跟翻页/飞字同一档量级:比 [Fling.stopDurationMs] 的下限稍长,
-     * 因为这是"新内容落位"而不是"物理停止",慢一点才读得出"它进来了"。
-     */
-    private val ENTER_MS = 300L
-
     // 三处只差阈值取值与轴向;这里是横向、阈值 = 行宽的 1/3(同候选行翻页)。
     private var swipeDownX = 0f
     private var swipeDownY = 0f
@@ -266,7 +265,6 @@ class L4PanelView @JvmOverloads constructor(
     /** 本次拖动定下的方向:+1 下一页(手指向左)/ -1 上一页。 */
     private var swipeDir = 1f
 
-    private var swipeAnim: android.animation.ValueAnimator? = null
 
     /** 跟手时整排键的横向位移(px)由它驱动,松手后由动画接管。 */
     private fun swipeOffset(): Float = -swipeDir * swipeSlide
@@ -279,7 +277,33 @@ class L4PanelView @JvmOverloads constructor(
     @Volatile
     var enterDisabled = false
 
-    private var enterAnim: android.animation.ValueAnimator? = null
+    /**
+     * 进场位移的**归一化进度**弹簧:1 = 起始位移,0 = 落位。
+     *
+     * 用归一化值而不是像素,是让不同长度的键组共用一支弹簧 —— 手感一致,
+     * 且位移天然被 [startShift] 各自的行程夹住,不会越出本视图区域。
+     */
+    private var enterProgress = newEnterChannel()
+
+    /** 每个新槽位的起始位移(px,0 = 原地不动)。每次 [runEnterAnimation] 重算。 */
+    private var startShift = FloatArray(0)
+
+    /** 退场淡出的弹簧:1 = 完全不透明,0 = 消失。文字与键帽共用它,见 [onDraw]。 */
+    private var exitAlpha = SpringChannel(1f, SpringSpec.CAP_MOVE, onFrame = { _, _ -> })
+
+    private fun newEnterChannel() = SpringChannel(
+        1f,
+        SpringSpec.CAP_MOVE,
+        onFrame = { _, _ -> applyEnterSpring() },
+        onFinish = {
+            enterRunning = false
+            for (i in 0 until childCount) {
+                getChildAt(i).translationX = 0f
+                getChildAt(i).alpha = 1f
+            }
+            invalidate()
+        },
+    )
 
     // ---- 键的退场动画(2026-10-02 用户「l4l5 要有按键的消失动画」)
 
@@ -332,50 +356,50 @@ class L4PanelView @JvmOverloads constructor(
      * 读起来像布局在乱挤。原地淡出才读得出"这把键没了",而补位那几把各自走
      * [runEnterAnimation] 的位移 —— 两件事分开,各自看得懂。
      *
-     * 时长与缓动仍与进入动画同一套([ENTER_MS] + [Fling.DECELERATE]),
-     * 且两者**同时**跑,所以键序切换还是那么长,不会变成"先退后进"两段。
+     * **透明度走官方 [androidx.dynamicanimation.animation.SpringAnimation]**,
+     * 参数与进场位移**同一支** [SpringSpec.CAP_MOVE]。这一点是关键:
+     * 旧代码是两个独立 `ValueAnimator`,各自从零初速起步、靠固定时长对齐 ——
+     * 键帽正往右滑而淡出却从静止开始,读起来就是「消失动画不自然」
+     * (2026-10-02 用户报障)。现在两段是同一条弹簧的两个通道,收敛过程一致。
      */
     private fun runExitAnimation(ghosts: List<Ghost>) {
         exiting.clear()
         exitAnim?.cancel()
         exitAnim = null
-        if (ghosts.isEmpty()) {
-            invalidate()
-            return
-        }
+        if (ghosts.isEmpty()) return
         exiting += ghosts
-        exitAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = ENTER_MS
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                val p = a.animatedValue as Float
-                val alpha = (255 * (1f - p)).toInt().coerceIn(0, 255)
-                for (g in exiting) {
-                    // 位置**一帧不动**:每帧都回到 origin,只写透明度
-                    g.rect.set(g.origin)
-                    g.bg?.alpha = alpha
-                }
-                invalidate()
+        // 每次重起一支:键序又变了一次,淡出必须从完全不透明开始,
+        // 否则上一段的残余透明度会被继承(退场一开始就半透明,像"闪掉")
+        exitAlpha = SpringChannel(1f, SpringSpec.CAP_MOVE, onFrame = { _, _ ->
+            for (g in exiting) {
+                // 位置**一帧不动**:每帧都回到 origin,只写透明度
+                g.rect.set(g.origin)
+                g.bg?.alpha = (255 * exitAlpha.currentValue).toInt().coerceIn(0, 255)
             }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    exitAnim = null
-                    exiting.clear()
-                    invalidate()
-                }
-            })
-            start()
-        }
+            invalidate()
+        }, onFinish = {
+            exiting.clear()
+            invalidate()
+        })
+        // 从完全不透明朝 0 淡出
+        exitAlpha.settle(1f, 0f)
     }
 
     /**
      * 补画正在退场的键。真实子视图只属于新键序,退场键在这里画 —— 见 [Ghost] 为什么不做成真视图。
+     *
+     * **文字必须跟着键帽一起淡出**(2026-10-02 用户「消失动画不自然」):此前这里写的是
+     * `tv.paint.color = fgColor`,一个**不带 alpha 的常量**。于是键帽背景在淡出、
+     * 字却一直满不透明地留在原地,最后 `exiting.clear()` 那一帧字突然消失 ——
+     * 读起来就是"键帽没了但字还飘着,然后啪一下没了"。淡出必须作用到画笔上。
      */
     override fun onDraw(canvas: android.graphics.Canvas) {
         super.onDraw(canvas)
         if (exiting.isEmpty()) return
         val tv = android.widget.TextView(context) // 只为量一次文字宽度,不入视图树
         tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+        // 透明度取自退场弹簧的当前值,逐帧重算(键帽 bg 的 alpha 在 [runExitAnimation] 里写)
+        val textAlpha = (255 * exitAlpha.currentValue).toInt().coerceIn(0, 255)
         for (g in exiting) {
             g.bg?.setBounds(
                 g.rect.left.toInt(), g.rect.top.toInt(),
@@ -383,7 +407,8 @@ class L4PanelView @JvmOverloads constructor(
             )
             g.bg?.draw(canvas)
             tv.text = g.text
-            tv.paint.color = fgColor
+            // 只替换 alpha 位,颜色本身逐帧不变
+            tv.paint.color = (fgColor and 0x00FFFFFF) or (textAlpha shl 24)
             val tw = tv.paint.measureText(g.text)
             val cx = g.rect.centerX() - tw / 2f
             val metrics = tv.paint.fontMetrics
@@ -393,26 +418,39 @@ class L4PanelView @JvmOverloads constructor(
     }
 
     /**
-     * 进入动画:**从右侧移入 + 非线性缓动**,位移严格限制在本区域内。
+     * 进入动画:**从右侧移入**,位移严格限制在本区域内。**走官方 [SpringAnimation]**。
      *
      * 三条约束都是用户明确要求的:
      * 1. **从右侧进来** —— 新键 startX 偏移,而不是凭空出现;
-     * 2. **非线性** —— [Fling.DECELERATE](缓出,快进慢停);
+     * 2. **非线性** —— 临界阻尼弹簧([SpringSpec.CAP_MOVE],ζ=1.6 过阻尼、不过冲);
      * 3. **不超过边距** —— 起始位移 = `min(本视图宽度, 键组自然宽)`,再 `coerceAtMost`,
      *    所以即使键组比视口宽,键也**完全在自己的区域内**滑,不越界影响外层。
+     *
+     * ## 为什么换掉 `ValueAnimator`(2026-10-02 用户「使用物理引擎重构手势和动画」)
+     *
+     * 固定时长 + 曲线有三个坏处,换引擎后才消得掉:
+     * - **打断必跳变**:`ValueAnimator.setCurrentPlayTime` / 重开动画器时速度不连续,
+     *   用户在动画播到一半切语言/切输入框,键帽会顿一下 —— 这与翻页那边报的是同一个毛病。
+     * - **时长与行程无关**:三把键与八把键都是 [ENTER_MS],位移差 3 倍而时长一样,
+     *   读起来像"突然窜出去"。
+     * - **与退场不同步**:退场淡出与进场位移是两个独立动画器,各自从零初速起步。
+     *
+     * 换 [SpringAnimation] 后:位移与透明度**共用同一条弹簧**(同一 [SpringSpec]、同一启动时刻),
+     * 所以"滑进来"与"淡入"是同一个物理过程;打断时官方引擎保留速度,位置与速度都连续。
+     *
+     * **退场键不参与本动画**:它已被 [removeAllViews] 移除,由 [runExitAnimation] 的淡出负责。
      *
      * **消失的键与补位**:按身份([KeyIdentity],取输出)对齐三组 ——
      * - 身份还在的键:**原位移为 0**,只做内容替换(全角↔半角就是这一档,不该"消失一把再补一把");
      * - 位置变了的老键:从旧位置平移到新位置;
      * - 真正新增的键:从右侧外移进来。
-     * 真正**消失**的键不参与新动画(已被 [removeAllViews] 移除),它的"退场"由整体淡出承担。
      */
     private fun runEnterAnimation(oldIds: List<String>, newIds: List<String>) {
         val n = childCount
         if (n == 0) return
 
         // 每个新槽位的起始位移:身份还在 ⇒ 0(原地不动,只换内容);否则从右侧整段移进来
-        val startShift = FloatArray(n) { i ->
+        startShift = FloatArray(n) { i ->
             val id = newIds.getOrNull(i) ?: return@FloatArray 0f
             if (id in oldIds) 0f else enterTravel()
         }
@@ -424,29 +462,28 @@ class L4PanelView @JvmOverloads constructor(
         }
 
         enterRunning = true
-        enterAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = ENTER_MS
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                val p = 1f - (a.animatedValue as Float) // 1 → 0:位移从整段收回
-                for (i in 0 until childCount) {
-                    getChildAt(i).translationX = startShift[i] * p
-                    getChildAt(i).alpha = 0.35f + 0.65f * (1f - p)
-                }
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    enterAnim = null
-                    enterRunning = false
-                    for (i in 0 until childCount) {
-                        getChildAt(i).translationX = 0f
-                        getChildAt(i).alpha = 1f
-                    }
-                    invalidate()
-                }
-            })
-            start()
+        // 每次都是**新的一支弹簧**从 1 起步:键序变了就是一段新的动画,
+        // 旧的进度值不该继承(否则第二次刷新会从半路开始,看着像闪了一下)。
+        enterProgress = newEnterChannel()
+        // 从 1(整段起始位移)朝 0(落位)起跑;无惯性初速
+        enterProgress.settle(1f, 0f)
+        applyEnterSpring()
+    }
+
+    /**
+     * 把进场弹簧的当前进度写到子视图上。
+     *
+     * 位移与透明度**读同一个进度**:位移 = 整段 × p,alpha = 0.35 → 1。
+     * 两者由同一支弹簧驱动,所以"滑进来"与"淡入"是同一个物理过程。
+     */
+    private fun applyEnterSpring() {
+        val p = enterProgress.currentValue
+        val alpha = 0.35f + 0.65f * (1f - p)
+        for (i in 0 until childCount) {
+            getChildAt(i).translationX = startShift[i] * p
+            getChildAt(i).alpha = alpha
         }
+        invalidate()
     }
 
     /**
@@ -520,9 +557,10 @@ class L4PanelView @JvmOverloads constructor(
                 swipeArmed = swipeGate?.invoke() != true
                 swipeSpeed.reset()
                 swipeSpeed.add(ev.eventTime, ev.x)
-                // 接管正在播的动画:手指从当前位移接着走,不突跳(和候选行翻页同一套接管逻辑)
-                swipeAnim?.cancel()
-                swipeAnim = null
+                // 接管正在播的动画:手指从当前位移接着走,不突跳(和候选行翻页同一套接管逻辑)。
+                // **取消的是弹簧,不是那个已恒为 null 的 `ValueAnimator`** ——
+                // 否则弹簧继续跑,下一帧又把 swipeSlide 写回去,手指按着画面还在自己动。
+                swipeSpring.cancel()
                 // 自己没背景可点,仍返回 true 以便后续 MOVE 继续送来(被 onIntercept 截过来时)
                 return true
             }
@@ -557,7 +595,7 @@ class L4PanelView @JvmOverloads constructor(
                     val v = swipeSpeed.velocity() * swipeDir
                     val limit = swipeLimitPx()
                     val byFinger = DragGesture.progress(swipeTravel, swipeThresholdPx(), swipeDeadPx) >= 1f
-                    val byFling = v > 0f && Fling.projectLanding(swipeSlide, limit, v) >= swipeThresholdPx()
+                    val byFling = v > 0f && Landing.project(swipeSlide, limit, v) >= swipeThresholdPx()
                     if (byFinger || byFling) {
                         // 过线:提交翻页,动画把剩下的位移补完
                         onSwipePage?.invoke(if (swipeDir > 0f) 1 else -1)
@@ -630,33 +668,41 @@ class L4PanelView @JvmOverloads constructor(
 
     /**
      * 松手后补完/回退:**target 是像素**(整页宽 = 补完,0 = 退回原页)。
-     * 时长按**松手速度**给([Fling.stopDurationMs]),所以轻轻推一下补完很快、猛地一甩补很久;
-     * 曲线是 [Fling.DECELERATE](匀减速)。播完回到 0 并清掉 translationX。
+     *
+     * **走官方弹簧**(2026-10-02 用户「使用物理引擎重构手势和动画」「l4l5 的动画也要基于物理引擎」)。
+     * 落点由 [Landing] 定、过程由 `SpringAnimation` 积分,分工见 [Landing]。
+     *
+     * 与候选栏那支 [CandidateBarView] 的翻页弹簧是**同一套**,所以 L5 横滑与候选行翻页
+     * 的手感不会分叉 —— 此前两处各自 `ValueAnimator` + 各自算时长,同一个速度在两处
+     * 走出的距离不一样,用户能感觉到。
      */
     private fun settleSwipe(target: Float, v0: Float = 0f) {
-        swipeAnim?.cancel()
-        swipeAnim = null
         val from = swipeSlide
         if (from == target) {
+            swipeSpring.cancel()
             finishSwipe()
             return
         }
-        swipeAnim = android.animation.ValueAnimator.ofFloat(from, target).apply {
-            duration = Fling.stopDurationMs(if (v0 != 0f) v0 else DragGesture.fallbackVelocity(from, target))
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                swipeSlide = a.animatedValue as Float
-                applySwipeOffset()
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    swipeAnim = null
-                    finishSwipe()
-                }
-            })
-            start()
-        }
+        swipeSettleTarget = target
+        swipeSpring.settle(from, target, v0)
     }
+
+    /** [settleSwipe] 的落点;走完时用它收尾。见 [CandidateBarView.pageSettleTarget] 同理。 */
+    private var swipeSettleTarget = 0f
+
+    private val swipeSpring = SpringChannel(
+        from = 0f,
+        spec = SpringSpec.DEFAULT,
+        onFrame = { value, _ ->
+            swipeSlide = value
+            applySwipeOffset()
+        },
+        onFinish = { cancelled ->
+            if (cancelled) return@SpringChannel
+            swipeSlide = swipeSettleTarget
+            finishSwipe()
+        },
+    )
 
     private fun finishSwipe() {
         swipeSlide = 0f
@@ -921,13 +967,15 @@ class L4PanelView @JvmOverloads constructor(
         const val MAX_KEY = 72
 
         /**
-         * L5 横滑翻页的触发线 = **行宽的 1/3**,与候选行翻页同一个比例
-         * (2026-09-29「三处手势手感对齐」)。死区取阈值的 1/4,和其他两处一样,见 [DragGesture]。
+         * L5 横滑翻页的触发线 = **行宽的 0.22**,与候选行翻页同一个比例
+         * (2026-09-29「三处手势手感对齐」)。死区是固定常量 [DragGesture.DEAD_DP](8dp),
+         * 不随本比例变,见 [dev.hwkbd.ime.ui.PAGE_COMMIT_FRAC] 的说明。
          *
          * **只是出厂默认**(2026-10-02 用户「左右滑动阈值需要可调节性」):
-         * 实际取值经 [L4PanelView.swipeCommitFrac] 由设置页注入。
+         * 实际取值经 [L4PanelView.swipeCommitFrac] 由设置页注入。默认档为「灵敏」
+         * (2026-10-02 用户「灵敏这档的横向滑动手感算正常」)。
          */
-        const val L5_COMMIT_FRAC = 0.33f
+        const val L5_COMMIT_FRAC = 0.22f
     }
 
     private fun makeKeyBg(): GradientDrawable = GradientDrawable().apply {

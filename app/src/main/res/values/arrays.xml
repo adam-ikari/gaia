@@ -33,7 +33,8 @@
         <item>标准(默认)</item>
         <item>保守(划一半才翻)</item>
     </string-array>
-    <!-- 档位名,不是数字:两处的灵敏度差一个量级(见 ImeService.PAGE_THRESHOLD_TIERS) -->
+    <!-- 档位名,不是数字:两处的灵敏度差一个量级(见 ImeService.PAGE_THRESHOLD_TIERS)。
+         「标准」是默认档 —— 2026-10-02 用户认可的手感搬到了这一档的名字上。 -->
     <string-array name="page_threshold_values">
         <item>sensitive</item>
         <item>normal</item>

@@ -159,7 +159,6 @@ class CandidateBarView @JvmOverloads constructor(
     private var pageFrom: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var pageTo: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
     private var pageCommitted = false
-    private var pageAnim: ValueAnimator? = null
     private var lastPage = 0
 
     /** 翻页拖动的基线 x:手指从这里起算 [pageSlide];接管动画时按当前 pageSlide 重定基线,接着走不跳。 */
@@ -255,8 +254,10 @@ class CandidateBarView @JvmOverloads constructor(
         newSlots: List<dev.hwkbd.ime.engine.Candidate?>,
     ) {
         if (enterSwapDisabled || newSlots.isEmpty()) return
-        // 正在翻页/飞字就别叠动画了
-        if (pageFrom.isNotEmpty() || pageAnim != null || flyP >= 0f || flyAnim != null) return
+        // 正在翻页/飞字就别叠动画了。
+        // 翻页判据是 `pageSpring.isRunning` + [pageFrom] 非空 —— 换引擎后 `pageAnim`
+        // 恒为 null,若还拿它当判据,翻页动画进行中仍会叠一次候选词替换动画
+        if (pageFrom.isNotEmpty() || pageSpring.isRunning || flyP >= 0f || flyAnim != null) return
 
         val changed = ArrayList<Int>()
         for (i in newSlots.indices) {
@@ -408,8 +409,10 @@ class CandidateBarView @JvmOverloads constructor(
             pageDir = dir
             pageSlide = full - pageSlide
         }
-        pageAnim?.cancel()
-        pageAnim = null
+        // 手指接管:取消弹簧动画,但**保留 [pageSlide] 当前值** ——
+        // 下一帧 `setPageDrag` 会按它重算基线,所以画面不会跳。
+        // (换引擎时这里取消的是一个已恒为 null 的 `pageAnim`,弹簧其实还在跑。)
+        pageSpring.cancel()
         pageDragging = pageFrom.isNotEmpty() && pageTo.isNotEmpty()
         // 旧页当前停在 -pageSlide(方向由 pageDir 带),把基线对齐到这个位移,手指接着走
         pageDragBaseX = x + pageSlide * pageDir
@@ -520,24 +523,21 @@ class CandidateBarView @JvmOverloads constructor(
      *
      * 两条路给同一个函数,量纲却不同:
      * - 候选行自己划:行宽 × [pageCommitFrac] —— 本来就是从基线量的,直接用;
-     * - 键盘表面划([externalCommitPx]):档位按**手指总行程**定的
-     *   (60px = "划 60px 翻页"),而 [beginPageDrag] 把基线定在"死区被跨过的那一帧",
-     *   所以**要先减掉死区**。不减的话实际要划 `死区 + 提交线` = 32 + 60 = 92px,
-     *   比用户调的档位多出一整段死区 —— 键盘面上那点距离根本划不到,
-     *   于是"跟手有了、翻页触发不了"(2026-10-02 用户报障)。
+     * - 键盘表面划([externalCommitPx]):档位**本身就是死区之外的提交距离**
+     *   (2026-10-02 用户「键盘面改用死区外的提交距离,不再含死区」)——
+     *   [beginPageDrag] 把基线定在死区被跨过的那一帧,死区已经走完了,所以直接用,
+     *   只过一遍下限夹值([externalCommitFromBase])。
      *
      * **不能只看 [externalCommitPx] != 0**:那是常驻值,不区分发起方就会把候选行
-     * 自己的翻页也改成 60px(轻轻一划就翻页)。所以用 [externalDrive] 这个每次
-     * 起手重新标的状态来判。
+     * 自己的翻页也改成键盘面的阈值(轻轻一划就翻页)。所以用 [externalDrive] 这个
+     * 每次起手重新标的状态来判。
      */
-    private fun pageCommitPx(): Float {
-        val fromBase = if (externalDrive && externalCommitPx > 0f) {
-            externalCommitFromBase(externalCommitPx, pageDeadPx)
+    private fun pageCommitPx(): Float =
+        if (externalDrive && externalCommitPx > 0f) {
+            externalCommitFromBase(externalCommitPx)
         } else {
             width * pageCommitFrac
         }
-        return fromBase
-    }
 
     /**
      * 本次拖动的**死区**(px):键盘表面驱动时是 **0**。
@@ -545,7 +545,7 @@ class CandidateBarView @JvmOverloads constructor(
      * [beginPageDrag] 把基线定在"死区被跨过的那一帧" —— 那 32px 死在基线**之前**,
      * 已经走完了。所以从基线量的行程里**不能再扣一次死区**:
      * `DragGesture.progress` 是 `(travel - dead) / (threshold - dead)`,
-     * 死区传两次就会把分母算成负数(死区 32、提交线 28 ⇒ 进度 NaN)。
+     * 死区传两次就会把分母算成负数(死区 16、提交线 8 ⇒ 进度 NaN)。
      * 候选行自己的拖动基线就在 downX,所以照常传 [pageDeadPx]。
      */
     private fun pageDragDeadPx(): Float = if (externalDrive) 0f else pageDeadPx
@@ -603,7 +603,7 @@ class CandidateBarView @JvmOverloads constructor(
         val threshold = pageCommitPx()
         // 速度取沿翻页方向的符号:往下一页(dir=+1)时手指向左,速度也要是"朝新页"才算甩
         val v = pageSpeed.velocity() * pageDir
-        val landing = Fling.projectLanding(pageSlide, full, v)
+        val landing = Landing.project(pageSlide, full, v)
         // 提交线:手指位移过线 **或** 惯性落点在过线一侧(甩过去)
         val byFinger = DragGesture.progress(pageDragTravel, threshold, pageDragDeadPx()) >= 1f
         val byFling = v > 0f && landing >= threshold
@@ -617,7 +617,7 @@ class CandidateBarView @JvmOverloads constructor(
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
             pageCommitted = false
-            settlePage(Fling.projectLanding(pageSlide, 0f, v).coerceAtMost(pageSlide), v)
+            settlePage(Landing.project(pageSlide, 0f, v).coerceAtMost(pageSlide), v)
         }
     }
 
@@ -625,38 +625,63 @@ class CandidateBarView @JvmOverloads constructor(
      * 把剩下的位移补完/收回:**target 是像素**——`width` = 走到新页,0 = 回旧页。
      * 播完即清过渡(稳态直接画 [slots])。
      *
-     * **惯性时长**:松手速度决定滑多久([Fling.stopDurationMs]),所以轻轻推一下补完很快、
-     * 猛地一甩补很久,和真实滑动一致。此前是"剩余进度 × 固定基准时长",速度与手指快慢无关,
-     * 看着像被机器推走。曲线用 [Fling.DECELERATE](= 匀减速 `2p − p²`,与 [Fling] 的物理模型等价)。
+     * ## 走官方弹簧,不再用 `ValueAnimator`(2026-10-02 用户「使用物理引擎重构手势和动画」)
+     *
+     * **落点**仍由 [Landing.project] 定(匀减速 + 库仑摩擦算惯性还能滑多远),
+     * **怎么过去**交给 [SpringChannel] 的官方 `SpringAnimation`。分工见 [Landing]。
+     *
+     * 换掉固定时长动画器消掉的是三件事,都是真机报过的:
+     * 1. **松手那一下的顿挫**:旧代码 `ValueAnimator.ofFloat(from, target)` 从**零初速**起步,
+     *    而此刻指尖正以 `v0` 离开 —— 画面速度瞬间从 `v0` 掉到 0。现在把 `v0` 作为
+     *    弹簧初速度交进去,速度是连续的。
+     * 2. **打断必跳变**:动画播到一半被手指按住,旧代码要 `cancel()` 再开一个新动画器,
+     *    新动画器又从静止起步 ⇒ 顿一下。现在**同一个 channel 上 [SpringChannel.retarget]**
+     *    改目标,值与速度都保留。
+     * 3. **时长与行程脱钩**:旧代码时长 = `stopDurationMs(v0)`,与还剩多少距离无关 ——
+     *    差 1px 和差半页用同一个时长。现在时长由弹簧按行程与初速自己算。
      */
     private fun settlePage(target: Float, v0: Float = 0f) {
-        pageAnim?.cancel()
-        pageAnim = null
         val from = pageSlide
         if (from == target || pageFrom.isEmpty() || pageTo.isEmpty()) {
+            pageSpring.cancel()
             pageSlide = target
             clearPageTurn()
             invalidate()
             return
         }
-        pageAnim = ValueAnimator.ofFloat(from, target).apply {
-            duration = Fling.stopDurationMs(if (v0 != 0f) v0 else DragGesture.fallbackVelocity(from, target))
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                pageSlide = a.animatedValue as Float
-                invalidate()
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    pageAnim = null
-                    pageSlide = target
-                    clearPageTurn()
-                    invalidate()
-                }
-            })
-            start()
-        }
+        pageSettleTarget = target
+        pageSpring.settle(from, target, v0)
     }
+
+    /**
+     * [settlePage] 的落点,给弹簧走完时收尾用。
+     *
+     * 单列一个字段,而不是在 `onFinish` 里读 `pageSpring.target` —— 那会让字段初始化时
+     * 自引用,Kotlin 编译不过(`must be initialized`)。语义上也更直白:
+     * **"我这次要落到哪"是调用方的意图,不是引擎的状态**。
+     */
+    private var pageSettleTarget = 0f
+
+    /**
+     * 翻页位移的弹簧通道。**生命周期比一次手势长**,所以打断时复用同一支而不是重开 ——
+     * 这正是 [SpringChannel.settle] 要解决的。
+     */
+    private val pageSpring: SpringChannel = SpringChannel(
+        from = 0f,
+        spec = SpringSpec.DEFAULT,
+        onFrame = { value, _ ->
+            pageSlide = value
+            invalidate()
+        },
+        onFinish = { cancelled ->
+            // 被打断时**不能**收尾:新的一段(或手指)马上接管,此刻清过渡会把新状态一起清掉。
+            // 这条区分是旧代码反复出问题的根源之一 —— `cancel()` 与 `onAnimationEnd` 混为一谈。
+            if (cancelled) return@SpringChannel
+            pageSlide = pageSettleTarget
+            clearPageTurn()
+            invalidate()
+        },
+    )
 
     private fun clearPageTurn() {
         pageFrom = emptyList()
@@ -702,7 +727,7 @@ class CandidateBarView @JvmOverloads constructor(
         if (flyP < 0f || flyAnim != null) return
         flyAnim = ValueAnimator.ofFloat(flyP, 0f).apply {
             // 放弃时的淡回:按惯性退回(匀减速),曲线与飞出去一致,手感统一
-            duration = Fling.stopDurationMs(flyP * 1000f)
+            duration = Landing.stopDurationMs(flyP * 1000f)
             interpolator = Fling.DECELERATE
             addUpdateListener { a ->
                 flyP = a.animatedValue as Float
@@ -772,8 +797,8 @@ class CandidateBarView @JvmOverloads constructor(
         val remain = 2f - from
         val v = -flySpeed.velocity() // 上滑为正,存的是 -p ⇒ 取负号还原向上的速度
         flyAnim = ValueAnimator.ofFloat(from, 2f).apply {
-            duration = if (remain <= 0f) Fling.MIN_MS
-            else Fling.stopDurationMs(if (kotlin.math.abs(v) >= Fling.MIN_VELOCITY) v else remain * 1000f)
+            duration = if (remain <= 0f) Landing.MIN_MS
+            else Landing.stopDurationMs(if (kotlin.math.abs(v) >= Landing.MIN_VELOCITY) v else remain * 1000f)
             interpolator = Fling.DECELERATE
             addUpdateListener { a ->
                 flyP = a.animatedValue as Float
@@ -956,7 +981,6 @@ class CandidateBarView @JvmOverloads constructor(
      *
      * 只在**两侧都没有相邻页**时启用;还有页可翻时照常跟手翻页,不与之冲突。
      */
-    private var rubberAnim: ValueAnimator? = null
     /** 橡皮筋松手瞬间的指尖速度(px/s):弹回时长由它决定,拉得快就弹得快。 */
     private val rubberSpeed = SpeedTracker()
 
@@ -1008,7 +1032,7 @@ class CandidateBarView @JvmOverloads constructor(
         // 回弹时长按**松手速度**给(与翻页/飞字同一套惯性):拉得快弹得快。
         // 速度样本不足时按"拉伸量 ∝ 12"折算,保证拉得越远弹得越慢。
         val v = rubberSpeed.velocity()
-        runRubberAnim(if (kotlin.math.abs(v) >= Fling.MIN_VELOCITY) v else rubberDrag.raw * 12f)
+        runRubberAnim(if (kotlin.math.abs(v) >= Landing.MIN_VELOCITY) v else rubberDrag.raw * 12f)
     }
 
     /**
@@ -1030,32 +1054,42 @@ class CandidateBarView @JvmOverloads constructor(
         runRubberAnim(rubberDrag.raw * 12f)
     }
 
-    /** 回弹动画本体([endRubber] 主动松手 / [settleRubberBack] 被打断共用)。 */
+    /**
+     * 回弹动画本体([endRubber] 主动松手 / [settleRubberBack] 被打断共用)。
+     *
+     * **走官方弹簧**:旧代码 `ValueAnimator` + `stopDurationMs(v0)` 固定时长,
+     * 撞墙那一刻画面速度从指尖速度掉到 0(顿一下),而且中途再撞一次就重开动画器、又顿一次。
+     * 现在 [SpringSpec.RUBBER_BACK] 是**过阻尼**(ζ=2.4)的弹簧 ——「撞到头」本来就该是
+     * "顶住了滑回来",不是弹簧床来回晃;并且打断时改目标保留速度,不再重复顿挫。
+     */
     private fun runRubberAnim(v0: Float) {
-        val from = rubberDrag.raw
-        rubberAnim?.cancel()
-        rubberAnim = ValueAnimator.ofFloat(from, 0f).apply {
-            duration = Fling.stopDurationMs(v0)
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                rubberDrag.animateTo(a.animatedValue as Float)
-                invalidate()
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    rubberAnim = null
-                    rubberDrag.reset()
-                    invalidate()
-                }
-            })
-            start()
-        }
+        rubberSpring.settle(rubberDrag.raw, 0f, v0)
     }
 
+    private val rubberSpring = SpringChannel(
+        from = 0f,
+        spec = SpringSpec.RUBBER_BACK,
+        onFrame = { value, _ ->
+            rubberDrag.animateTo(value)
+            invalidate()
+        },
+        onFinish = { cancelled ->
+            if (cancelled) return@SpringChannel
+            rubberDrag.reset()
+            invalidate()
+        },
+    )
+
+    /**
+     * 取消橡皮筋并立刻归零。
+     *
+     * **必须取消 [rubberSpring]**,不只是 `rubberDrag.reset()`:弹簧还在跑的话,
+     * 下一帧的回调会把 `raw` 又写回去 —— 画面弹一下回来,橡皮筋"归零不掉"。
+     * (换引擎时这里曾只取消一个已恒为 null 的 `rubberAnim`,正是这个坑。)
+     */
     private fun cancelRubber() {
+        rubberSpring.cancel()
         rubberDrag.reset()
-        rubberAnim?.cancel()
-        rubberAnim = null
         invalidate()
     }
 
@@ -1279,13 +1313,18 @@ private fun onTap(x: Float) {
 }
 
 /**
- * 翻页触发线 = **行宽的 1/3**(默认档):拖过它松手才真的翻页,否则反向动画收回原页。
- * 死区不在这里定——三处手势统一取阈值的 1/4,见 [DragGesture.DEAD_FRAC]。
+ * 翻页触发线 = **行宽的 0.22**(默认档「灵敏」):拖过它松手才真的翻页,否则反向动画收回原页。
+ *
+ * 死区**不在这里定**,是固定常量 [DragGesture.DEAD_DP](8dp),不随本比例变 ——
+ * 2026-10-02 用户「死区不使用比例计算 采用固定值」,`DEAD_FRAC` 与 `dead(threshold)`
+ * 已经删掉,`progress`/`slide` 的 `dead` 是必填参数。
  *
  * **可调**(2026-10-02 用户「左右滑动阈值需要可调节性」):本值只是出厂默认,
- * 设置页的档位经 [CandidateBarView.pageCommitFrac] 注入。改动这里的常量只影响新默认值。
+ * 设置页的档位经 [CandidateBarView.pageCommitFrac] 注入。改动这里的常量只影响新默认值,
+ * 并且必须与 [ImeService] 的 `PAGE_THRESHOLD_TIERS` 默认档保持同一个数
+ * (`PageThresholdTierTest.默认档与两处出厂常量一致` 盯这条)。
  */
-internal const val PAGE_COMMIT_FRAC = 0.33f
+internal const val PAGE_COMMIT_FRAC = 0.22f
 
 /**
  * 跟手翻页的进度换算(纯函数,便于单测,见 `CandidateBarPageDragTest`)。
@@ -1336,21 +1375,28 @@ internal fun pageDragTravel(x: Float, baseX: Float, dir: Float): Float =
     -(x - baseX) * dir // dir=+1 下一页时手指向左移才为正
 
 /**
- * 外部注入的提交线:**手指总行程 → 从拖动基线量的行程**(纯函数,便于单测)。
+ * 外部注入的提交线**下限夹值**(纯函数,便于单测)。
  *
- * [beginPageDrag] 把基线定在"死区被跨过的那一帧",而设置页的档位是按
- * **手指总行程**定的(60px = "划 60px 翻页")。两者差一个死区,不换算的话
- * 实际要划 `死区 + 提交线` = 32 + 60 = 92px —— 比用户调的档位多出一整段死区,
- * 键盘表面上那点距离根本划不到,于是"跟手有了、翻页触发不了"
- * (2026-10-02 真机报障)。
+ * ## 口径:档位 = **死区之外**还要走多远(2026-10-02 用户定)
  *
- * 下限夹到 1px:档位比死区还小时(用户调得比死区还灵敏),总行程不该退化成 0 ——
- * 那会让"刚跨过死区就翻"。夹 1 意味着总行程 = 死区 + 1px,是这个配置下能有的最小值。
+ * [beginPageDrag] 把基线定在"死区被跨过的那一帧" —— 那 8dp 死在基线**之前**,
+ * 已经走完了。所以设置页档位直接就是"从基线量的提交距离",**这里不做减死区换算**。
  *
- * @param totalPx 手指总行程(px),即设置页档位的口径
- * @param dead 死区(px)
- * @return 从基线量的行程(px)
+ * 旧口径是"手指总行程",于是每个调用点都得记得减一次死区,而漏一处就偏一整段:
+ * - [CandidateBarView.pageCommitPx] 减了;
+ * - [dev.hwkbd.ime.service.ImeService.FlyDetector] 的抬手兜底忘了减,那个阈值与
+ *   其余各处的量纲对不上;
+ * - 三档的**台阶被死区压扁**:旧值 40/60/90 减掉死区后只剩 8/28/58,最灵敏那档
+ *   距离死区只有 8px,再往下调就没东西可让了 —— 想加一档更灵敏的,加不出来。
+ *
+ * 改成"死区外"之后,档位就是**用户真正要调的那个数**,三档也是均匀的 8/28/58,
+ * 而且所有比较点(候选栏、[FlyDetector] 的兜底)都直接拿它比,不用各自记得减。
+ *
+ * 剩下的只有下限夹值:档位 ≤ 0 时(偏好被手改成 0/负数)不该让"刚跨过死区就翻",
+ * 夹到 1px —— 这个配置下能有的最小值。
+ *
+ * @param px 设置页档位的值,已经是从基线量的提交距离
+ * @return 夹过下界的提交距离(px)
  */
-internal fun externalCommitFromBase(totalPx: Float, dead: Float): Float =
-    (totalPx - dead).coerceAtLeast(1f)
+internal fun externalCommitFromBase(px: Float): Float = px.coerceAtLeast(1f)
 

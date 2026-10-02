@@ -21,7 +21,7 @@ class DragGestureTest {
      * 采用固定值」「死区改为常量值」),所以这里给一个假想的 density 把它换算成 px,
      * 后面的用例一律按这个 px 构造位移。
      */
-    private val dead = DragGesture.DEAD_DP * 2f // density 假设 2.0 ⇒ 32px
+    private val dead = DragGesture.DEAD_DP * 2f // density 假设 2.0 ⇒ 16px
 
     @Test
     fun `死区是常量 不随阈值变化`() {
@@ -69,48 +69,36 @@ class DragGestureTest {
     }
 
     @Test
-    fun `settle duration scales with remaining distance so speed never jumps`() {
-        val near = DragGesture.settleDuration(0.9f)
-        val far = DragGesture.settleDuration(0.1f)
-        assertTrue("越接近目标补完越快", far > near)
-        assertTrue("下限 90ms", near >= 90L)
-        assertTrue("上限 340ms", far <= 340L)
+    fun `换引擎后 手感基准值仍然接在弹簧上 而不是只剩一句注释`() {
+        // 2026-10-02:补完动画从"剩余距离 × 固定时长"换成了弹簧。原来的
+        // `settleDuration()` / `fallbackVelocity()` 一并删掉了(固定时长正是「松手顿一下」
+        // 与「打断跳变」的来源)。但 340ms 这个**手感基准不能丢** —— 它现在是
+        // `SpringSpec.DEFAULT.response` 的来由。
+        //
+        // 这条测试就是防那两处**悄悄脱钩**:哪天有人只改了 `response` 却以为
+        // 「基准还在 DragGesture 里」,或者反过来,它会当场失败。
+        assertEquals(
+            "弹簧响应应当就是 SETTLE_MS 那个手感基准(0.34s)",
+            DragGesture.SETTLE_MS / 1000f,
+            SpringSpec.DEFAULT.response,
+            1e-4f,
+        )
     }
 
     @Test
-    fun `settle duration is proportional to remaining distance between the clamps`() {
-        // 取两端都不撞夹取(90..340ms)的两组值,验证"同一速度"这个契约本身:
-        // 剩余距离翻倍 ⇒ 时长也翻倍。撞上夹取的那段另有 [clamped ends] 那条测。
-        val d1 = DragGesture.settleDuration(0.7f) // 0.3 * 340 = 102ms
-        val d2 = DragGesture.settleDuration(0.4f) // 0.6 * 340 = 204ms
-        assertEquals("剩余距离翻倍 ⇒ 时长翻倍", 2.0f, d2.toFloat() / d1.toFloat(), 0.02f)
-    }
-
-    @Test
-    fun `settle duration is clamped at both ends so the tail never flashes`() {
-        // 快到终点:线性算出来只有 34ms,夹到 90ms,免得一闪而过看不清发生了什么
-        assertEquals(90L, DragGesture.settleDuration(0.9f))
-        assertEquals(340L, DragGesture.settleDuration(0.0f))
-    }
-
-    @Test
-    fun `fallback velocity keeps distance and time proportional when there is no finger speed`() {
-        // 点箭头翻页那种没有手指速度的补完:按"匀速走完、耗时 SETTLE_MS"反推,
-        // 免得一律取下限 90ms 显得像被弹射出去。
-        val half = DragGesture.fallbackVelocity(from = 0f, target = 720f)
-        val full = DragGesture.fallbackVelocity(from = 0f, target = 1440f)
-        assertEquals("距离翻倍 ⇒ 兜底速度翻倍", 2.0f, full / half, 0.02f)
-
-        // 时长会**略超过** SETTLE_MS(1440px 反推的速度走一遍匀减速是 352ms,不是 340):
-        // 匀减速的平均速度只有初速的一半,而 fallbackVelocity 是按"匀速"反推的 ——
-        // 同一段距离,减速模型必然更慢。这是物理本身,不是误差,所以断言给的是区间不是等号。
-        val dur = Fling.stopDurationMs(full)
-        assertTrue("时长应与基准同量级(实际 ${dur}ms)", dur in 340L..380L)
-    }
-
-    @Test
-    fun `fallback velocity of a zero-length move is zero`() {
-        assertEquals(0f, DragGesture.fallbackVelocity(100f, 100f), 1e-6f)
+    fun `没有手指速度时由弹簧从静止起步 不再需要反推一个兜底速度`() {
+        // 旧实现要在 `fallbackVelocity()` 里按"匀速走完 340ms"反推一个假速度,
+        // 否则固定时长会一律取下限 90ms(整页切换像被弹射出去)。
+        // 弹簧没有这个问题:初速给 0,时长自然由行程与刚度算出来,不需要凑。
+        // 所以这里断言的是**那个反推已经不存在**——它一被加回来就会失败。
+        assertEquals(
+            "零距离不该产生任何兜底速度(弹簧从静止起步即可)",
+            0f, Landing.stopDistancePx(0f), 1e-6f,
+        )
+        assertTrue(
+            "弹簧初速为 0 时依然会收敛,不需要任何假速度兜底",
+            SpringSpec.DEFAULT.response > 0f && !SpringSpec.DEFAULT.overshoots,
+        )
     }
 
     @Test

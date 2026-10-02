@@ -45,14 +45,20 @@ internal object DragGesture {
      * 阈值本来就有三档,死区再跟着放大三档,于是「灵敏」和「保守」差的不只是触发点,
      * 还有一段完全空白的起手距离 —— 调阈值时手感会连带乱掉。
      *
-     * 16dp ≈ 一次普通触摸 slop 的两倍:越过它画面就 1:1 跟手,一直到触发线连续。
-     * 横滑的触发线是 158/238/324dp,上滑是 50/80/120dp,16dp 对两者都在合理区间。
+     * ## 16dp → 8dp(2026-10-02 用户「缩小死区」)
+     *
+     * 16dp ≈ 一次普通触摸 slop 的两倍,是防误触的保守取值。但那三档**提交距离**换了口径
+     * (见 `ImeService.PAGE_THRESHOLD_TIERS`:键盘面那一列改成**死区之外**的提交距离),
+     * 于是死区不再偷偷吃掉灵敏度,可以单独往小了调 —— 此前做不到:改死区等于改灵敏度。
+     *
+     * 8dp = 16 物理 px(@density 2.0),仍大于系统 slop(约 8dp)本身,不至于把"手抖"
+     * 判成横滑。死区内仍有 [DEAD_SLIP] 的响应,所以那段不是完全的静默。
      *
      * **不给比例、不给默认值**:`progress`/`slide` 的 `dead` 是**必填参数**,
      * 类型上就不存在"忘了给、按比例算"这条路。死区不单独设开关 ——
      * 它是防误触的量,不是手感偏好,调它的人只会调触发阈值。
      */
-    const val DEAD_DP = 16f
+    const val DEAD_DP = 8f
 
     /**
      * 死区内的**最小响应比例**:手指在死区里移动时,画面跟着走这么比例。
@@ -74,20 +80,6 @@ internal object DragGesture {
         return ((travel - dead) / (threshold - dead)).coerceIn(0f, 1f)
     }
 
-
-    /**
-     * 没有速度样本时的**兜底速度**(px/s):按"匀速补完这段距离、耗时 [SETTLE_MS]"反推。
-     *
-     * 用于非手势触发的补完(例如点箭头翻页、外部翻页、`onPageIndexChanged` 的整页切换):
-     * 那时确实没有手指速度,给 0 会让 [Fling.stopDurationMs] 一律取下限 90ms —— 整页切换
-     * 会显得像被弹射出去。按距离反推至少保证"走多远花多久"的比例是对的。
-     *
-     * @param from 起始位移(px)
-     * @param target 目标位移(px)
-     */
-    fun fallbackVelocity(from: Float, target: Float): Float =
-        if (target == from) 0f else kotlin.math.abs(target - from) / (SETTLE_MS / 1000f)
-
     /**
      * **跟手绘制位移**(px):画面该跟着手指挪多少。**绘制只用这个,不要用 [progress]。**
      *
@@ -104,23 +96,18 @@ internal object DragGesture {
     }
 
     /**
-     * 缓出曲线(`PathInterpolator(0.2, 0, 0, 1)`):起步快、收尾慢。
-     *
-     * 2026-09-30 用户定案「所有动画都使用非线性」——默认线性匀速看着像机器在推。
-     * 所有补完/收回动画都用它,包括飞字的放弃淡回。
-     */
-    val EASE_OUT: android.view.animation.Interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
-
-    /**
      * 跟手动画的**基准时长**(ms):走完剩余的 `(1-p)` 距离所需时间。
-     * 实际动画时长按剩余距离等比缩放,所以"半路松手"补完动画和"一次划到底"时长一致——
-     * 这是跟手手感的关键:动画速度不随松手早晚跳变。
      *
-     * 260 → 340(2026-09-30):真机报「翻页动画太短」。此前 260ms 配线性插值,匀速推一整页太快。
+     * ## 只作为物理参数的参照,不再用来算时长(2026-10-02)
+     *
+     * 旧实现是"剩余距离 × 固定基准时长",靠 [settleDuration] 算实际时长。问题在于:
+     * 时长**与松手早晚无关** —— 差 1px 和差半页用同一个时长,而且动画从零初速起步,
+     * 于是松手瞬间画面速度从指尖速度掉到 0(「顿一下」),中途被打断又从静止重开
+     * (「打断后反向动画」)。两条都是固定时长动画器的结构问题。
+     *
+     * 现在补完/收回全部走 [SpringChannel](官方 `SpringAnimation`),时长由弹簧按
+     * **行程与初速**自己算。340ms 保留在 [SpringSpec.DEFAULT] 的 `response` 里作为
+     * **"多久到附近"的调参依据**,保证换引擎前后手感不突变。
      */
     const val SETTLE_MS = 340f
-
-    /** 剩余距离 → 补完动画时长(ms),夹在 `[90, SETTLE_MS]` 避免尾巴上一闪而过。 */
-    fun settleDuration(progress: Float): Long =
-        ((1f - progress.coerceIn(0f, 1f)) * SETTLE_MS).toLong().coerceIn(90L, SETTLE_MS.toLong())
 }

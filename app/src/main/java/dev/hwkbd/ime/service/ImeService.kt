@@ -549,16 +549,23 @@ class ImeService : InputMethodService() {
         var threshold = 160f
 
         /**
-         * **横向**翻页所需的指尖位移(屏幕 px):键盘表面上左右划翻页的判据。
+         * **横向**翻页所需的指尖位移(px):键盘表面上左右划翻页的判据。
          *
          * 原先写死 60f,2026-10-02 用户「左右滑动阈值需要可调节性」改为由设置页档位注入
-         * (见 [ImeService.PAGE_THRESHOLD_TIERS])。
+         * (见 [ImeService.PAGE_THRESHOLD_TIERS])。**字段默认值随默认档走**(标准档 = 8f),
+         * 没有偏好时先用它顶着,`applyPrefs` 会立刻用真档位覆盖。
+         *
+         * **口径 = 死区之外还要走多远**,不是手指总行程。拖动基线定在死区被跨过的那一帧,
+         * 死区已经走完了,所以这里比的是"过了基线再走多远"。
+         * 这个字段所有比较点都**直接拿它比**,不再各自记得减死区 ——
+         * 旧口径下 [dev.hwkbd.ime.ui.CandidateBarView] 减了、下面 ACTION_UP 的兜底忘了减,
+         * 两处量纲对不上。死区因此也不再暗中影响灵敏度。
          *
          * **它与候选行的阈值不是同一个量纲**:键盘面上横向能走到的距离本来就小
-         * (60px ≈ 行宽 1/3 的九分之一),照搬候选行那个比例会变成"几乎划不动"。
+         * (8px ≈ 行宽 0.22 的四十分之一),照搬候选行那个比例会变成"几乎划不动"。
          * 所以档位表对两处分别给值。
          */
-        var pageThresholdPx = 60f
+        var pageThresholdPx = 8f
 
         /**
          * 屏宽(服务按 displayMetrics 注入):5 区按屏宽平分——Titan 2 物理键盘正好 10 列,
@@ -663,7 +670,11 @@ class ImeService : InputMethodService() {
                     if (dt > 1500) return null
                     // 横向主位移 → 翻页:**兜底**,只在这条手势压根没进过 MOVE 接管时
                     // (比如事件被系统合并成一次 DOWN+UP)才轮得到它。有跟手动画的路走上面。
-                    if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
+                    //
+                    // [pageThresholdPx] 是**死区之外**的提交距离,而这里的 adx 从 DOWN 算起,
+                    // 死区那一截还在里面 —— 所以要先加上死区,两者才同一个口径
+                    // (2026-10-02 改档位口径时就是漏了这一次,两处量纲对不上)。
+                    if (adx > deadZone + pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
                     // 纵向主位移(向上):兜底(拖动过程的 MOVE 丢失时仍能提交)
                     if (dy > threshold && dy > adx) return zoneOf(downX)
                 }
@@ -1177,24 +1188,54 @@ class ImeService : InputMethodService() {
         /** 左右滑翻页所需距离(2026-10-02 用户「左右滑动阈值需要可调节性」)。值是档位名。 */
         const val PREF_PAGE_THRESHOLD = "page_threshold"
 
-        /** 默认档:与两处出厂常量一致(候选行/L5 = 行宽 1/3,键盘表面 = 60px)。 */
+        /**
+         * 默认档:`normal`。它现在的取值 = 用户真机认可的手感(2026-10-02
+         * 「灵敏这档的横向滑动手感算正常」+「手感允许变化」)。
+         *
+         * **为什么默认档的名字又变回 `normal`,而用户认可的是原来那档"灵敏"的值**:
+         * 键表面那次把"死区外提交距离"独立成一个量之后,三档不必再为"包含死区"这件事
+         * 让位 —— 旧 `sensitive` 的 40px 总行程 = 死区 32(当时是 16dp) + 提交 8,那个 **8** 正是用户
+         * 认可的手感。把它放到新的**中档**上,名字 `normal` 与"用户认为正常"就对上了,
+         * 于是 `standard(默认)`、`sensitive(更灵敏)`、`conservative(更保守)` 三档自洽,
+         * 设置页那行也不用再出现"灵敏是默认、标准不是默认"的别扭标注。
+         *
+         * 档位名**不改**:`sensitive`/`normal`/`conservative` 是偏好里持久化的值,
+         * 改名会让老机器读到旧值静默回落(见 [pageThreshold])。这次连迁移都不需要 ——
+         * 老偏好里的 `normal` 读出来仍是"标准档",只是数值比旧版灵敏了一点,那正是本次要的方向。
+         *
+         * 与两处出厂常量一致(候选行/L5 = 行宽 0.22,键盘表面 = 死区外 8px)。
+         */
         private const val PAGE_THRESHOLD_DEFAULT = "normal"
 
         /**
-         * 档位表:一行 = [候选行/L5 的行宽比例, 键盘表面的位移 px]。
+         * 档位表:一行 = [候选行/L5 的行宽比例, **死区之外**还要走的 px]。
          *
          * **为什么不给一个量纲**:两处的可滑距离差一个量级 —— 候选行 1440px 宽,
-         * 1/3 就是 475px;而键盘面上横向能走到的距离本就小,60px 就该翻页。
+         * 默认档 0.22 就是 317px;而键盘表面上能横向划的距离本就小,8px 就该翻页。
          * 照搬同一个比例会让键盘面"几乎划不动"。所以档位名共用、数值分别给,
          * 用户看到的仍然只有一个开关。
          *
-         * 比例这一列改动要同步 [dev.hwkbd.ime.ui.CandidateBarView.PAGE_COMMIT_FRAC] 与
+         * ## 键盘面那一列为什么是"死区外"(2026-10-02 用户定)
+         *
+         * 原来是**手指总行程**(含死区)。于是:
+         * 1. 每个比较点都得记得减一次死区 —— 候选栏减了,[FlyDetector] 抬手兜底忘了减,
+         *    两处量纲对不上;
+         * 2. 三档的台阶**被死区压扁**:40/60/90 减掉死区后只剩 8/28/58,最灵敏那档离死区
+         *    只有 8px,想再加一档更灵敏的加不出来(死区已经是它的地板)。
+         *
+         * 改成"死区外"之后,档位就是用户真正在调的那个数:基线定在死区被跨过的那一帧,
+         * 死区已经走完了,所以提交线直接拿来比,三档也终于均匀(4 / 8 / 20,各差一档)。
+         *
+         * **顺带得到一条独立性**:死区改小时提交距离不受影响(改之前两者纠缠在一起 ——
+         * 死区一小,总行程那一列的等效提交距离就跟着变,等于暗中改了灵敏度)。
+         *
+         * 比例这一列改动要同步 [dev.hwkbd.ime.ui.PAGE_COMMIT_FRAC] 与
          * [dev.hwkbd.ime.ui.L4PanelView.L5_COMMIT_FRAC] —— 那是**无偏好时**的出厂值。
          */
         private val PAGE_THRESHOLD_TIERS = mapOf(
-            "sensitive" to (0.22f to 40f),
-            "normal" to (0.33f to 60f),
-            "conservative" to (0.45f to 90f),
+            "sensitive" to (0.16f to 4f),
+            "normal" to (0.22f to 8f),
+            "conservative" to (0.33f to 20f),
         )
 
         /**

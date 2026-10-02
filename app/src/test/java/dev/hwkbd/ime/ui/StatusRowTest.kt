@@ -100,7 +100,10 @@ class StatusRowTest {
         s.shiftMode = ShiftMode.HELD
         val held = StatusRow.present(s, enSpec()).single { it.kind == StatusRow.Kind.SHIFT }
         assertEquals("按住中也是 Ab", "Ab", held.label)
-        assertEquals("按住中是前景色(还没落成状态)", theme.fg, held.color)
+        // 2026-10-02 用户「英文大写无论是一次性还是锁定还是长按都应该有颜色变化」:
+        // 按住物理 Shift 此前走前景色,与 OFF 同色 —— 状态行看上去和没按一样。
+        assertEquals("长按也应有颜色变化(accent)", theme.accent, held.color)
+        assertEquals("长按与一次大写看起来一致,但朗读文本要区分", StatusRow.HELD_LABEL, held.contentDescription)
 
         s.shiftMode = ShiftMode.CAPS
         val caps = StatusRow.present(s, enSpec()).single { it.kind == StatusRow.Kind.SHIFT }
@@ -117,6 +120,22 @@ class StatusRowTest {
             val item = StatusRow.present(s, enSpec()).single { it.kind == StatusRow.Kind.SHIFT }
             assertFalse("$mode 不该带下划线", item.locked)
         }
+    }
+
+    @Test
+    fun `三种大写态都有颜色变化 只有 OFF 是前景色`() {
+        // 颜色只回答"是不是大写",字形回答"哪一种"(2026-10-02 用户定)
+        for (mode in listOf(ShiftMode.ONCE, ShiftMode.HELD, ShiftMode.CAPS)) {
+            val s = ImeState().apply { shiftMode = mode }
+            val item = StatusRow.present(s, enSpec()).single { it.kind == StatusRow.Kind.SHIFT }
+            assertEquals("$mode 应为主色", theme.accent, item.color)
+            assertTrue("$mode 不该与未大写同色", theme.fg != item.color)
+        }
+        val off = StatusRow.present(
+            ImeState().apply { shiftMode = ShiftMode.OFF },
+            enSpec(),
+        ).single { it.kind == StatusRow.Kind.SHIFT }
+        assertEquals("未大写仍是前景色", theme.fg, off.color)
     }
 
     @Test

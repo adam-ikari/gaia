@@ -111,20 +111,29 @@ object StatusRow {
 
         // 大写:**英文态恒显**,用字形本身表达大小写状态(2026-09-30 用户定案
         // 「把 A 改为 ab / Ab / AB 的模式,不显示下划线锁定了」):
-        //   `ab` 未大写 / `Ab` 大写一次(含物理 Shift 正按住)/ `AB` Caps 锁定。
+        //   `ab` 未大写 / `Ab` 大写一次 / `AB` Caps 锁定。
         // 取代原先"一把 `A` + 锁定加下划线"——大小写这件事由**字形**说清,不用再叠一个标记,
         // 于是它与 alt/sym 的锁定下划线不再是同一套语言(它们仍用下划线,见下)。
         // **层生效时不显示**(与层状态互斥)。
+        //
+        // ## 颜色只回答"是不是大写",字形回答"哪一种大写"
+        //
+        // 2026-10-02 用户「英文大写无论是一次性还是锁定还是长按都应该有颜色变化」。
+        // 此前 [ShiftMode.HELD](长按物理 Shift)走的是**前景色**,与 [ShiftMode.OFF] 同色 ——
+        // 于是在按住 Shift 期间,状态行看起来与完全没按一样,只有字形从 `ab` 变成 `Ab`。
+        // 那条"按住中是前景色"的旧理由(「大写来自物理修饰键,还没落成状态」)站不住:
+        // **它此刻正在改变输出**,与"还没生效"是两回事。
+        //
+        // 现在三种大写态一律 [accent]:颜色=在改变输出,字形=哪一种。
+        // HELD 与 ONCE 因此同色同字形(`Ab`)——这是有意的:两者对输出的影响完全一样,
+        // 区别只在"松手会不会消失",那不该由常驻的状态行去暗示。
         val caps = state.shiftMode == ShiftMode.CAPS
         if (spec.showShift && !spec.digitsOnly && layer == Layer.L1) {
-            val once = state.shiftMode == ShiftMode.ONCE
-            val held = state.shiftMode == ShiftMode.HELD
-            val (label, color, desc) = when {
-                caps -> Triple("AB", t.accent, CAPS_LABEL)
-                // 按住中是前景色:大写来自物理修饰键,还没落成状态
-                held -> Triple("Ab", t.fg, ONCE_LABEL)
-                once -> Triple("Ab", t.accent, ONCE_LABEL)
-                else -> Triple("ab", t.fg, OFF_LABEL)
+            val (label, color, desc) = when (state.shiftMode) {
+                ShiftMode.CAPS -> Triple("AB", t.accent, CAPS_LABEL)
+                ShiftMode.ONCE -> Triple("Ab", t.accent, ONCE_LABEL)
+                ShiftMode.HELD -> Triple("Ab", t.accent, HELD_LABEL)
+                ShiftMode.OFF -> Triple("ab", t.fg, OFF_LABEL)
             }
             out += Item(
                 kind = Kind.SHIFT,
@@ -150,5 +159,12 @@ object StatusRow {
     /** 无障碍朗读文本(中文)。渲染层直接用,不必再带一套 R.string。 */
     const val CAPS_LABEL = "大写锁定"
     const val ONCE_LABEL = "大写一次"
+
+    /**
+     * 长按物理 Shift(朗读文本单列,不能与 [ONCE_LABEL] 共用):
+     * 两者**看起来**一样(都 `Ab` + accent),但对朗读来说含义不同 ——
+     * "大写一次"用完即消,这里要让人知道它是"按住不放时的大写"。
+     */
+    const val HELD_LABEL = "按住 Shift 大写"
     const val OFF_LABEL = "未大写"
 }

@@ -18,9 +18,9 @@ class PageThresholdTierTest {
      * 改表时**两处必须一起改** —— 这正是本测试要盯的。
      */
     private val tiers = mapOf(
-        "sensitive" to (0.22f to 40f),
-        "normal" to (0.33f to 60f),
-        "conservative" to (0.45f to 90f),
+        "sensitive" to (0.16f to 4f),
+        "normal" to (0.22f to 8f),
+        "conservative" to (0.33f to 20f),
     )
 
     @Test
@@ -36,7 +36,7 @@ class PageThresholdTierTest {
 
     @Test
     fun `默认档与两处出厂常量一致`() {
-        // 用户不改任何设置时,行为必须与加这个开关之前完全相同
+        // 用户不改任何设置时的手感必须与出厂常量一致
         val (frac, px) = tiers.getValue("normal")
         assertEquals(
             "默认档的行宽比例应等于 CandidateBarView.PAGE_COMMIT_FRAC",
@@ -46,7 +46,7 @@ class PageThresholdTierTest {
             "默认档应等于 L4PanelView.L5_COMMIT_FRAC",
             dev.hwkbd.ime.ui.L4PanelView.L5_COMMIT_FRAC, frac, 1e-6f,
         )
-        assertEquals("键盘表面默认值是 60px", 60f, px, 1e-6f)
+        assertEquals("键盘表面默认值是死区外 8px", 8f, px, 1e-6f)
     }
 
     @Test
@@ -55,6 +55,31 @@ class PageThresholdTierTest {
         for (unknown in listOf<String?>(null, "", "verySensitive", "0.33")) {
             val picked = tiers[unknown] ?: tiers.getValue("normal")
             assertEquals("应回落到 normal", tiers.getValue("normal"), picked)
+        }
+    }
+
+    @Test
+    fun `键盘面那列是死区外的距离 三档台阶不被死区压扁`() {
+        // 旧口径是"手指总行程"(含 32px 死区),三档 40/60/90 减掉死区后只剩 8/28/58,
+        // 最灵敏那档离死区只有 8px —— 想再加一档更灵敏的加不出来,死区已经是它的地板。
+        // 现在档位就是死区外的提交距离(4/8/20),数值本身远小于死区,比例不再是意义。
+        //
+        // **要验的是"倍差",不是绝对值**:改死区时档位不该跟着变。
+        val (_, sensitive) = tiers.getValue("sensitive")
+        val (_, normal) = tiers.getValue("normal")
+        val (_, conservative) = tiers.getValue("conservative")
+        // 每档之间是一个干净的倍数,而不是被死区啃掉一截的残值
+        assertEquals("灵敏→标准 应恰好 2 倍", 2f, normal / sensitive, 1e-4f)
+        assertEquals("标准→保守 应恰好 2.5 倍", 2.5f, conservative / normal, 1e-4f)
+    }
+
+    @Test
+    fun `每档都小于死区时不该静默退化成永远翻不了页`() {
+        // 夹值在 externalCommitFromBase 里(候选行与键盘面共用同一份数学),
+        // 这里只确认档位表没给出 0/负数这种天然翻不了的值。
+        for ((name, pair) in tiers) {
+            assertTrue("$name 的键盘面值应为正", pair.second > 0f)
+            assertTrue("$name 的行宽比例应为正", pair.first > 0f)
         }
     }
 
@@ -71,6 +96,8 @@ class PageThresholdTierTest {
         // 键盘面上横向能走到的距离本就小:候选行 1440px 宽时 1/3 是 475px,
         // 而键盘面 60px 就该翻页。档位表对两处分别给值就是为这个 ——
         // 这条测试是提醒后来的人别"顺手统一"成同一个比例。
+        // 候选行 1440px 宽时标准档是 317px,键盘面只要 8px(死区之外)。
+        // 差 40 倍 —— 这不是标定失误,是两个量纲:触摸面板上横向能划的距离本就那么点。
         val (frac, px) = tiers.getValue("normal")
         val rowWidth = 1440f
         val rowPx = rowWidth * frac

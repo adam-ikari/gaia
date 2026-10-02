@@ -22,7 +22,7 @@ class GesturePhysicsTest {
      * 死区常量换算的 px(density 假设 2.0 ⇒ 32px)。**不再按阈值取比例**
      * (2026-10-02 用户「死区不使用比例计算 采用固定值」)。
      */
-    private val dead = DragGesture.DEAD_DP * 2f
+    private val dead = DragGesture.DEAD_DP * 2f // density 2.0 ⇒ 16px
 
     private fun slide(dxLeft: Float) =
         pageDragSlide(
@@ -76,45 +76,50 @@ class GesturePhysicsTest {
         // 整条拖动不画位移、到头什么都不发生 ⇒ 「弹性动画和跟手动画还是没有」)。
         // 现在它走候选栏同一套 begin/move/end,所以跟手与橡皮筋只有一份实现。
         //
-        // **但提交线必须各按各的**:键盘面能划的距离小,按行宽 1/3(=475px)取的话
-        // 轻轻一划根本翻不动 —— 所以那边用指尖位移档位(默认 60px)注入。
-        val kbTotal = 60f // = FlyDetector.pageThresholdPx 默认档,口径是**手指总行程**
+        // **但提交线必须各按各的**:键盘面能划的距离小,按行宽 0.22(=317px)取的话
+        // 轻轻一划根本翻不动 —— 所以那边用指尖位移档位注入。
+        val kbCommit = 8f // = FlyDetector.pageThresholdPx 标准档,口径是**死区之外**
 
-        // 设置页的档位换算到"从基线量":基线落在死区被跨过的那一帧,所以要减掉死区
-        val kbFromBase = externalCommitFromBase(kbTotal, dead)
+        // 档位换算过一次就够了:它本来就是从基线量的
+        val fromBase = externalCommitFromBase(kbCommit)
 
         fun progressAt(travelFromBase: Float, commitFromBase: Float) =
             pageDragProgress(1000f - travelFromBase, 1000f, 1f, viewW, commitFromBase, 0f)
 
         assertEquals(
-            "键盘面上划满 ${kbTotal}px(总行程)就该翻页 —— 死区那截不能额外加算进去",
-            1f, progressAt(kbFromBase, kbFromBase), 1e-3f,
+            "键盘面上过了基线再划满 ${kbCommit}px 就该翻页",
+            1f, progressAt(fromBase, fromBase), 1e-3f,
         )
         assertTrue(
             "还没划满就不该翻",
-            progressAt(kbFromBase - 1f, kbFromBase) < 1f,
+            progressAt(fromBase - 1f, fromBase) < 1f,
         )
         assertTrue(
-            "但同一段行程在候选行的提交线(行宽 1/3)下过不了 —— 这正是量纲必须分开的原因",
-            progressAt(kbFromBase, threshold) < 1f,
+            "但同一段行程在候选行的提交线(行宽 0.22)下过不了 —— 这正是量纲必须分开的原因",
+            progressAt(fromBase, threshold) < 1f,
         )
         // 跟手是两处共有的:位移 = 手指位移,与提交线无关
-        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, kbFromBase, 0f), 0.01f)
+        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, fromBase, 0f), 0.01f)
         assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, threshold, dead), 0.01f)
     }
 
     @Test
     fun `键盘表面的死区只算一次 不在基线之后再扣一遍`() {
-        // 基线落在"死区被跨过的那一帧",所以那 32px 死在基线**之前**。
+        // 基线落在"死区被跨过的那一帧",所以那 8dp(16px)死在基线**之前**。
         // 从基线量的行程里若再传一次死区,progress 的分母 (threshold - dead)
-        // 就是 28 - 32 = -4 ⇒ 进度 NaN。所以外部驱动时死区传 0。
-        val kbTotal = 60f
-        val fromBase = externalCommitFromBase(kbTotal, dead) // 28
-        assertEquals(28f, fromBase, 1e-4f)
+        // 就是 8 - 16 = -8 ⇒ 进度 NaN。所以外部驱动时死区传 0。
+        val kbCommit = 8f
+        val fromBase = externalCommitFromBase(kbCommit)
+        assertEquals(8f, fromBase, 1e-4f)
 
-        // 死区 0、提交线 28:总行程 60px(=32 死区 + 28)恰好翻页
+        // 死区 0、提交线 8:过基线再走 8px 恰好翻页
         assertEquals(1f, DragGesture.progress(fromBase, fromBase, 0f), 1e-3f)
         assertTrue("差 1px 就不翻", DragGesture.progress(fromBase - 1f, fromBase, 0f) < 1f)
+
+        // **换成更大的档位也不会因为死区而翻脸**:提交线是死区外的独立量,
+        // 死区大小对它没有任何影响(这是 2026-10-02 改口径换来的独立性)
+        assertEquals(1f, DragGesture.progress(20f, 20f, 0f), 1e-3f)
+        assertEquals(0.5f, DragGesture.progress(10f, 20f, 0f), 1e-3f)
 
         // 而候选行自己的拖动死区照常生效(基线就在 downX,死区没被提前吃掉)
         assertEquals(0f, DragGesture.progress(dead - 1f, threshold, dead), 1e-6f)
@@ -122,26 +127,46 @@ class GesturePhysicsTest {
     }
 
     @Test
-    fun `档位比死区还小时 夹到最小可用值而不是负数`() {
-        // 死区 32px、档位只有 20px:换算是 20-32 = -12,直接用会让分母翻负号、
-        // 进度恒 0(永远翻不了页)。夹到 1 ⇒ 总行程 = 33px,是这个配置下能有的最小值。
-        val clamped = externalCommitFromBase(20f, dead)
-        assertEquals(1f, clamped, 1e-4f)
-        assertEquals("总行程 = 死区 + 1", dead + 1f, dead + clamped, 1e-4f)
+    fun `死区变小不改变键盘面的提交距离 两件事解耦了`() {
+        // 旧口径("手指总行程")下,死区一小,等效提交距离就跟着变 —— 改死区等于暗中改灵敏度。
+        // 现在提交线本身就是死区外的量,与死区无关:这条钉住这个解耦不被改回去。
+        assertEquals(
+            "8px 档位就是 8px,死区取多少都一样",
+            externalCommitFromBase(8f), externalCommitFromBase(8f),
+            0f,
+        )
+        // 而候选行自己划时死区仍然吃掉开头那一段
+        assertEquals(0f, DragGesture.progress(4f, threshold, 8f), 0f)
+        assertTrue("过了死区才有进度", DragGesture.progress(9f, threshold, 8f) > 0f)
+    }
+
+    @Test
+    fun `档位非正时 夹到最小可用值而不是 0`() {
+        // 2026-10-02 档位口径改成"死区之外"之后,这里不再做减死区换算
+        // (旧口径下 20 - 32 = -12 会让分母翻负号、进度恒 0)。剩下的风险只有
+        // 偏好被手改成 0/负数 —— 那样"刚跨过死区就翻",夹到 1px 挡掉。
+        assertEquals(1f, externalCommitFromBase(0f), 1e-4f)
+        assertEquals(1f, externalCommitFromBase(-5f), 1e-4f)
+        assertEquals("正数原样透传", 8f, externalCommitFromBase(8f), 1e-4f)
     }
 
     // ---------------------------------------------------------------- 惯性
+    //
+    // 2026-10-02:这组断言原来打的是 `Fling.projectLanding` / `Fling.stopDurationMs`,
+    // 与新加的 `Landing` 是**同一个模型的两份实现**。两份并存已经漏过一次 ——
+    // 改档位口径时一处减了死区、另一处忘了减,量纲对不上。现在只剩 `Landing` 一处,
+    // 断言也跟着对准它;留着旧名字的测试会让人看不出"两份都还活着"。
 
     @Test
     fun `a slow release does not coast`() {
         // 速度不足 → 落点就是当前位置,不做惯性补完
-        assertEquals(300f, Fling.projectLanding(300f, viewW, v0 = 100f), 0.01f)
+        assertEquals(300f, Landing.project(300f, viewW, v0 = 100f), 0.01f)
     }
 
     @Test
     fun `a fast release coasts forward but never past the target`() {
         // 快甩:v=3000px/s ⇒ 自由滑行 375px,但夹在目标内
-        val landing = Fling.projectLanding(200f, viewW, v0 = 3000f)
+        val landing = Landing.project(200f, viewW, v0 = 3000f)
         assertEquals(575f, landing, 1f)
         assertTrue("不能越过目标", landing <= viewW)
     }
@@ -150,7 +175,7 @@ class GesturePhysicsTest {
     fun `a fast release toward the origin coasts back and stops at the origin`() {
         // 往回甩:v=3000px/s ⇒ 自由滑行 375px,从 400 起滑 → 落 25,
         // 还没到 0 就被"不越过目标"夹住。**不夹的话会滑过头**(越过原页继续往回,像失控)
-        val landing = Fling.projectLanding(400f, 0f, v0 = -3000f)
+        val landing = Landing.project(400f, 0f, v0 = -3000f)
         assertEquals("滑行 375px 后应落在 25", 25f, landing, 1f)
         assertTrue("应往原页方向滑", landing < 400f)
         assertTrue("不越过目标", landing >= 0f)
@@ -159,38 +184,38 @@ class GesturePhysicsTest {
     @Test
     fun `a very fast release is still clamped at the target`() {
         // 甩到离谱的速度也不能滑过目标 —— 越界会画到不存在的第三页
-        val landing = Fling.projectLanding(100f, viewW, v0 = 100_000f)
+        val landing = Landing.project(100f, viewW, v0 = 100_000f)
         assertEquals("夹在目标", viewW, landing, 0.01f)
     }
 
     @Test
     fun `velocity in the wrong direction is ignored`() {
         // 速度方向朝着目标才叫惯性,反着的不算
-        assertEquals(300f, Fling.projectLanding(300f, viewW, v0 = -3000f), 0.01f)
+        assertEquals(300f, Landing.project(300f, viewW, v0 = -3000f), 0.01f)
     }
 
     @Test
     fun `faster fling means longer settle`() {
         assertTrue(
             "快甩的补完动画应比轻推更长",
-            Fling.stopDurationMs(4000f) > Fling.stopDurationMs(800f),
+            Landing.stopDurationMs(4000f) > Landing.stopDurationMs(800f),
         )
     }
 
     @Test
     fun `settle duration stays inside bounds`() {
-        assertEquals(Fling.MIN_MS, Fling.stopDurationMs(1f))
-        assertEquals(Fling.MAX_MS, Fling.stopDurationMs(1_000_000f))
+        assertEquals(Landing.MIN_MS, Landing.stopDurationMs(1f))
+        assertEquals(Landing.MAX_MS, Landing.stopDurationMs(1_000_000f))
     }
 
     @Test
     fun `deceleration physics is self consistent`() {
         // 匀减速模型:t = v/a,s = v²/2a,且 s/t = v/2(平均速度)
         val v = 3000f
-        val t = Fling.stopDurationMs(v) / 1000f
-        val s = Fling.stopDistancePx(v)
-        assertEquals("停止时长 v/a", v / Fling.DECEL, t, 1e-3f)
-        assertEquals("总位移 v²/2a", v * v / (2f * Fling.DECEL), s, 1e-3f)
+        val t = Landing.stopDurationMs(v) / 1000f
+        val s = Landing.stopDistancePx(v)
+        assertEquals("停止时长 v/a", v / Landing.DECEL, t, 1e-3f)
+        assertEquals("总位移 v²/2a", v * v / (2f * Landing.DECEL), s, 1e-3f)
         assertEquals("平均速度 v/2", v / 2f, s / t, 1f)
     }
 

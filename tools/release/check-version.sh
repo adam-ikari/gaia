@@ -50,6 +50,7 @@ VERSION_CODE_RAW="$(read_gradle_field versionCode)" || true
 [ -n "$VERSION_NAME_RAW" ] || fail "$GRADLE 里读不到 versionName"
 [ -n "$VERSION_CODE_RAW" ] || fail "$GRADLE 里读不到 versionCode"
 
+VERSION_NAME="$VERSION_NAME_RAW"
 VERSION_NAME="${VERSION_NAME//\"/}"
 VERSION_NAME="${VERSION_NAME//\'/}"
 [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \

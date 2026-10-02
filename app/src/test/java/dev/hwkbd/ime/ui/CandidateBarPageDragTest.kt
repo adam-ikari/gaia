@@ -21,7 +21,7 @@ class CandidateBarPageDragTest {
 
     private val viewW = 1440f
     private val commitPx = viewW * PAGE_COMMIT_FRAC
-    private val DEAD = DragGesture.DEAD_DP * 2f // density 2.0 ⇒ 32px,死区常量不再是阈值的比例
+    private val DEAD = DragGesture.DEAD_DP * 2f // density 2.0 ⇒ 16px,死区常量不再是阈值的比例
 
     /** 位移向**左**为正(左滑=下一页),与页面里 `dir` 无关的直观写法。 */
     private fun progress(dxLeft: Float): Float =
