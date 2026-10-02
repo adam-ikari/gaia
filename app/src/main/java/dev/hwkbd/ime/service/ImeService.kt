@@ -22,6 +22,7 @@ import dev.hwkbd.ime.ime.Haptics
 import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
 import dev.hwkbd.ime.ime.ImeState
+import dev.hwkbd.ime.ime.KeyEventGate
 import dev.hwkbd.ime.ui.StatusRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,19 @@ import java.util.zip.GZIPInputStream
 class ImeService : InputMethodService() {
 
     private lateinit var controller: ImeController
+
+    /**
+     * 按键之后的滑动静默窗(2026-10-02 用户定案:按键后 200ms 不响应键盘滑动事件,
+     * 随后补定「无论是否消费」)。
+     *
+     * **一处持有、三处查询**:飞字手势(本类)、候选行、L5 横滑。三个滑动入口各自问一次,
+     * 不各记一份 `lastKeyAt` —— 后者改窗口长度要动三处,漏一处就出现「候选行挡了、L5 没挡」
+     * 这种按区域不一致的静默窗。点按路径全都不查,理由见 [dev.hwkbd.ime.ime.KeyEventGate]。
+     */
+    private val keyGate = KeyEventGate()
+
+    /** 本次飞字手势的滑动许可:起手落在静默窗里就整条不接(见 [handleFlyMotion])。 */
+    private var flyArmed = true
 
     private var statusRow: View? = null
     private var candidateRow: View? = null
@@ -221,7 +235,9 @@ class ImeService : InputMethodService() {
         preeditRow = root.findViewById(R.id.preedit_row)
         l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
             tailMode = true // L5 行 = L4 装不下的尾巴([tailFrom] 起)+ 用户短语(排在后面)
-            onL4Key = { controller.commitL4Key(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
+            onL4Key = { commitL4Tapped(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
+            // 同一个静默窗:刚敲过物理键就横滑 L5,页面内容还没跟着那次按键重排
+            swipeGate = { keyGate.swipeBlocked() }
             onPageChange = { p, total ->
                 // 页数可能随输入类型/主题变少,夹一下免得指到不存在的页
                 if (p >= total) page = (total - 1).coerceAtLeast(0)
@@ -232,7 +248,10 @@ class ImeService : InputMethodService() {
             onSwipePage = { delta -> stepL5Page(delta) }
         }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
-            onL4Key = { controller.commitL4Key(it) }
+            onL4Key = { commitL4Tapped(it) }
+            // L4 中区不接横滑(那条路留给飞字手势,见 L4PanelView 类注释),这里接门是为将来:
+            // 万一它开始接手势,静默窗规则不用再记得补一处
+            swipeGate = { keyGate.swipeBlocked() }
             onOverflowChange = { hasL5, cut ->
                 l5HasOverflow = hasL5
                 if (!hasL5) l5RowShown = false // 没溢出了就收回,避免下次出现时自动弹开
@@ -258,6 +277,9 @@ class ImeService : InputMethodService() {
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
+            // 候选行滑动接静默窗(见 KeyEventGate)。**点按/长按不看它** ——
+            // 敲一个键紧接着点候选上屏是最常见的手速,一起挡掉比不挡更糟
+            swipeGate = { keyGate.swipeBlocked() }
         }
         root.findViewById<ImageButton>(R.id.btn_settings).apply {
             setOnClickListener {
@@ -323,12 +345,28 @@ class ImeService : InputMethodService() {
      */
     override fun onWindowHidden() {
         controller.resetLayers()
+        // 静默窗跟着层状态一起清:窗口隐藏前敲的那一下不该在下次弹出时还挡着滑动
+        keyGate.reset()
         super.onWindowHidden()
     }
 
     // ------------------------------------------------------------------ 键事件
 
+    /**
+     * 点 L4/L5 键帽:和物理键同等对待 —— 先记一次按键事件(起滑动静默窗),再走同一条提交路径。
+     *
+     * 屏上键帽和物理键的区别只在事件来源,不在后果:两者都会让候选重排。
+     * 漏记的话就是「刚点完屏上的键,马上划一下却生效了」—— 同一种手速,两种结果。
+     */
+    private fun commitL4Tapped(out: dev.hwkbd.ime.keymap.KeyOut) {
+        keyGate.onKeyEvent()
+        controller.commitL4Key(out)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // **任何按键都起窗,不看消费与否**(用户 2026-10-02 补定「无论是否消费」)。
+        // 记在 null 检查之前 —— "有过一次按键"这件事不需要 KeyEvent 才成立。
+        keyGate.onKeyEvent()
         event ?: return super.onKeyDown(keyCode, event)
         val consumed = controller.onKeyDown(
             keyCode,
@@ -547,6 +585,10 @@ class ImeService : InputMethodService() {
 
     /** 键盘表面触摸(经 ImeRootView 转发,y<0 为窗口外飞字区):判定并执行手势。 */
     private fun handleFlyMotion(ev: MotionEvent): Boolean {
+        // 滑动许可只在 DOWN 问一次(见 KeyEventGate):刚敲过键就落在这里的手势整条不接 ——
+        // 喂给 FlyDetector 的话它会正常起拖,画面跟着手指走,松手却什么都不做。
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) flyArmed = !keyGate.swipeBlocked()
+        if (!flyArmed) return true
         val zone = flyDetector.onMotion(ev.actionMasked, ev.rawX, ev.rawY.toInt())
         if (zone == null) return true
         when {
