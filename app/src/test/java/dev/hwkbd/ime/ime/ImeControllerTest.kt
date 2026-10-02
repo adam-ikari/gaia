@@ -1091,6 +1091,66 @@ class ImeControllerTest {
     }
 
     @Test
+    fun `切语言清掉全部状态 层与大写与连击计数都不残留`() {
+        // 2026-10-02 用户「切合拼音和英文时所有的状态都清除」。
+        // 此前只清组词与大写,层状态与 ModifierGestures 的计时器会跨语言残留。
+        val r = rig()
+        r.c.state.languageId = "en"
+        // 摆出三种可延续的状态:锁着的层、大写、连击计数
+        r.tap(KeyEvent.KEYCODE_SYM)
+        r.tap(KeyEvent.KEYCODE_SYM) // 双击 = 锁定 L3
+        assertEquals(LayerState.Locked(Layer.L3), r.c.state.layerState)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        r.tap(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals(ShiftMode.CAPS, r.c.state.shiftMode)
+        r.type("zhong")
+
+        r.c.cycleLanguage() // → 拼音
+
+        assertEquals("zh", r.c.state.languageId)
+        assertEquals("组词要上屏并清空", "", r.c.state.raw)
+        assertTrue("候选清空", r.c.state.candidates.isEmpty())
+        assertEquals("层归 L1,不能停在符号/编程层", LayerState.L1, r.c.state.layerState)
+        assertEquals(ShiftMode.OFF, r.c.state.shiftMode)
+        assertEquals(-1, r.c.state.highlight)
+        assertEquals(0, r.c.state.page)
+    }
+
+    @Test
+    fun `切语言后同键连击从零数 不接旧的计数`() {
+        // 连击计数残留的后果:锁着 L3(已两击)时切语言,紧接着那一下 Sym 会被算成
+        // **第三击** —— 而第三击在锁定态上是"解除",于是刚切完语言紧接着敲一下
+        // Sym,层就被莫名其妙解开了。
+        val r = rig()
+        r.c.state.languageId = "en"
+        r.tap(KeyEvent.KEYCODE_SYM)
+        r.tap(KeyEvent.KEYCODE_SYM)
+        assertEquals(LayerState.Locked(Layer.L3), r.c.state.layerState)
+        r.c.cycleLanguage()
+        assertEquals("切完语言层应已归 L1", LayerState.L1, r.c.state.layerState)
+        // 切完后的**第一击**必须是"新连击的第一击"= 一次性层,而不是旧连击的第三击
+        r.tap(KeyEvent.KEYCODE_SYM)
+        assertEquals(
+            "切完的第一击应算新连击的第一击(一次性层)",
+            LayerState.OneShot(Layer.L3, LayerState.L1),
+            r.c.state.layerState,
+        )
+    }
+
+    @Test
+    fun `数字类字段切语言不清掉字段给的那把 L2 锁`() {
+        // 那把锁是 setFieldKind 给的(聚焦即锁,免按 Alt)。清掉的话层回到 L1,
+        // 而字母又过不了数字白名单 —— 数字框会彻底打不出东西。
+        // 实际进不来(语言项与全/半开关在数字态都藏着,Shift+空格也 `!digitsOnly` 挡着),
+        // 这条是防御:状态机不该依赖"入口恰好进不来"这种外部条件。
+        val r = rig()
+        r.c.setFieldKind(FieldKind.NUMBER)
+        r.c.state.languageId = "en"
+        r.c.cycleLanguage()
+        assertEquals(LayerState.Locked(Layer.L2), r.c.state.layerState)
+    }
+
+    @Test
     fun `密码框内禁止切到拼音 语言项与Shift空格都收口在 setLanguage`() {
         val r = rig()
         r.c.state.secure = true

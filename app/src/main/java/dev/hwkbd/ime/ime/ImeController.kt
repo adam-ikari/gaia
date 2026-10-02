@@ -388,8 +388,8 @@ class ImeController(
     fun cycleLanguage() = setLanguage(registry.nextLanguage(state.languageId))
 
     /**
-     * 切到指定语言(密码框强制英文等场景)。先把挂着的组词上屏,切入收尾交给语言策略
-     * ([dev.hwkbd.ime.strategy.ChineseLanguage.onEnter] 清掉英文态的大小写锁定)。
+     * 切到指定语言(密码框强制英文等场景)。**清掉全部状态**再切入,收尾再交给语言策略
+     * ([dev.hwkbd.ime.strategy.ChineseLanguage.onEnter])。
      * **密码框内(secure)禁止切到安全语言以外**——切语言的两个入口(状态行的语言项、
      * Shift+空格)都收口在这里,一处守卫全覆盖。
      */
@@ -399,8 +399,33 @@ class ImeController(
         if (state.languageId == lang.id) return
         flushComposition()
         state.languageId = lang.id
+        resetTransientState()
         lang.onEnter(state)
         host.render()
+    }
+
+    /**
+     * 切语言时**清空一切可延续的状态**(2026-10-02 用户「切合拼音和英文时所有的状态都清除」)。
+     *
+     * 此前只清组词(经 [flushComposition] → [clearComposition]:raw / candidates / page /
+     * highlight)与大小写(经 [dev.hwkbd.ime.strategy.ChineseLanguage.onEnter])。
+     * 漏掉的是这两样,它们都会**跨语言残留**,读起来像"没切干净":
+     * - **层状态**:锁着的 L2(符号)、一次性层、长按按住 —— 切到英文还在符号层,
+     *   敲字母敲不出来;
+     * - **[ModifierGestures] 的计时器**:连击计数、按住时刻、解锁吸收窗 —— 双击锁了 L3
+     *   再切语言,紧接着那一下同键会被算成新连击的第一击,把锁重新武装上。
+     *
+     * **数字类字段的 L2 锁是例外**:那把锁是**字段给的**(见 [setFieldKind],聚焦即锁,
+     * 免按 Alt),不是用户选的,清掉会让数字框打不出数字(层回到 L1,而字母又过不了
+     * 数字白名单)。实际上数字框里也切不了语言(语言项与全/半开关都藏了,
+     * Shift+空格那条路 `!digitsOnly` 挡着),这里留这道分支纯为防御 ——
+     * 状态机不该依赖"入口恰好进不来"这种外部条件。
+     */
+    private fun resetTransientState() {
+        state.layerState =
+            if (fieldProfile().digitsOnly) LayerState.Locked(Layer.L2) else LayerState.L1
+        state.shiftMode = ShiftMode.OFF
+        gestures.resetAll()
     }
 
     private fun layerKeyTap(mod: Layer) {
