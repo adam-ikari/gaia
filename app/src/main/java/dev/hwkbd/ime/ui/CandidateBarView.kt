@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.MotionEvent
-import android.animation.ValueAnimator
 import android.view.View
 import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.R
@@ -193,7 +192,6 @@ class CandidateBarView @JvmOverloads constructor(
     // 进度 flyP 用一根数轴表达两段:
     //   [0,1]  拖动段——跟着手指走(上移到 26dp、其余候选淡到 0.4)
     //   (1,2]  完成段——越过阈值后由动画接管,加速飞到 64dp、其余候选加速淡完
-    private var flyAnim: ValueAnimator? = null
     private var flyP = -1f
     private var flyZone = -1
     private var flyX = 0f
@@ -204,7 +202,15 @@ class CandidateBarView @JvmOverloads constructor(
     private var flyCompleting = false
 
     /** 飞字进行中(拖动或完成动画):两态 UI 需保持候选行可见。 */
-    fun isFlyAnimating(): Boolean = flyP >= 0f
+    /**
+     * 现在是不是还在飞(拖动中 / 起飞中 / 放弃淡回中)。
+     *
+     * **必须把两支弹簧都算进去**(2026-10-02 换弹簧时补的):原来只有 `flyP >= 0f`,
+     * 换引擎之后 `flyAnim != null` 这个判据没了,而 `flyP` 在动画**结束回调**清 0 之前一直 ≥ 0,
+     * 所以单看 `flyP` 恰好还对 —— 但那是巧合,不是理由。写全了才不用靠巧合:
+     * 弹簧还在跑、而 `flyP` 恰好被 `onFrame` 写成 0 的那一帧,状态就是"在飞但看起来没在飞"。
+     */
+    fun isFlyAnimating(): Boolean = flyP >= 0f || flyUp.isRunning || flyBack.isRunning
 
     fun setState(state: ImeState) {
         val newSlots = state.pageSlots()
@@ -227,7 +233,7 @@ class CandidateBarView @JvmOverloads constructor(
 
     /** 变化中的槽:index → 该槽的入场进度(0 = 还没进,1 = 到位)。空表 = 没有动画在跑。 */
     private val swapSlots = HashMap<Int, Float>()
-    private var swapAnim: ValueAnimator? = null
+    private var swapAnim: SpringChannel? = null
 
     /** 截图脚本与单测可关掉入场动画(它们要的是静止终态)。 */
     @Volatile
@@ -257,7 +263,7 @@ class CandidateBarView @JvmOverloads constructor(
         // 正在翻页/飞字就别叠动画了。
         // 翻页判据是 `pageSpring.isRunning` + [pageFrom] 非空 —— 换引擎后 `pageAnim`
         // 恒为 null,若还拿它当判据,翻页动画进行中仍会叠一次候选词替换动画
-        if (pageFrom.isNotEmpty() || pageSpring.isRunning || flyP >= 0f || flyAnim != null) return
+        if (pageFrom.isNotEmpty() || pageSpring.isRunning || isFlyAnimating()) return
 
         val changed = ArrayList<Int>()
         for (i in newSlots.indices) {
@@ -270,23 +276,28 @@ class CandidateBarView @JvmOverloads constructor(
         swapAnim?.cancel()
         changed.forEach { swapSlots[it] = 0f }
         val total = SwapAnim.totalMs(changed.map { it }, CENTER_SLOT)
-        swapAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = total
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                val global = a.animatedValue as Float
-                for (i in changed) swapSlots[i] = SwapAnim.localProgress(global, i, total, CENTER_SLOT)
+        // **弹簧驱动,错峰数学一个字没改**:`SwapAnim.localProgress` 内部本来就把
+        // 延迟与时长化成比例(`delayMs/total`、`BASE_MS/total`),所以它要的只是一个
+        // 0..1 的全局进度 —— `ValueAnimator.animatedFraction` 与弹簧的 `currentValue`
+        // 是同一种东西,换驱动不需要动它。
+        val swap = SpringChannel(
+            from = 0f,
+            spec = SpringSpec.SWAP_IN,
+            onFrame = { value, _ ->
+                for (i in changed) swapSlots[i] = SwapAnim.localProgress(value, i, total, CENTER_SLOT)
                 invalidate()
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    swapAnim = null
-                    swapSlots.clear()
-                    invalidate()
-                }
-            })
-            start()
-        }
+            },
+            onFinish = { cancelled ->
+                if (cancelled) return@SpringChannel
+                swapSlots.clear()
+                invalidate()
+            },
+        )
+        // 从 0 走到 1:弹簧的归一化进度,与旧的 animatedFraction 同义。
+        // 赋给字段再 settle:onFrame 回调里要用它读 currentValue,
+        // 所以必须先落到字段上(用局部变量则回调闭包捕获不到)。
+        swapAnim = swap
+        swap.settle(0f, 1f)
     }
 
     /** 单槽的入场变换:返回 (上移 px, 缩放)。没在动的槽返回恒等,零开销。 */
@@ -462,7 +473,7 @@ class CandidateBarView @JvmOverloads constructor(
      */
     private fun takeOverPageDrag(dir: Float, x: Float, eventTimeMs: Long, external: Boolean): Boolean {
         // 翻页接管时正在上滑的词要放回去,别两条拖动同时跑
-        if (flyP >= 0f && flyAnim == null) cancelFlyDrag()
+        if (flyP >= 0f && !isFlyAnimating()) cancelFlyDrag()
         // **本次拖动是谁发起的**:两条路共用绘制,但提交线的量纲不同(见 [pageCommitPx]),
         // 所以每次起手都要重新标一遍 —— 不能靠 externalCommitPx != 0 判断,
         // 那个值是常驻的,会顺带把候选行自己的翻页也改成 60px(划一下就翻)。
@@ -613,11 +624,11 @@ class CandidateBarView @JvmOverloads constructor(
                 haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义
             }
             pageCommitted = true
-            settlePage(landing.coerceAtLeast(pageSlide), v)
+            settlePage(landing.coerceAtLeast(pageSlide))
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
             pageCommitted = false
-            settlePage(Landing.project(pageSlide, 0f, v).coerceAtMost(pageSlide), v)
+            settlePage(Landing.project(pageSlide, 0f, v).coerceAtMost(pageSlide))
         }
     }
 
@@ -640,7 +651,7 @@ class CandidateBarView @JvmOverloads constructor(
      * 3. **时长与行程脱钩**:旧代码时长 = `stopDurationMs(v0)`,与还剩多少距离无关 ——
      *    差 1px 和差半页用同一个时长。现在时长由弹簧按行程与初速自己算。
      */
-    private fun settlePage(target: Float, v0: Float = 0f) {
+    private fun settlePage(target: Float) {
         val from = pageSlide
         if (from == target || pageFrom.isEmpty() || pageTo.isEmpty()) {
             pageSpring.cancel()
@@ -650,7 +661,7 @@ class CandidateBarView @JvmOverloads constructor(
             return
         }
         pageSettleTarget = target
-        pageSpring.settle(from, target, v0)
+        pageSpring.settle(from, target)
     }
 
     /**
@@ -693,7 +704,7 @@ class CandidateBarView @JvmOverloads constructor(
     /** 飞字拖动开始:冻结当前候选,后续 [setFlyDrag] 按手指进度实时驱动。可重入(拖回又拖上来时接管淡回)。 */
     fun beginFlyDrag(zone: Int) {
         if (flyCompleting) return
-        if (flyP >= 0f && flyZone == zone && flyAnim == null) return
+        if (flyP >= 0f && flyZone == zone && !isFlyAnimating()) return
         cancelFlyDragNow()
         flyZone = zone
         flyX = (zone + 0.5f) * cellWidth
@@ -713,7 +724,7 @@ class CandidateBarView @JvmOverloads constructor(
      * 免得一路嗡嗡。
      */
     fun setFlyDrag(progress: Float, eventTimeMs: Long = 0L) {
-        if (flyP < 0f || flyAnim != null) return
+        if (flyP < 0f || flyBack.isRunning) return
         val p = progress.coerceIn(0f, 1f)
         val crossed = flyP < 1f && p >= 1f // 本次拖动里第一次越过阈值
         // 速度在 ACTION_MOVE 里用**原始 y** 统一采样(见那里的注释),这里不再重复喂。
@@ -722,30 +733,35 @@ class CandidateBarView @JvmOverloads constructor(
         invalidate()
     }
 
-    /** 拖动被放弃(松手未过阈值/转为横滑/取消):整组淡回原位。 */
+    /**
+     * 拖动被放弃(松手未过阈值/转为横滑/取消):整组淡回原位。
+     *
+     * **走官方弹簧**(2026-10-02 用户「向上滑动飞字也需要物理引擎」)。
+     * 旧实现是 `ValueAnimator` + `stopDurationMs(flyP * 1000f)`:`flyP` 是**进度**(0..2)
+     * 不是速度,乘 1000 当 px/s 是个凑数,而且时长固定 —— 于是"轻轻推一下却飞很久"。
+     * 现在时长由弹簧按行程算,放弃与起飞是同一支弹簧,松手瞬间不会顿。
+     */
     fun cancelFlyDrag() {
-        if (flyP < 0f || flyAnim != null) return
-        flyAnim = ValueAnimator.ofFloat(flyP, 0f).apply {
-            // 放弃时的淡回:按惯性退回(匀减速),曲线与飞出去一致,手感统一
-            duration = Landing.stopDurationMs(flyP * 1000f)
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                flyP = a.animatedValue as Float
-                invalidate()
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    flyAnim = null
-                    resetFly()
-                }
-            })
-            start()
-        }
+        if (flyP < 0f || flyBack.isRunning) return
+        flyBack.settle(flyP, 0f)
     }
 
+    /** 放弃淡回的弹簧:[SpringSpec.FLY_BACK](过阻尼,回来时不要来回晃)。 */
+    private val flyBack = SpringChannel(
+        from = 0f,
+        spec = SpringSpec.FLY_BACK,
+        onFrame = { value, _ ->
+            flyP = value
+            invalidate()
+        },
+        onFinish = { cancelled ->
+            if (cancelled) return@SpringChannel
+            resetFly()
+        },
+    )
+
     private fun cancelFlyDragNow() {
-        flyAnim?.cancel()
-        flyAnim = null
+        flyBack.cancel()
         resetFly()
     }
 
@@ -785,37 +801,35 @@ class CandidateBarView @JvmOverloads constructor(
         val x = if (flyZone >= 0) flyX else (displayIndex + 0.5f) * cellWidth
         val w = if (flyWord.isNotEmpty()) flyWord else word
         val out = if (flyOutSlots.isNotEmpty()) flyOutSlots else slots
-        flyAnim?.cancel()
+        flyBack.cancel()
         flyZone = zone
         flyX = x
         flyWord = w
         flyOutSlots = out
         flyP = from
         flyCompleting = true
-        // 惯性时长:松手速度决定飞多久(2026-09-30 用户「计算惯性质量和加速度」)。
-        // 速度不足时按"匀速飞完剩余段"兜底,免得轻轻一推却飞很久。
-        val remain = 2f - from
-        val v = -flySpeed.velocity() // 上滑为正,存的是 -p ⇒ 取负号还原向上的速度
-        flyAnim = ValueAnimator.ofFloat(from, 2f).apply {
-            duration = if (remain <= 0f) Landing.MIN_MS
-            else Landing.stopDurationMs(if (kotlin.math.abs(v) >= Landing.MIN_VELOCITY) v else remain * 1000f)
-            interpolator = Fling.DECELERATE
-            addUpdateListener { a ->
-                flyP = a.animatedValue as Float
-                invalidate()
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    flyAnim = null
-                    resetFly()
-                    // **必须报完成**(见 onFlyFinished):service 靠 isFlyAnimating 判两态,
-                    // 不报就没人重新渲染,候选行会卡在可见态
-                    onFlyFinished?.invoke()
-                }
-            })
-            start()
-        }
+        // **弹簧从静止起跑**(与翻页同一套分工,见 SpringChannel.settle):
+        // 词是"飞走"不是"被甩出去",落点恒为 2,没有惯性能算 —— 所以速度不参与,
+        // 由弹簧按剩余行程自己决定飞多久。
+        flyUp.settle(from, 2f)
     }
+
+    /** 起飞弹簧:欠阻尼,和翻页一样要有到位感(这是"确认上屏"的那一下)。 */
+    private val flyUp = SpringChannel(
+        from = 0f,
+        spec = SpringSpec.FLY_UP,
+        onFrame = { value, _ ->
+            flyP = value
+            invalidate()
+        },
+        onFinish = { cancelled ->
+            if (cancelled) return@SpringChannel
+            resetFly()
+            // **必须报完成**(见 onFlyFinished):service 靠 isFlyAnimating 判两态,
+            // 不报就没人重新渲染,候选行会卡在可见态
+            onFlyFinished?.invoke()
+        },
+    )
 
     /**
      * 每槽 = **全宽 / 5**——Titan 2 物理键盘正好 10 列,槽宽 = 2 个键列,
@@ -898,14 +912,14 @@ class CandidateBarView @JvmOverloads constructor(
                         beginFlyDrag(downCell) // 自带防重入
                         setFlyDrag(DragGesture.progress(dy, flyThresholdPx, flyDeadPx), event.eventTime)
                     }
-                    flyP >= 0f && flyAnim == null -> cancelFlyDrag()
+                    flyP >= 0f && !isFlyAnimating() -> cancelFlyDrag()
                 }
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPressRunnable)
                 // 拖动过阈值 → 在此提交(松手即飞完);没过 → 淡回原位;正在淡回则忽略本次抬手
                 if (flyP >= 0f) {
-                    if (flyAnim == null) {
+                    if (!isFlyAnimating()) {
                         val dx = event.x - downX
                         val dy = downY - event.y
                         if (dy > 0f && dy > kotlin.math.abs(dx)) {
@@ -1062,8 +1076,17 @@ class CandidateBarView @JvmOverloads constructor(
      * 现在 [SpringSpec.RUBBER_BACK] 是**过阻尼**(ζ=2.4)的弹簧 ——「撞到头」本来就该是
      * "顶住了滑回来",不是弹簧床来回晃;并且打断时改目标保留速度,不再重复顿挫。
      */
-    private fun runRubberAnim(v0: Float) {
-        rubberSpring.settle(rubberDrag.raw, 0f, v0)
+    /**
+     * 橡皮筋弹回。
+     *
+     * **惯性由 [Landing] 算落点,不给弹簧** —— 与翻页同一套分工。橡皮筋的目标恒为 0,
+     * 所以落点就是「手指离开时按摩擦还能退多远」,再由弹簧从静止走完剩下的。
+     *
+     * 参数名 `v` 是手指速度;`rubberDrag.raw * 12f` 那两个旧调用点传的是
+     * 「没有速度样本时的兜底」—— 见调用处注释,现已并入 [Landing.MIN_VELOCITY] 判据。
+     */
+    private fun runRubberAnim(v: Float) {
+        rubberSpring.settle(rubberDrag.raw, Landing.project(rubberDrag.raw, 0f, v))
     }
 
     private val rubberSpring = SpringChannel(

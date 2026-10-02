@@ -69,28 +69,48 @@ internal class SpringChannel(
     }
 
     /**
-     * 从 [from] 朝 [target] 起跑,初速度 [v0]。
+     * 从 [from] 朝 [target] 起跑。
      *
      * **已经在跑就只改目标、保留值与速度**(`animateToFinalPosition` 的语义)——
      * 这正是打断不跳变的那一条。手指按住正在飞的页面、翻转页、反向收回,全部走这一个入口,
      * 调用方不需要(也不会)自己去判断"该不该 cancel 再重开"。
      *
-     * @param v0 松手瞬间的速度(px/s)。给 0 就是"无惯性,纯弹簧收敛过去"。
+     * ## 这里**故意没有**速度参数
+     *
+     * 松手时**一律从静止起步**:惯性已经在 [Landing] 的落点里算过了。
+     * 这不是"不建议传",是**类型上不给传的机会** —— 见下面「惯性被算了两次」。
      */
-    fun settle(from: Float, target: Float, v0: Float = 0f) {
+    fun settle(from: Float, target: Float) {
         this.target = target
         if (isRunning) {
-            // **关键**:不断动画、不重设值与速度,只换目标 ⇒ 位置与速度都连续
+            // **打断**:不断动画、不重设值与速度,只换目标 ⇒ 位置与速度都连续。
+            // 这是速度**唯一该被保留**的场合:手指按住正在飞的页面时,画面此刻的物理速度
+            // 就是弹簧的速度,丢掉它等于凭空刹一下。
             animation.animateToFinalPosition(target)
             return
         }
+        // 松手起跑:速度由 [Landing] 计入**落点**了,这里必须从静止起步。
+        //
+        // ## 惯性被算了两次(2026-10-02 真机报「弹性太强 / 翻页成功的动画反而不明显」)
+        //
+        // 旧代码在松手时把 `v0` 同时给了弹簧初速,而落点 `Landing.project(from, target, v0)`
+        // **已经**把这份惯性算进去了。于是同一份速度用了两遍:
+        // 画面一松手就带着 `v0` 冲出去,而它要去的那个落点本来就是 `v0` 推出来的 ——
+        // 于是冲过头、再被弹簧拉回来。读作"弹性太强"。
+        //
+        // 更要命的是**剩余距离本来就很小**:过提交线那一帧手指已经走完大半,
+        // `pageSlide` 离落点可能只有几十像素,给一个几千 px/s 的初速等于瞬间到位 ——
+        // 所以"翻页成功"那一下**看起来根本没动**,直接跳到新页。
+        //
+        // 修法就是**分工**:松手时速度只用来算落点,不给弹簧;打断时速度留给弹簧。
+        // 这不是调参,是语义:[Landing] 答"落到哪",弹簧答"怎么过去",两者不重复计入。
         animation.cancel()
         holder.value = from
-        currentVelocity = v0
-        animation.setStartVelocity(v0)
+        currentVelocity = 0f
+        animation.setStartVelocity(0f)
         animation.animateToFinalPosition(target)
         animation.start()
-        onFrame(from, v0) // 首帧立即落一次,否则 start() 到第一帧之间画面停在旧位置
+        onFrame(from, 0f) // 首帧立即落一次,否则 start() 到第一帧之间画面停在旧位置
     }
 
     /**

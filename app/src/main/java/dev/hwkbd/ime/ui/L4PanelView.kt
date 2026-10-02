@@ -329,7 +329,6 @@ class L4PanelView @JvmOverloads constructor(
     )
 
     private val exiting = ArrayList<Ghost>()
-    private var exitAnim: android.animation.ValueAnimator? = null
 
     init {
         // 自己画退场键 ⇒ 不能让 LinearLayout 跳过 onDraw
@@ -364,8 +363,6 @@ class L4PanelView @JvmOverloads constructor(
      */
     private fun runExitAnimation(ghosts: List<Ghost>) {
         exiting.clear()
-        exitAnim?.cancel()
-        exitAnim = null
         if (ghosts.isEmpty()) return
         exiting += ghosts
         // 每次重起一支:键序又变了一次,淡出必须从完全不透明开始,
@@ -599,10 +596,10 @@ class L4PanelView @JvmOverloads constructor(
                     if (byFinger || byFling) {
                         // 过线:提交翻页,动画把剩下的位移补完
                         onSwipePage?.invoke(if (swipeDir > 0f) 1 else -1)
-                        settleSwipe(limit, v)
+                        settleSwipe(Landing.project(swipeSlide, limit, v).coerceAtLeast(swipeSlide))
                     } else {
                         // 没过线:反向动画退回原页
-                        settleSwipe(0f, v)
+                        settleSwipe(Landing.project(swipeSlide, 0f, v).coerceAtMost(swipeSlide))
                     }
                 }
                 swipeTracking = false
@@ -676,7 +673,7 @@ class L4PanelView @JvmOverloads constructor(
      * 的手感不会分叉 —— 此前两处各自 `ValueAnimator` + 各自算时长,同一个速度在两处
      * 走出的距离不一样,用户能感觉到。
      */
-    private fun settleSwipe(target: Float, v0: Float = 0f) {
+    private fun settleSwipe(target: Float) {
         val from = swipeSlide
         if (from == target) {
             swipeSpring.cancel()
@@ -684,7 +681,7 @@ class L4PanelView @JvmOverloads constructor(
             return
         }
         swipeSettleTarget = target
-        swipeSpring.settle(from, target, v0)
+        swipeSpring.settle(from, target)
     }
 
     /** [settleSwipe] 的落点;走完时用它收尾。见 [CandidateBarView.pageSettleTarget] 同理。 */

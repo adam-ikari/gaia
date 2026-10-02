@@ -49,15 +49,30 @@ class PhysicsSpecTest {
     }
 
     @Test
-    fun `默认档都不过冲`() {
-        // 翻页/橡皮筋/键帽过冲读起来都像 bug,默认一律 ≥ 临界阻尼
-        for ((name, s) in listOf(
-            "DEFAULT" to SpringSpec.DEFAULT,
-            "RUBBER_BACK" to SpringSpec.RUBBER_BACK,
-            "CAP_MOVE" to SpringSpec.CAP_MOVE,
-        )) {
-            assertTrue("$name 不该欠阻尼(ζ=${s.dampingRatio})", !s.overshoots)
-        }
+    fun `翻页欠阻尼 橡皮筋与键帽过阻尼 两者方向相反且各有理由`() {
+        // 2026-10-02 用户「弹性阻尼太强」。原来三档全是 ζ≥1,而临界阻尼是**所有不过冲曲线里
+        // 最慢的一条** —— 那不是参数没调好,是选错了类型。
+        //
+        // 现在两类动画要的东西本来就相反,不该用同一个值:
+        // - **翻页**是一次**确认动作**,确认需要冲量才不像卡顿 ⇒ 欠阻尼,单次回弹;
+        // - **橡皮筋**是"撞到头滑回来",欠阻尼会来回晃 ⇒ 过阻尼;
+        // - **键帽**落位同理,弹一下很荒谬 ⇒ 过阻尼。
+        assertTrue("翻页应欠阻尼,才有到位感", SpringSpec.DEFAULT.overshoots)
+        assertFalse("橡皮筋应过阻尼,才不来回晃", SpringSpec.RUBBER_BACK.overshoots)
+        assertFalse("键帽应过阻尼", SpringSpec.CAP_MOVE.overshoots)
+        // 飞字两个方向相反:起飞是"确认",欠阻尼;放弃是"没选中",过阻尼
+        assertTrue("飞字起飞是确认动作,应欠阻尼", SpringSpec.FLY_UP.overshoots)
+        assertFalse("飞字放弃不该有到位感", SpringSpec.FLY_BACK.overshoots)
+    }
+
+    @Test
+    fun `飞字起飞比翻页更快 因为它没有跟手阶段`() {
+        // 翻页有"手指拖着走"的过程,收尾可以慢半拍;飞字是松手后就定了,
+        // 剩下的只是把结果演出来 —— 慢半拍会让"我选中了"显得没发生。
+        assertTrue(
+            "飞字响应应短于翻页(${SpringSpec.FLY_UP.response}s vs ${SpringSpec.DEFAULT.response}s)",
+            SpringSpec.FLY_UP.response < SpringSpec.DEFAULT.response,
+        )
     }
 
     @Test
@@ -153,6 +168,67 @@ class PhysicsSpecTest {
         // s = v²/(2a)。半速 ⇒ 四分之一距离
         assertEquals(Landing.stopDistancePx(3000f), Landing.stopDistancePx(1500f) * 4f, 1f)
         assertFalse("零速不该有滑行", Landing.stopDistancePx(0f) > 0f)
+    }
+
+    @Test
+    fun `翻页过冲量必须小到读作"到位" 而不是"来回晃"`() {
+        // 欠阻尼的过冲比例 = exp(-πζ/√(1-ζ²))。这个数字决定手感:
+        // 一整页 1440px 上 3% ≈ 43px,读起来是"啪地到位";到 10%(≈144px)就开始像弹球了。
+        val ζ = SpringSpec.DEFAULT.dampingRatio
+        val overshoot = kotlin.math.exp(
+            -Math.PI.toFloat() * ζ / kotlin.math.sqrt(1f - ζ * ζ),
+        )
+        assertTrue("过冲应明显小于 10%(实际 ${overshoot * 100}%),否则像弹球", overshoot < 0.10f)
+        assertTrue("但也不能是 0 —— 完全没有冲量时翻页像卡顿(实际 ${overshoot * 100}%)", overshoot > 0.005f)
+        // 换成像素说一遍:这条断言的意图是"人能感觉到",不是数学
+        val pagePx = 1440f
+        assertTrue(
+            "一整页的过冲应在 100px 以内(实际 ${pagePx * overshoot}px)",
+            pagePx * overshoot < 100f,
+        )
+    }
+
+    @Test
+    fun `欠阻尼只回弹一次就该停 不是弹簧床`() {
+        // 判据是阻尼比落在"单次回弹"那一档(ζ ∈ 0.5..1),而不是精确值:
+        // ζ<0.5 会来回好几下,ζ>1 完全不回弹。
+        assertTrue(
+            "翻页应当在单次回弹的区间(实际 ζ=${SpringSpec.DEFAULT.dampingRatio})",
+            SpringSpec.DEFAULT.dampingRatio in 0.5f..1f,
+        )
+    }
+
+    @Test
+    fun `落点随速度变化是对的 被夹住时才是纯弹簧的活`() {
+        // 补一句给后来人:2026-10-02 我在这里写过一条断言「慢甩与快甩的剩余距离应当相同」,
+        // **那是错的**,而且错的方向掩盖了真问题。
+        //
+        // `Landing.project(316.8, 1440, 3000)` = 691.8 —— 惯性推出的落点**没到目标**,
+        // 所以没有夹住,剩余距离自然随速度变(748 vs 1123)。**落点依赖速度是正确的**:
+        // 那正是"甩得动"的物理。夹取只保证它不会冲出目标。
+        val width = 1440f
+        val from = width * 0.22f
+        assertTrue(
+            "快甩落得更远,这就是惯性",
+            Landing.project(from, width, v0 = 3000f) > Landing.project(from, width, v0 = 100f),
+        )
+        // 但再快也不能冲出目标 —— 这是夹取唯一要保证的事
+        assertEquals(
+            "离谱的速度也不能越过目标",
+            width, Landing.project(from, width, v0 = 100_000f), 0.01f,
+        )
+    }
+
+    @Test
+    fun `候选词替换要不过冲 但也别用最慢的那个解`() {
+        // 候选栏 48dp 高,动画幅度只有 7px 上移 + 缩放 + 淡入 —— 这种量级本来不该过冲。
+        // 但临界阻尼(ζ=1)是所有不过冲曲线里**最慢**的一条,会让"敲一个字母候选换一下"发黏。
+        // 0.9 的过冲量 exp(-πζ/√(1-ζ²)) ≈ 0.15%,7px 上移上是 0.01px,肉眼为零。
+        val ζ = SpringSpec.SWAP_IN.dampingRatio
+        val overshoot = kotlin.math.exp(-Math.PI.toFloat() * ζ / kotlin.math.sqrt(1f - ζ * ζ))
+        assertTrue("候选词入场不该过冲(实际 ${overshoot * 100}%)", overshoot < 0.005f)
+        assertTrue("但响应要短,否则每次敲字母都黏(实际 ${SpringSpec.SWAP_IN.response}s)",
+            SpringSpec.SWAP_IN.response < 0.25f)
     }
 
     @Test

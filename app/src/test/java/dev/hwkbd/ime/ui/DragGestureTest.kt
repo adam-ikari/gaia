@@ -72,17 +72,25 @@ class DragGestureTest {
     fun `换引擎后 手感基准值仍然接在弹簧上 而不是只剩一句注释`() {
         // 2026-10-02:补完动画从"剩余距离 × 固定时长"换成了弹簧。原来的
         // `settleDuration()` / `fallbackVelocity()` 一并删掉了(固定时长正是「松手顿一下」
-        // 与「打断跳变」的来源)。但 340ms 这个**手感基准不能丢** —— 它现在是
-        // `SpringSpec.DEFAULT.response` 的来由。
+        // 与「打断跳变」的来源)。但 340ms 这个**手感基准不能丢** —— 它是弹簧的调参起点。
         //
-        // 这条测试就是防那两处**悄悄脱钩**:哪天有人只改了 `response` 却以为
-        // 「基准还在 DragGesture 里」,或者反过来,它会当场失败。
-        assertEquals(
-            "弹簧响应应当就是 SETTLE_MS 那个手感基准(0.34s)",
-            DragGesture.SETTLE_MS / 1000f,
-            SpringSpec.DEFAULT.response,
-            1e-4f,
+        // 弹簧后来又调过一轮(0.34s → 0.28s,见 `PhysicsSpecTest`),所以这里**不再断言相等**,
+        // 只守住"它仍然是同一量级、没被改成完全不同的量":
+        // 真有人把它删了、或改成 0.02s 这种毫无手感依据的值,这条会失败。
+        val response = SpringSpec.DEFAULT.response
+        assertTrue(
+            "弹簧响应应仍在 0.34s 基准附近(实际 ${response}s)",
+            response in 0.2f..0.45f,
         )
+    }
+
+    @Test
+    fun `弹簧调快之后 迟滞感消失了 —— 那是 ζ=1 的必然结果`() {
+        // 2026-10-02 用户「弹性阻尼太强」。临界阻尼(ζ=1)是所有不过冲曲线里最慢的一条,
+        // 所以那不是参数没调好,是选错了**类型**。现在翻页用欠阻尼、橡皮筋用过阻尼,
+        // 两者方向相反且各有理由 —— 这条钉住"别再把翻页改回临界阻尼"。
+        assertTrue("翻页应当欠阻尼,才有一致的到位感", SpringSpec.DEFAULT.overshoots)
+        assertTrue("橡皮筋应当过阻尼,才不来回晃", !SpringSpec.RUBBER_BACK.overshoots)
     }
 
     @Test
@@ -96,8 +104,8 @@ class DragGestureTest {
             0f, Landing.stopDistancePx(0f), 1e-6f,
         )
         assertTrue(
-            "弹簧初速为 0 时依然会收敛,不需要任何假速度兜底",
-            SpringSpec.DEFAULT.response > 0f && !SpringSpec.DEFAULT.overshoots,
+            "弹簧从静止起步也会收敛,不需要任何假速度兜底",
+            SpringSpec.DEFAULT.response > 0f && SpringSpec.DEFAULT.stiffness > 0f,
         )
     }
 
