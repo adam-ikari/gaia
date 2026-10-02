@@ -52,12 +52,13 @@ class ImeService : InputMethodService() {
     private lateinit var controller: ImeController
 
     /**
-     * 按键之后的滑动静默窗(2026-10-02 用户定案:按键后 200ms 不响应键盘滑动事件,
+     * 按键之后的滑动静默窗(2026-10-02 用户定案:按键后 200ms 不响应**键盘**滑动事件,
      * 随后补定「无论是否消费」)。
      *
-     * **一处持有、三处查询**:飞字手势(本类)、候选行、L5 横滑。三个滑动入口各自问一次,
-     * 不各记一份 `lastKeyAt` —— 后者改窗口长度要动三处,漏一处就出现「候选行挡了、L5 没挡」
-     * 这种按区域不一致的静默窗。点按路径全都不查,理由见 [dev.hwkbd.ime.ime.KeyEventGate]。
+     * **只有键盘表面(TOUCHPAD)那一种滑动查它** —— 也就是本类的飞字手势 [handleFlyMotion]。
+     * 候选行与 L5 的横滑是**屏幕**手势,不再查:那两处一被挡就整条手势不起拖动,
+     * 于是跟手动画整个不出现(2026-10-02 真机报「左右滑动没有跟手动画」后收窄,
+     * 完整理由见 [dev.hwkbd.ime.ime.KeyEventGate] 的类注释)。
      */
     private val keyGate = KeyEventGate()
 
@@ -244,8 +245,6 @@ class ImeService : InputMethodService() {
         l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
             tailMode = true // L5 行 = L4 装不下的尾巴([tailFrom] 起)+ 用户短语(排在后面)
             onL4Key = { commitL4Tapped(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
-            // 同一个静默窗:刚敲过物理键就横滑 L5,页面内容还没跟着那次按键重排
-            swipeGate = { keyGate.swipeBlocked() }
             onPageChange = { p, total ->
                 // 页数可能随输入类型/主题变少,夹一下免得指到不存在的页
                 if (p >= total) page = (total - 1).coerceAtLeast(0)
@@ -257,9 +256,6 @@ class ImeService : InputMethodService() {
         }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
             onL4Key = { commitL4Tapped(it) }
-            // L4 中区不接横滑(那条路留给飞字手势,见 L4PanelView 类注释),这里接门是为将来:
-            // 万一它开始接手势,静默窗规则不用再记得补一处
-            swipeGate = { keyGate.swipeBlocked() }
             onOverflowChange = { hasL5, cut ->
                 l5HasOverflow = hasL5
                 if (!hasL5) l5RowShown = false // 没溢出了就收回,避免下次出现时自动弹开
@@ -285,9 +281,6 @@ class ImeService : InputMethodService() {
             onSelect = { controller.selectCandidate(it) }
             onLongPress = { controller.removeUserWord(it) }
             onPage = { controller.pageStep(it) }
-            // 候选行滑动接静默窗(见 KeyEventGate)。**点按/长按不看它** ——
-            // 敲一个键紧接着点候选上屏是最常见的手速,一起挡掉比不挡更糟
-            swipeGate = { keyGate.swipeBlocked() }
         }
         root.findViewById<ImageButton>(R.id.btn_settings).apply {
             setOnClickListener {

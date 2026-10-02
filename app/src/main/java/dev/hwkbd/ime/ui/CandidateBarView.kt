@@ -28,23 +28,6 @@ class CandidateBarView @JvmOverloads constructor(
     var swipePageEnabled = true
 
     /**
-     * **本次手势允许走滑动吗**:起手那一下问一次,整条手势记住结论。
-     *
-     * service 注入 [dev.hwkbd.ime.ime.KeyEventGate](按键后 280ms 静默窗)——刚敲过键的一小段时间里
-     * 候选词正在换,这时候滑下去命中的是还没稳定的那一页,所以不接。
-     *
-     * **只挡滑动,点按不看它**:"敲一个键、紧接着点候选词上屏"是最常见的手速,不能一起挡掉。
-     * 所以 [swipeArmed] 只出现在翻页接管、上滑起拖、抬手快划这几处,`onTap` 分支不查。
-     *
-     * 问在 DOWN 而不是每次 MOVE:要挡的是**整条手势**,半路接管的话画面已经跟着手指走了,
-     * 松手却不翻页 —— 那读起来是延迟,比一开始就不响应更糟。
-     */
-    var swipeGate: (() -> Boolean)? = null
-
-    /** 本次手势的滑动许可(DOWN 时定,见 [swipeGate])。默认 true = 没接门就是全放行。 */
-    private var swipeArmed = true
-
-    /**
      * 飞字触发上滑距离(px):由 service 按设置注入,与全屏飞字手势(FlyDetector)
      * 用同一个阈值——在候选行上起手的上滑不再走独立的 24dp 判据。
      */
@@ -580,8 +563,6 @@ class CandidateBarView @JvmOverloads constructor(
                 lastX = downX
                 lastY = downY
                 longPressFired = false
-                // 滑动许可只在这里问一次(见 swipeGate);点按与长按不看它
-                swipeArmed = swipeGate?.invoke() != true
                 // 越界橡皮筋的起点:从哪按下就从哪算(2026-09-30 用户「翻页到头要有拉伸变形动画」)
                 rubberRaw = 0f
                 rubberOn = false
@@ -616,7 +597,7 @@ class CandidateBarView @JvmOverloads constructor(
                 val ady = kotlin.math.abs(dy)
                 // 翻页先判:横滑接管时正在上滑的词要放回去,别两条拖动同时跑
                 var takeOverPage = false
-                if (swipeArmed && swipePageEnabled && adx > DragGesture.dead(pageThresholdPx) && adx > ady) {
+                if (swipePageEnabled && adx > DragGesture.dead(pageThresholdPx) && adx > ady) {
                     if (flyP >= 0f && flyAnim == null) cancelFlyDrag()
                     val dir = if (dx < 0f) 1f else -1f
                     val neighbour = if (dir > 0f) pageNextSlots else pagePrevSlots
@@ -635,7 +616,7 @@ class CandidateBarView @JvmOverloads constructor(
                     // 横滑翻页同样改成"拖动即反馈":整页跟手指走,松手过提交线才真的翻页
                     // (与上滑同一套模型:死区 → 跟手 → 松手判定 → 没过线反向动画收回)
                     takeOverPage || pageDragging -> setPageDrag(event.x, event.eventTime)
-                    swipeArmed && swipeSelectEnabled && downCell >= 0 && dy > flyDeadPx && dy > adx -> {
+                    swipeSelectEnabled && downCell >= 0 && dy > flyDeadPx && dy > adx -> {
                         beginFlyDrag(downCell) // 自带防重入
                         setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx), event.eventTime)
                     }
@@ -681,14 +662,14 @@ class CandidateBarView @JvmOverloads constructor(
                 when {
                     longPressFired -> Unit // 长按已在定时器里处理
                     kotlin.math.abs(dx) < touchSlop && kotlin.math.abs(dy) < touchSlop -> onTap(downX)
-                    swipeArmed && swipeSelectEnabled && dy < -flingDistance && -dy > kotlin.math.abs(dx) -> {
+                    swipeSelectEnabled && dy < -flingDistance && -dy > kotlin.math.abs(dx) -> {
                         val i = cellIndexAt(downX)
                         if (i >= 0) onSelect?.invoke(i)
                     }
                     // **候选词上横向滑动也能翻页**(用户 2026-09-30「在候选词上滑动一样也可以翻页」):
                     // 抬手时若位移够大且横向占优,直接翻。之前只有点两侧箭头能翻,
                     // 拖动必须过死区才接管,快速轻扫会落进 touchSlop 里什么都不发生。
-                    swipeArmed && swipePageEnabled && kotlin.math.abs(dx) > flingDistance &&
+                    swipePageEnabled && kotlin.math.abs(dx) > flingDistance &&
                         kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
                         onPage?.invoke(if (dx < 0) 1 else -1)
                     }
