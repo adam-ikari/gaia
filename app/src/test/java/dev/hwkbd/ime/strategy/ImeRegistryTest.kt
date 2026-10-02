@@ -198,14 +198,24 @@ class ImeRegistryTest {
         r.c.state.fieldKind = FieldKind.NUMBER_SIGNED_DECIMAL
         assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
         r.c.state.fieldKind = FieldKind.DATETIME
-        // 日期时间:时刻是唯一"单字符都按得出、整串仍然常用"的那类(2026-09-30 补的常用词组)
-        assertEquals(listOf("00:00", "00:00:00", "T00:00:00", "23:59:59"), r.c.l4Keys().map { it.label })
+        // 日期时间:L4 **空**(2026-10-02 用户「所以不需要快捷短语」)。
+        // `0-9 - / : .` 全部按得出,而要什么格式由 App 决定 —— 那些整串(`00:00` 之类)
+        // 经常和 App 要的值对不上,要 `12:30` 的框里点 `00:00` 反而要接着改。
+        assertEquals(emptyList<String>(), r.c.l4Keys().map { it.label })
         r.c.state.fieldKind = FieldKind.PHONE
-        // 电话:国际区号按从国内拨出的常用度排,港澳台/新马泰在欧美前面(2026-09-30 补)
-        assertEquals("+86", r.c.l4Keys().first().label)
-        assertEquals("+852", r.c.l4Keys()[1].label)
+        // 电话:区号次序 2026-10-02 用户定「大陆香港澳门美国日本放前面」。
+        // **澳门 +853 是这次补上的** —— 此前整份表里没有它,而香港在,这是漏的。
+        assertEquals(
+            listOf("+86", "+852", "+853", "+1", "+81"),
+            r.c.l4Keys().take(5).map { it.label },
+        )
         assertTrue("区号该有一批(溢出到 L5 是既有机制)", r.c.l4Keys().size >= 15)
-        assertTrue(r.c.l4Keys().map { it.label }.containsAll(listOf("+886", "+1", "+971")))
+        // 回归:澳门补上之后,原有的常用区号一个都不能少
+        assertTrue(
+            r.c.l4Keys().map { it.label }.containsAll(
+                listOf("+886", "+44", "+65", "+60", "+82", "+66", "+63", "+84", "+62", "+7", "+49", "+33", "+61", "+971")
+            ),
+        )
         // 回归:L4 显示的键必须 L1-L3 按不出(否则就该被筛掉,而不是"显示着却不按不出")
         val producible = KeyLayout.default().producible()
         for (kind in FieldKind.values()) {

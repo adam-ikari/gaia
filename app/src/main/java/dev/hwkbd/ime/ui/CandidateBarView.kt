@@ -983,12 +983,24 @@ private fun onTap(x: Float) {
         val fadeAlpha = if (alpha < 1f) (alpha * 255).toInt() else savedAlpha
         wordPaint.alpha = fadeAlpha
         val base = 17f * resources.displayMetrics.scaledDensity
+
+        // 分割线**先整排画完,再画槽**。2026-10-02 真机报「上滑动画时候选词左侧分割线会消失」:
+        // 原先分割线画在槽 `i` 的左侧、而 `if (i == skip) continue` 在它**之前** ——
+        // 上滑时飞起来的那个槽要空出来,连它左边的界一起空了。中槽(第 2 个)一飞,
+        // 槽 1 与槽 2 之间那条就没了,看着像"左边那一列突然粘住了"。
+        //
+        // 线是**界**,不属于任何一个槽,所以它不该跟着 skip 走。翻页动画传
+        // dividers=false 是另一回事:那是有意的(两页交叠时不该有界),与本条无关。
+        if (dividers) {
+            for (i in 1 until 5) {
+                val x = i * cellWidth
+                canvas.drawRect(x, dip(8), x + 1f, height - dip(8), dividerPaint)
+            }
+        }
+
         for (i in 0 until 5) {
             if (i == skip) continue
             val left = i * cellWidth
-            if (i > 0 && dividers) {
-                canvas.drawRect(left, dip(8), left + 1, height - dip(8), dividerPaint)
-            }
             val c = list.getOrNull(i) ?: continue
             if (i == highlightOf) {
                 canvas.drawRect(left, 0f, left + cellWidth, height.toFloat(), pressedPaint)
