@@ -7,6 +7,8 @@ actions:
   - text: 下载
     link: /media/gaia.apk
     primary: true
+    # 必须有:不带 download 时 VitePress 会把站内 .apk 链接当网页路由接管,点击 → 404 页
+    download: true
 ---
 
 ::: band

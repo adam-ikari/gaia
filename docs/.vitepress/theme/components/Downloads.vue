@@ -1,6 +1,12 @@
 <template>
   <div class="gi-dl">
-    <a class="gi-dl-btn" :href="DOWNLOAD_URL">下载安装包</a>
+    <!-- **`download` 属性不能省**(2026-10-02 真机报障:点按钮是 404 页,直接访问同一个 URL 却能下载)。
+         VitePress 拦截站内链接交给前端路由,判定函数 `treatAsHtml` 的已知扩展名表里**没有 apk**
+         —— 扩展名不在表里就算「是网页」,于是点击被 preventDefault()、交给前端路由,那里没有
+         对应页面 → 渲染 404 页。而直接访问是真请求,所以两者表现不一致。
+         `router.js` 留了两个逃逸口:`download` 与 `target`;用前者 —— `target="_blank"` 也能绕开,
+         但会新开一个标签页再开始下载,手机上多一步。 -->
+    <a class="gi-dl-btn" :href="DOWNLOAD_URL" download>下载安装包</a>
   </div>
 </template>
 

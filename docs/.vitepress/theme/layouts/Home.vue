@@ -8,7 +8,22 @@ import { Content } from 'vitepress'
 
 const { frontmatter } = useData()
 
-type Action = { text: string; link: string; primary?: boolean }
+type Action = { text: string; link: string; primary?: boolean; download?: boolean }
+
+/**
+ * `download` 属性对应 frontmatter 里的 `download: true`,**下载链接必须带它**。
+ *
+ * 少了会怎样(2026-10-02 真机报障「点按钮 404、直接访问同一个 URL 却能下」):
+ * VitePress 拦截站内链接交给前端路由,判定函数 `treatAsHtml` 的已知扩展名表里没有
+ * `apk`,扩展名不在表里就算「是网页」→ 点击被 preventDefault() → 前端路由里没有
+ * 对应页面 → 渲染 404 页。直接访问走的是真请求,所以两者表现不一致。
+ *
+ * `router.js` 留了两个逃逸口:`download` 与 `target`。用前者;`target="_blank"`
+ * 也能绕开,但会新开一个标签页再开始下载。
+ *
+ * 同一源 + `download` 浏览器才尊重,跨源会被忽略 —— 所以包必须由本站点自己发。
+ */
+
 
 /**
  * 站内链接要过 `withBase`,否则 `base: '/gaia/'` 不会作用到 frontmatter 里的
@@ -33,6 +48,7 @@ type Action = { text: string; link: string; primary?: boolean }
           class="gaia-btn"
           :class="{ 'gaia-btn-primary': a.primary }"
           :href="withBase(a.link)"
+          :download="a.download ? '' : undefined"
         >
           {{ a.text }}
         </a>
