@@ -77,3 +77,20 @@ if [ "$code" != "200" ]; then
 fi
 echo "✓ 匿名下载 200:$url"
 echo "  (latest 落在 $(gh release list -R "$SITE_REPO" --limit 1 --json tagName -q '.[0].tagName'))"
+
+# ---- 让站点把新包取走 ------------------------------------------------------------
+#
+# **release 资产与 Pages 上的那份是两个东西**(2026-10-02 差点只做一半):
+#   - 上面同步的是 gaia 仓库的 **release 资产** —— `releases/latest/download/…` 那条路;
+#   - 站点按钮指的 `/media/gaia.apk` 是 **Pages 的构建产物**,由站点仓库的
+#     `Deploy site` 从 release 拉下来放进 dist。
+# Pages 产物**只在站点仓库被 push/手动触发时才刷新**,同步 release 不会通知它。
+# 所以这里显式触发一次,否则站点继续发上一次的包,而上面那步还验过 200 —— 验的
+# 还是旧包。
+echo "触发站点重新部署(把新包取进 Pages)…"
+gh workflow run deploy.yml --repo "$SITE_REPO" || {
+  echo "::error::触发站点部署失败 —— release 资产是新的,但站点页面仍是上一次的包" >&2
+  exit 1
+}
+echo "  已触发 $SITE_REPO 的 Deploy site。等它跑完后:"
+echo "  https://adam-ikari.github.io/gaia/media/gaia.apk 才是 $TAG"
