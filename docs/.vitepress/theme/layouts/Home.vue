@@ -5,6 +5,7 @@
  */
 import { useData, withBase } from 'vitepress'
 import { Content } from 'vitepress'
+import { DOWNLOAD_FILENAME } from '../../download'
 
 const { frontmatter } = useData()
 
@@ -48,7 +49,7 @@ type Action = { text: string; link: string; primary?: boolean; download?: boolea
           class="gaia-btn"
           :class="{ 'gaia-btn-primary': a.primary }"
           :href="withBase(a.link)"
-          :download="a.download ? '' : undefined"
+          :download="a.download ? DOWNLOAD_FILENAME : undefined"
         >
           {{ a.text }}
         </a>

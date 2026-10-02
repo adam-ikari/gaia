@@ -40,7 +40,13 @@ jobs:
       # 处理失败的一种下载形态。
       #
       # 改成由 Pages 自己发这个文件后:同源、一次 200、零跳转,走 Pages 的 CDN。
-      # 代价是没有版本号文件名(固定叫 gaia.apk),换来的是"点了就下"。
+      #
+      # ## URL 固定,文件名带版本
+      #
+      # 落盘名固定叫 `gaia.apk` —— 站点链接 `/media/gaia.apk` 因此**永远指向最新版**,
+      # 发版不用改任何 md。而用户存下来的文件名是 `gaia-ime-v<版本>.apk`,
+      # 由 `<a download>` 给出(见 `docs/.vitepress/download.ts`)。
+      # 为什么不把版本塞进 URL:那就要每发一版改一次 index.md,漏改就 404 或下不到新版。
       #
       # ## 为什么不需要任何 secret
       #
@@ -52,6 +58,7 @@ jobs:
       # 6.2MB 一份,每次发版都进历史,仓库很快就几十 MB。放进 public/ 但只在 CI 里写,
       # git 完全看不见它。
       - name: 取最新 APK 放进 public
+        id: apk
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -63,10 +70,15 @@ jobs:
           mv docs/public/media/app-release.apk docs/public/media/gaia.apk
           # 落到 Pages 上就是 https://adam-ikari.github.io/gaia/media/gaia.apk
           ls -la docs/public/media/
-          # 下次构建产物里要是没它,站点就静悄悄退回跳 GitHub —— 这里先自己验一遍
+          # 构建产物里要是没它,站点就静悄悄退回跳 GitHub —— 这里先自己验一遍
           test -s docs/public/media/gaia.apk || { echo "::error::APK 没取到"; exit 1; }
+          # **tag 带 v,文件名里不带**:`v0.4.3` → `0.4.3`,最终 `gaia-ime-v0.4.3.apk`
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build site
+        env:
+          # 构建期注入,`download.ts` 读它拼出 `gaia-ime-v<版本>.apk`
+          VITE_APP_VERSION: ${{ steps.apk.outputs.version }}
         run: npm run build
 
       - name: 产物里必须有 APK

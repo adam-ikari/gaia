@@ -6,12 +6,12 @@
          对应页面 → 渲染 404 页。而直接访问是真请求,所以两者表现不一致。
          `router.js` 留了两个逃逸口:`download` 与 `target`;用前者 —— `target="_blank"` 也能绕开,
          但会新开一个标签页再开始下载,手机上多一步。 -->
-    <a class="gi-dl-btn" :href="DOWNLOAD_URL" download>下载安装包</a>
+    <a class="gi-dl-btn" :href="DOWNLOAD_URL" :download="DOWNLOAD_FILENAME">下载安装包</a>
   </div>
 </template>
 
 <script setup lang="ts">
-import { withBase } from 'vitepress'
+import { DOWNLOAD_URL, DOWNLOAD_FILENAME } from '../../download'
 
 /**
  * 包由**本站点自己发**,不是链 GitHub 的 release 下载链接。
@@ -26,15 +26,20 @@ import { withBase } from 'vitepress'
  * 下载失败的形态。
  *
  * 现在这个文件由 Pages 自己发(deploy.yml 从本仓库 release 取来放进产物):
- * 同源、一次 200、零跳转。代价是没有版本号文件名。
+ * 同源、一次 200、零跳转。
  *
- * 用 `/media/gaia.apk` + `withBase` 而不是写死 `/gaia/media/gaia.apk`:base 已在
- * config.mts 里,写两处就多一个能忘的地方。**不过 `withBase` 不能省** —— 不加的话
- * 产物里就是 `/media/gaia.apk`,浏览器解析到域名根目录,404。
+ * ## `download` 属性不能省
+ *
+ * 少了它,点击会被 VitePress 的 router 接管成前端路由:`treatAsHtml` 的已知扩展名表里
+ * 没有 `apk`,扩展名不在表里就算「是网页」→ preventDefault → 前端路由里没有这个页面
+ * → **渲染 404 页**(真机报过)。直接访问同一个 URL 却能下,因为那是真请求。
+ * `router.js` 留了两个逃逸口:`download` 与 `target`;用前者,后者会新开标签页。
+ *
+ * URL 与文件名都在 `../../download` 里,首屏那个按钮用的是同一份 —— 两处各写一遍
+ * 迟早会不一致。
  *
  * 为什么页面上只有这一个链接、为什么不取 API 显示版本号 —— 见 brain `site-analytics`。
  */
-const DOWNLOAD_URL = withBase('/media/gaia.apk')
 </script>
 
 <style scoped>
