@@ -18,8 +18,17 @@ class GesturePhysicsTest {
     private val viewW = 1440f
     private val threshold = viewW * PAGE_COMMIT_FRAC // ≈449px
 
+    /**
+     * 死区常量换算的 px(density 假设 2.0 ⇒ 32px)。**不再按阈值取比例**
+     * (2026-10-02 用户「死区不使用比例计算 采用固定值」)。
+     */
+    private val dead = DragGesture.DEAD_DP * 2f
+
     private fun slide(dxLeft: Float) =
-        pageDragSlide(x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW)
+        pageDragSlide(
+            x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
+            commitFrac = PAGE_COMMIT_FRAC, dead = dead,
+        )
 
     private fun travel(dxLeft: Float) =
         pageDragTravel(x = 1000f - dxLeft, baseX = 1000f, dir = 1f)
@@ -43,7 +52,6 @@ class GesturePhysicsTest {
     fun `dead zone still responds - no silent stretch while the finger moves`() {
         // 死区里画面也要动(按 DEAD_SLIP 打折)。此前死区内完全零变化,
         // 那段"手指在动、屏幕不动"正是"不跟手"的直接观感。
-        val dead = DragGesture.dead(threshold)
         val s = slide(dead * 0.5f)
         assertTrue("死区内也应有最小响应,实际 $s", s > 0f)
         assertEquals("死区内按 DEAD_SLIP 打折", dead * 0.5f * DragGesture.DEAD_SLIP, s, 0.01f)
@@ -58,8 +66,8 @@ class GesturePhysicsTest {
     @Test
     fun `opposite direction yields no progress`() {
         // dir=+1(下一页)时往右拖:不认成同一次翻页(方向由 beginPageDrag 定)
-        assertEquals(0f, pageDragSlide(1300f, 1000f, 1f, viewW), 0.01f)
-        assertEquals(0f, pageDragSlide(700f, 1000f, -1f, viewW), 0.01f)
+        assertEquals(0f, pageDragSlide(1300f, 1000f, 1f, viewW, PAGE_COMMIT_FRAC, dead), 0.01f)
+        assertEquals(0f, pageDragSlide(700f, 1000f, -1f, viewW, PAGE_COMMIT_FRAC, dead), 0.01f)
     }
 
     // ---------------------------------------------------------------- 惯性

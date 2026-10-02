@@ -21,17 +21,20 @@ class CandidateBarPageDragTest {
 
     private val viewW = 1440f
     private val commitPx = viewW * PAGE_COMMIT_FRAC
+    private val DEAD = DragGesture.DEAD_DP * 2f // density 2.0 ⇒ 32px,死区常量不再是阈值的比例
 
     /** 位移向**左**为正(左滑=下一页),与页面里 `dir` 无关的直观写法。 */
     private fun progress(dxLeft: Float): Float =
-        pageDragProgress(x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW)
+        pageDragProgress(
+            x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
+            commitFrac = PAGE_COMMIT_FRAC, dead = DEAD,
+        )
 
     @Test
     fun `dead zone swallows small flicks`() {
-        val dead = DragGesture.dead(commitPx)
         assertEquals(0f, progress(0f), 1e-6f)
-        assertEquals(0f, progress(dead * 0.5f), 1e-6f)
-        assertEquals(0f, progress(dead * 0.99f), 1e-6f)
+        assertEquals(0f, progress(DEAD * 0.5f), 1e-6f)
+        assertEquals(0f, progress(DEAD * 0.99f), 1e-6f)
     }
 
     @Test
@@ -43,11 +46,32 @@ class CandidateBarPageDragTest {
     }
 
     @Test
-    fun `the old 24dp flick now falls inside the dead zone`() {
+    fun `旧的 24dp 一划不翻页 但现在会跟手一小段`() {
         // 旧判据 24dp,在 598dp 逻辑宽对应的密度(~2.4)上约 58px
         val old = 24f * 2.4f
-        assertTrue("旧阈值比新死区(${DragGesture.dead(commitPx)}px)还小", old < DragGesture.dead(commitPx))
-        assertEquals("所以 24dp 一划现在不再翻页", 0f, progress(old), 1e-6f)
+        // 死区改成常量 ${DEAD}px 之后,58px **已经在死区之外**了 ——
+        // 所以它不再是被死区吞掉,改由触发线(${commitPx}px)挡住。结论不变:不翻页。
+        assertTrue("旧判据已越过常量死区", old > DEAD)
+        assertTrue("但仍远不到触发线", old < commitPx)
+        // 进度不为 0(已在死区之外,该有响应),但远不到提交线 —— 所以不翻页
+        assertTrue("已越过死区,应有一点点进度", progress(old) > 0f)
+        assertTrue("但不到提交线,所以不翻页", progress(old) < 1f)
+        // 而且现在画面会跟手一小段(死区的 DEAD_SLIP 响应),比"纹丝不动"好
+        assertTrue("死区之外应当有跟手响应", DragGesture.slide(old, commitPx, viewW, DEAD) > 0f)
+    }
+
+    @Test
+    fun `死区是常量 不随触发线变`() {
+        // 2026-10-02 用户「死区大小不随着触发阈值变化」:三档触发线(158/238/324dp)
+        // 下死区都一样。此前死区取阈值的 1/4,标准档就是 59dp —— 手指先走 59dp
+        // 屏幕纹丝不动,这就是"翻页不跟手"的直接来源。
+        for (frac in listOf(0.22f, 0.33f, 0.45f)) {
+            val t = viewW * frac
+            assertEquals(
+                "触发线 ${viewW * frac}px 下,死区内不该有进度",
+                0f, DragGesture.progress(DEAD - 1f, t, DEAD), 1e-6f,
+            )
+        }
     }
 
     @Test
@@ -67,12 +91,12 @@ class CandidateBarPageDragTest {
         // 往回翻要靠下一次手势接管(见 beginPageDrag 的角色对调),这是刻意的。
         assertEquals(
             0f,
-            pageDragProgress(x = 1300f, baseX = 1000f, dir = 1f, viewW = viewW),
+            pageDragProgress(1300f, 1000f, 1f, viewW, PAGE_COMMIT_FRAC, DEAD),
             1e-6f,
         )
         assertEquals(
             0f,
-            pageDragProgress(x = 700f, baseX = 1000f, dir = -1f, viewW = viewW),
+            pageDragProgress(700f, 1000f, -1f, viewW, PAGE_COMMIT_FRAC, DEAD),
             1e-6f,
         )
     }
@@ -80,8 +104,8 @@ class CandidateBarPageDragTest {
     @Test
     fun `previous-page direction is the mirror of next-page`() {
         // 同一段手指位移,dir=-1(上一页)且手指往右移 = 等价于往左移且 dir=+1
-        val viaNext = pageDragProgress(x = 700f, baseX = 1000f, dir = 1f, viewW = viewW)
-        val viaPrev = pageDragProgress(x = 1300f, baseX = 1000f, dir = -1f, viewW = viewW)
+        val viaNext = pageDragProgress(700f, 1000f, 1f, viewW, PAGE_COMMIT_FRAC, DEAD)
+        val viaPrev = pageDragProgress(1300f, 1000f, -1f, viewW, PAGE_COMMIT_FRAC, DEAD)
         assertEquals(viaNext, viaPrev, 1e-6f)
     }
 }

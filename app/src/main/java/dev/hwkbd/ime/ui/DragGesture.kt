@@ -20,7 +20,8 @@ package dev.hwkbd.ime.ui
  *
  * ## 死区里也要有响应
  *
- * 死区取阈值的 [DEAD_FRAC] 是为了防误触,但"手指在动、屏幕完全不动"这段静默本身就被感知成卡顿。
+ * 死区取固定的 [DEAD_DP](16dp)是为了防误触,但"手指在动、屏幕完全不动"这段静默本身就被感知成卡顿。
+ * 所以死区内给 [DEAD_SLIP] 权重的最小响应。
  * 所以死区内给 [DEAD_SLIP] 权重的最小响应:不启动拖动,但画面跟着走一点。
  *
  * ## 动画一律非线性
@@ -32,8 +33,26 @@ package dev.hwkbd.ime.ui
  */
 internal object DragGesture {
 
-    /** 死区占阈值的比例:比它小的位移视为抖动。 */
-    const val DEAD_FRAC = 0.25f
+    /**
+     * **手势死区**(dp):**常量值**,横滑与上滑共用,**不随触发阈值变化**
+     * (2026-10-02 用户「死区大小不随着触发阈值变化」「左右滑动和上下滑动的死区都是固定大小」
+     * 「死区不使用比例计算 采用固定值」「死区改为常量值」)。
+     *
+     * 此前两处都取 `触发线 × 1/4`,于是死区跟着阈值放大:
+     * - 横滑:标准档 59dp / 保守档 81dp —— **手指先走 59dp 屏幕纹丝不动**,
+     *   这就是"翻页不跟手"的直接来源(不是没实现,是前面空了一段那么长);
+     * - 上滑:12.5 / 20 / 30dp。
+     * 阈值本来就有三档,死区再跟着放大三档,于是「灵敏」和「保守」差的不只是触发点,
+     * 还有一段完全空白的起手距离 —— 调阈值时手感会连带乱掉。
+     *
+     * 16dp ≈ 一次普通触摸 slop 的两倍:越过它画面就 1:1 跟手,一直到触发线连续。
+     * 横滑的触发线是 158/238/324dp,上滑是 50/80/120dp,16dp 对两者都在合理区间。
+     *
+     * **不给比例、不给默认值**:`progress`/`slide` 的 `dead` 是**必填参数**,
+     * 类型上就不存在"忘了给、按比例算"这条路。死区不单独设开关 ——
+     * 它是防误触的量,不是手感偏好,调它的人只会调触发阈值。
+     */
+    const val DEAD_DP = 16f
 
     /**
      * 死区内的**最小响应比例**:手指在死区里移动时,画面跟着走这么比例。
@@ -48,15 +67,13 @@ internal object DragGesture {
      *
      * @param travel 位移(px,已取沿正方向的绝对值)
      * @param threshold 触发阈值(px,走完这一段就触发)
+     * @param dead 死区(px),由调用方按 [DEAD_DP] × density 给;**必填**,免得退回比例
      */
-    fun progress(travel: Float, threshold: Float): Float {
+    fun progress(travel: Float, threshold: Float, dead: Float): Float {
         if (threshold <= 0f) return if (travel > 0f) 1f else 0f
-        val dead = threshold * DEAD_FRAC
         return ((travel - dead) / (threshold - dead)).coerceIn(0f, 1f)
     }
 
-    /** 死区(px):小于它不提交。 */
-    fun dead(threshold: Float): Float = threshold * DEAD_FRAC
 
     /**
      * 没有速度样本时的**兜底速度**(px/s):按"匀速补完这段距离、耗时 [SETTLE_MS]"反推。
@@ -79,9 +96,9 @@ internal object DragGesture {
      * @param travel 位移(px,已取沿手势正方向的绝对值)
      * @param threshold 触发阈值(px)
      * @param limit 位移上限(px)。翻页传行宽——一整页就是画面该走的全部距离。
+     * @param dead 死区(px),同 [progress]:[DEAD_DP] × density,**必填**
      */
-    fun slide(travel: Float, threshold: Float, limit: Float): Float {
-        val dead = threshold * DEAD_FRAC
+    fun slide(travel: Float, threshold: Float, limit: Float, dead: Float): Float {
         val mag = if (travel <= dead) travel * DEAD_SLIP else travel
         return mag.coerceIn(0f, limit)
     }

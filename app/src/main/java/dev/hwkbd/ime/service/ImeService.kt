@@ -532,8 +532,20 @@ class ImeService : InputMethodService() {
          */
         var xMax = 1440f
 
-        /** 上滑死区 = 阈值 1/4:位移更小视为抖动忽略,不启动拖动(词不起升、其余候选不渐隐)。 */
-        private val deadZone: Float get() = threshold / 4f
+        /**
+         * 上滑死区:**固定值**,不随 [threshold] 变
+         * (2026-10-02 用户「死区不使用比例计算 采用固定值」)。
+         *
+         * 此前是 `threshold / 4`,于是三档给出 25 / 40 / 60px —— 调上滑距离时死区跟着动,
+         * 手感会连带乱掉,而且「灵敏」档的起手空白只有 12.5dp、「保守」档 30dp,
+         * 差的不只是触发点。现在与横滑共用 [dev.hwkbd.ime.ui.DragGesture.DEAD_DP]。
+         *
+         * 键距在屏幕坐标里,`FlyDetector` 拿不到 density(它是脱离 View 的内部类),
+         * 所以由 service 用本机 density 注入 —— 见构造处的 `deadPx`。
+         */
+        var deadPx = 0f
+
+        private val deadZone: Float get() = deadPx
 
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
         fun onMotion(action: Int, x: Float, y: Int): Int? {
@@ -564,7 +576,7 @@ class ImeService : InputMethodService() {
                     if (zone < 0) zone = zoneOf(downX)
                     dragging = true
                     // 过死区后进度从 0 重算,过阈值语义不变(仍 dy ≥ threshold 提交)
-                    val progress = (dy - deadZone) / (threshold - deadZone)
+                    val progress = dev.hwkbd.ime.ui.DragGesture.progress(dy, threshold, deadZone)
                     listener.onFlyDrag(zone, progress.coerceAtMost(1f))
                     if (progress >= 1f) {
                         // 过阈值即提交:抬手不再重复判定,完成段动画交给候选栏
@@ -703,6 +715,9 @@ class ImeService : InputMethodService() {
         val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
             ?: FLY_THRESHOLD_DEFAULT.toFloat()
         flyDetector.threshold = flyThreshold
+        // 死区固定(density 相关,见 FlyDetector.deadPx),与横滑同一个常量
+        flyDetector.deadPx =
+            dev.hwkbd.ime.ui.DragGesture.DEAD_DP * resources.displayMetrics.density
         // 左右滑翻页的阈值:一个开关同时喂候选行、L5、键盘表面三处
         val (pageFrac, pagePx) = pageThreshold(p)
         candidateBar?.pageCommitFrac = pageFrac

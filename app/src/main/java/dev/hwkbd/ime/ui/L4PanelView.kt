@@ -502,7 +502,7 @@ class L4PanelView @JvmOverloads constructor(
                 val dy = ev.y - swipeDownY
                 if (
                     swipeArmed &&
-                    kotlin.math.abs(dx) > DragGesture.dead(swipeThresholdPx()) &&
+                    kotlin.math.abs(dx) > swipeDeadPx &&
                     kotlin.math.abs(dx) > kotlin.math.abs(dy)
                 ) {
                     swipeTracking = true
@@ -536,7 +536,7 @@ class L4PanelView @JvmOverloads constructor(
                 val dx = ev.x - swipeDownX
                 val dy = ev.y - swipeDownY
                 if (!swipeTracking && swipeArmed &&
-                    kotlin.math.abs(dx) > DragGesture.dead(swipeThresholdPx()) &&
+                    kotlin.math.abs(dx) > swipeDeadPx &&
                     kotlin.math.abs(dx) > kotlin.math.abs(dy)
                 ) {
                     // 定方向那一下决定整次手势往哪翻(同候选行翻页)
@@ -549,7 +549,7 @@ class L4PanelView @JvmOverloads constructor(
                     // 此前这里是"进度 × 行宽"两处混用,放大过 —— 见 CandidateBarView.pageSlide。
                     swipeTravel = -dx * swipeDir
                     swipeSpeed.add(ev.eventTime, -dx)
-                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx()))
+                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx(), swipeDeadPx))
                 }
                 return true
             }
@@ -558,11 +558,11 @@ class L4PanelView @JvmOverloads constructor(
                     val dx = ev.x - swipeDownX
                     swipeTravel = -dx * swipeDir
                     swipeSpeed.add(ev.eventTime, ev.x)
-                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx()))
+                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx(), swipeDeadPx))
                     // 与候选行翻页同一判定:手指位移过线,或速度够快"甩"过去
                     val v = swipeSpeed.velocity() * swipeDir
                     val limit = swipeLimitPx()
-                    val byFinger = DragGesture.progress(swipeTravel, swipeThresholdPx()) >= 1f
+                    val byFinger = DragGesture.progress(swipeTravel, swipeThresholdPx(), swipeDeadPx) >= 1f
                     val byFling = v > 0f && Fling.projectLanding(swipeSlide, limit, v) >= swipeThresholdPx()
                     if (byFinger || byFling) {
                         // 过线:提交翻页,动画把剩下的位移补完
@@ -599,6 +599,14 @@ class L4PanelView @JvmOverloads constructor(
 
     private fun swipeThresholdPx(): Float =
         (measuredWidth - paddingLeft - paddingRight) * swipeCommitFrac
+
+    /**
+     * 横滑的**固定死区**(px):[DragGesture.DEAD_DP] 换算,**不随 [swipeCommitFrac] 变**。
+     *
+     * 2026-10-02 用户「死区大小不随着触发阈值变化」「左右滑动和上下滑动的死区都是固定大小」。
+     * 与候选行的 [CandidateBarView.pageDeadPx] 同一个常量,两处手感才对得上。
+     */
+    private val swipeDeadPx: Float get() = DragGesture.DEAD_DP * resources.displayMetrics.density
 
     /**
      * 本次横滑的位移上限(px):一整页的宽度 —— 也就是"滑到底"要走全的距离。

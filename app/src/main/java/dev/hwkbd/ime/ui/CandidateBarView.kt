@@ -55,7 +55,7 @@ class CandidateBarView @JvmOverloads constructor(
      * 上滑死区 = 阈值 1/4:位移更小视为抖动忽略(词不起升、其余候选不渐隐);过死区后进度从 0 重算。
      * 与翻页共用 [DragGesture] 的死区约定(2026-09-29「三处手势手感对齐」)。
      */
-    private val flyDeadPx: Float get() = DragGesture.dead(flyThresholdPx)
+    private val flyDeadPx: Float get() = DragGesture.DEAD_DP * density
 
     /** 固定 5 显示槽(首选在中间,槽位即物理键位);空槽为 null。 */
     private var slots: List<dev.hwkbd.ime.engine.Candidate?> = emptyList()
@@ -102,6 +102,14 @@ class CandidateBarView @JvmOverloads constructor(
      * 的档位经这里注入,[PAGE_COMMIT_FRAC] 只是出厂默认值。
      */
     var pageCommitFrac: Float = PAGE_COMMIT_FRAC
+
+    /**
+     * 横滑的**固定死区**(px):[DragGesture.DEAD_DP] 换算,**不随 [pageCommitFrac] 变**。
+     *
+     * 2026-10-02 用户「死区大小不随着触发阈值变化」。此前取 `触发线 × 1/4`,
+     * 标准档就是 59dp —— 手指先走 59dp 屏幕纹丝不动。
+     */
+    private val pageDeadPx: Float get() = DragGesture.DEAD_DP * density
 
     private val pageThresholdPx: Float get() = width * pageCommitFrac
 
@@ -330,11 +338,18 @@ class CandidateBarView @JvmOverloads constructor(
             pageFrom = slots
             pageTo = newSlots
             pageDir = dir
-            pageSlide = 0f
-            if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                settlePage(full)
+            if (pageDragging) {
+                // **拖动中提交**(过阈值当帧就翻,[setPageDrag]):位移**接着走**,不回零也不起动画。
+                // 回零的话画面会先跳回旧页再滑过去,而手指还按着 —— 看着像被弹回去,
+                // 跟"过阈值就翻"想要的连贯正好相反。位移继续由手指驱动,松手时 [endPageDrag] 收尾。
+                if (pageFrom.isEmpty() || pageTo.isEmpty()) clearPageTurn()
             } else {
-                clearPageTurn()
+                pageSlide = 0f
+                if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
+                    settlePage(full)
+                } else {
+                    clearPageTurn()
+                }
             }
         }
     }
@@ -378,11 +393,21 @@ class CandidateBarView @JvmOverloads constructor(
         val w = width.toFloat()
         if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
         val travel = pageDragTravel(x, pageDragBaseX, pageDir)
-        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageCommitFrac)
+        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageCommitFrac, pageDeadPx)
         pageDragTravel = travel
         if (slide != pageSlide) {
             pageSlide = slide
             invalidate()
+        }
+        // **过阈值当帧就翻**,与上滑一致(2026-10-02 用户「改为过阈值当帧就翻」):
+        // 手指不用抬,拖过线就换页。
+        // 提交后画面**不由动画接管**(见 [onPageIndexChanged] 里 `pageDragging` 那条分支)——
+        // 手指还按着,位移继续由这里驱动,松手时 [endPageDrag] 收尾。
+        if (!pageCommitted &&
+            DragGesture.progress(travel, w * pageCommitFrac, pageDeadPx) >= 1f
+        ) {
+            onPage?.invoke(if (pageDir > 0f) 1 else -1)
+            haptics?.confirm()
         }
     }
 
@@ -405,7 +430,7 @@ class CandidateBarView @JvmOverloads constructor(
         val v = pageSpeed.velocity() * pageDir
         val landing = Fling.projectLanding(pageSlide, full, v)
         // 提交线:手指位移过线 **或** 惯性落点在过线一侧(甩过去)
-        val byFinger = DragGesture.progress(pageDragTravel, threshold) >= 1f
+        val byFinger = DragGesture.progress(pageDragTravel, threshold, pageDeadPx) >= 1f
         val byFling = v > 0f && landing >= threshold
         if (byFinger || byFling) {
             if (!pageCommitted) {
@@ -658,7 +683,7 @@ class CandidateBarView @JvmOverloads constructor(
                 val ady = kotlin.math.abs(dy)
                 // 翻页先判:横滑接管时正在上滑的词要放回去,别两条拖动同时跑
                 var takeOverPage = false
-                if (swipeArmed && swipePageEnabled && adx > DragGesture.dead(pageThresholdPx) && adx > ady) {
+                if (swipeArmed && swipePageEnabled && adx > pageDeadPx && adx > ady) {
                     if (flyP >= 0f && flyAnim == null) cancelFlyDrag()
                     val dir = if (dx < 0f) 1f else -1f
                     val neighbour = if (dir > 0f) pageNextSlots else pagePrevSlots
@@ -679,7 +704,7 @@ class CandidateBarView @JvmOverloads constructor(
                     takeOverPage || pageDragging -> setPageDrag(event.x, event.eventTime)
                     swipeArmed && swipeSelectEnabled && downCell >= 0 && dy > flyDeadPx && dy > adx -> {
                         beginFlyDrag(downCell) // 自带防重入
-                        setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx), event.eventTime)
+                        setFlyDrag(DragGesture.progress(dy, flyThresholdPx, flyDeadPx), event.eventTime)
                     }
                     flyP >= 0f && flyAnim == null -> cancelFlyDrag()
                 }
@@ -692,7 +717,7 @@ class CandidateBarView @JvmOverloads constructor(
                         val dx = event.x - downX
                         val dy = downY - event.y
                         if (dy > 0f && dy > kotlin.math.abs(dx)) {
-                            setFlyDrag((dy - flyDeadPx) / (flyThresholdPx - flyDeadPx), event.eventTime)
+                            setFlyDrag(DragGesture.progress(dy, flyThresholdPx, flyDeadPx), event.eventTime)
                         }
                         if (flyP >= 1f) {
                             val zone = flyZone
@@ -1065,10 +1090,11 @@ internal fun pageDragProgress(
     baseX: Float,
     dir: Float,
     viewW: Float,
-    commitFrac: Float = PAGE_COMMIT_FRAC,
+    commitFrac: Float,
+    dead: Float,
 ): Float {
     val travel = pageDragTravel(x, baseX, dir)
-    return DragGesture.progress(travel, threshold = viewW * commitFrac)
+    return DragGesture.progress(travel, threshold = viewW * commitFrac, dead = dead)
 }
 
 /**
@@ -1086,11 +1112,13 @@ internal fun pageDragSlide(
     baseX: Float,
     dir: Float,
     viewW: Float,
-    commitFrac: Float = PAGE_COMMIT_FRAC,
+    commitFrac: Float,
+    dead: Float,
 ): Float = DragGesture.slide(
     travel = pageDragTravel(x, baseX, dir),
     threshold = viewW * commitFrac,
     limit = viewW,
+    dead = dead,
 )
 
 /** 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。 */

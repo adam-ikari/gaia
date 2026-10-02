@@ -16,21 +16,42 @@ import org.junit.Test
  */
 class DragGestureTest {
 
+    /**
+     * 死区常量换算的 px。**不再按阈值取比例**(2026-10-02 用户「死区不使用比例计算
+     * 采用固定值」「死区改为常量值」),所以这里给一个假想的 density 把它换算成 px,
+     * 后面的用例一律按这个 px 构造位移。
+     */
+    private val dead = DragGesture.DEAD_DP * 2f // density 假设 2.0 ⇒ 32px
+
     @Test
-    fun `dead zone swallows the first quarter of the threshold`() {
+    fun `死区是常量 不随阈值变化`() {
+        // 三种触发线(横滑 158/238/324dp 的像素级对应)下,死区都一样
+        for (t in listOf(160f, 316f, 475f, 648f)) {
+            assertEquals(
+                "阈值 $t 下的死区应恒为 ${dead}px,实际 ${t * 0.25f}",
+                0f, DragGesture.progress(dead - 1f, t, dead), 1e-6f,
+            )
+            assertEquals(
+                "阈值 $t 下越过死区就该有进度",
+                true, DragGesture.progress(dead + 1f, t, dead) > 0f,
+            )
+        }
+    }
+
+    @Test
+    fun `死区内进度恒 0`() {
         val t = 300f
-        assertEquals("死区 = 阈值的 1/4", 75f, DragGesture.dead(t), 1e-4f)
-        assertEquals(0f, DragGesture.progress(0f, t), 1e-6f)
-        assertEquals(0f, DragGesture.progress(40f, t), 1e-6f)
-        assertEquals(0f, DragGesture.progress(75f, t), 1e-6f) // 恰好在死区边界上
+        assertEquals(0f, DragGesture.progress(0f, t, dead), 1e-6f)
+        assertEquals(0f, DragGesture.progress(dead - 1f, t, dead), 1e-6f)
+        assertEquals(0f, DragGesture.progress(dead, t, dead), 1e-6f) // 恰好在边界上
     }
 
     @Test
     fun `progress follows the finger 1 to 1 past the dead zone`() {
         val t = 300f
-        val span = t - DragGesture.dead(t)
-        val p0 = DragGesture.progress(100f, t)
-        val p1 = DragGesture.progress(100f + 120f, t)
+        val span = t - dead
+        val p0 = DragGesture.progress(100f, t, dead)
+        val p1 = DragGesture.progress(100f + 120f, t, dead)
         assertEquals("位移 1:1 变成进度 1:1", 120f / span, p1 - p0, 1e-4f)
     }
 
@@ -39,12 +60,12 @@ class DragGestureTest {
         val t = 300f
         var prev = -1f
         for (travel in 0..600 step 5) {
-            val p = DragGesture.progress(travel.toFloat(), t)
+            val p = DragGesture.progress(travel.toFloat(), t, dead)
             assertTrue("单调不减 (travel=$travel)", p >= prev - 1e-6f)
             prev = p
         }
-        assertEquals("走满阈值 = 1", 1f, DragGesture.progress(t, t), 1e-6f)
-        assertEquals("超出阈值不越界", 1f, DragGesture.progress(t * 3f, t), 1e-6f)
+        assertEquals("走满阈值 = 1", 1f, DragGesture.progress(t, t, dead), 1e-6f)
+        assertEquals("超出阈值不越界", 1f, DragGesture.progress(t * 3f, t, dead), 1e-6f)
     }
 
     @Test
@@ -94,7 +115,7 @@ class DragGestureTest {
 
     @Test
     fun `a zero threshold still yields a usable 0 to 1 range`() {
-        assertEquals(0f, DragGesture.progress(0f, 0f), 1e-6f)
-        assertEquals(1f, DragGesture.progress(1f, 0f), 1e-6f)
+        assertEquals(0f, DragGesture.progress(0f, 0f, 0f), 1e-6f)
+        assertEquals(1f, DragGesture.progress(1f, 0f, 0f), 1e-6f)
     }
 }
