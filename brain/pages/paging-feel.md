@@ -5,35 +5,28 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-02T11:40:30"
+updated: "2026-10-02T12:16:07"
 ---
 
 <!-- compiled_truth -->
 ---
 id: paging-feel
-title: "翻页跟手/弹性只有一份实现;提交线各按各的量纲"
+title: "死区只算一次;打断一律反向;退场键原地淡出"
 category: decision
 status: active
 tags: [gesture, animation, paging, threshold, duplicate-implementation]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-02T11:40:00"
+updated: "2026-10-02T12:30:00"
 ---
 
 <!-- compiled_truth -->
 ## 头号教训:同一个手势有两条实现时,「有没有动画」取决于手落在哪
 
 2026-10-02 用户报「翻页到尽头的弹性动画和跟手动画还是没有」。**代码里动画一直都在** ——
-`CandidateBarView` 的跟手位移、`RubberDrag` 橡皮筋、`onDraw` 的三个分支全都好着,251 个单测全过。
+`CandidateBarView` 的跟手位移、`RubberDrag` 橡皮筋、`onDraw` 的三个分支全都好着,单测全过。
 
 真正的原因:**键盘表面上左右划也是翻页,但那条路的事件根本到不了候选行**。
-它走的是 `ImeService` 里一条老实现:
-
-```kotlin
-// ACTION_UP 才判一次
-if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
-// → handleFlyMotion → controller.pageStep(±1)
-```
-
+它走的是 `ImeService` 里一条老实现:`ACTION_UP` 判一次 → `controller.pageStep(±1)`。
 **抬手才翻、整条拖动不画位移、到头什么都不发生。** 于是同一个「翻页」有两套实现,
 「跟手和弹性到底有没有」取决于手落在哪块屏幕上。
 
@@ -44,41 +37,59 @@ if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PR
 症状就精确地表现为「改了还是那样」。候选栏/键盘表面/L5 三处滑动入口、
 九处选字入口,都是这个形状 —— 每次都要把所有入口一起数一遍。
 
-## 修法:共用一份实现,提交线各按各的
+## 第二条教训:共用实现时,"死区"这种量要数清楚算了几次
 
-把「有相邻页就起跟手翻页、到头就起橡皮筋」抽成 `CandidateBarView.takeOverPageDrag`,
-两条入口都走它(候选行自己的 `onTouchEvent`、键盘表面的 `FlyDetector`)。
-跟手 1:1、过阈值当帧提交、到头橡皮筋拉伸+弹回+轻震,全部只有一份实现,不会再分叉。
+把两条路合并到一份实现之后,键盘表面上「跟手有了、翻页触发不了」。两个原因叠在一起:
 
-`FlyDetector` 的横滑判定从 UP 移到 MOVE(过死区就接管),UP 只负责收尾。
-原来那条 UP 判定保留成**兜底** —— 只在这条手势压根没进过 MOVE 时
-(比如事件被系统合并成一次 DOWN+UP)才轮得到它。
+**1. 死区被扣了两次。** `beginPageDrag` 把基线定在「死区被跨过的那一帧」,
+那 32px 死在基线**之前**;而设置页档位(60px)是按**手指总行程**定的。
+不换算的话实际要划 `32 + 60 = 92px`,比用户调的档位多出整整一段死区。
 
-**共用绘制,但提交线不能共用。** 键盘面上能划的距离本来就小,照搬候选行
-「行宽 1/3 = 475px」的话轻轻一划根本翻不动。所以 `pageDragSlide`/`pageDragProgress`
-的参数从 `commitFrac`(行宽比例)改成 `commitPx`(绝对 px):
+换算成「从基线量」还不够:提交线成了 28px,而
+`DragGesture.progress` 的分母是 `threshold - dead` = `28 - 32` = **负数,进度恒 NaN**。
+所以外部驱动时死区必须传 **0** —— 那一段已经走过了。
 
-| 入口 | 提交线 |
-| --- | --- |
-| 候选行自己翻页 | `width * pageCommitFrac` |
-| 键盘表面翻页 | `externalCommitPx` = `FlyDetector.pageThresholdPx`(三档,默认 60px) |
+| 入口 | 基线 | 提交线 | 死区 |
+| --- | --- | --- | --- |
+| 候选行自己划 | downX | 行宽 × `pageCommitFrac` | `pageDeadPx` |
+| 键盘表面划 | 死区被跨过那一帧 | `externalCommitFromBase(60, 32)` = 28 | **0** |
 
-单测钉住这条:同一个 70px 位移,在 60px 提交线下过线、在 475px 提交线下不过。
-**量纲分开是有理由的,别哪天"顺手统一"掉。**
+**2. `externalCommitPx` 漏进了候选行自己的翻页。** 那是常驻值,用 `!= 0` 判断
+「是不是外部驱动」会把候选行的提交线也改成 60px —— 轻轻一划就翻页。
+改用每次起手重新标的 `externalDrive`,并在 DOWN/收尾处清掉。
 
-顺带对齐一处语义:键盘表面横滑被系统取消(ACTION_CANCEL)走 `pageDragCancel`,
-橡皮筋直接归零**不弹轻震** —— 「到头了」那下震是给用户主动确认的,系统抢走手势时不该有。
+**通用教训**:把两条路合并到一份实现时,逐个核对每个输入量的**口径**。
+位移、死区、提交线这三样在两条路上的起点和终点不一定相同。
+
+## 第三条教训:打断一律反向,不要跳变
+
+用户报「左右滑动动画打断之后需要反向动画」。三处原本都是"跳一下":
+
+| 打断 | 原行为 | 改成 |
+| --- | --- | --- |
+| 橡皮筋 → 翻页 | `cancelRubber` 把拉伸量清零 | `settleRubberBack()` 从当前 raw 弹回 0,不弹轻震 |
+| 翻页 → 橡皮筋 | 两个 active 同时为真,`pageDragging` 永远清不掉 | `reversePageTurn()` 动画收回原页,已提交的还撤回来 |
+| 橡皮筋还在弹 + 翻页已开始 | `onDraw` 里橡皮筋排在翻页前面,只能二选一 | `drawPageTurn(canvas, extraSquash = rubberShift())` 两层形变合成 |
+
+**合成而不是二选一**是关键:先弹完再翻的话,橡皮筋一归零整页会突然出现在
+**已经走过的**位移上 —— 那一下跳变正是用户要消掉的东西。
+
+顺带修一个卡死:此前两个 `active` 会同时为真,`pageDragMove` 的 `when` 里橡皮筋优先,
+翻页吃不到事件、抬手又走 `endRubber`,`pageDragging` 永远清不掉,画面卡在中间态。
+**教训:两个互斥的状态必须由同一个函数收干净,不能靠调用方记得先解一个。**
+
+**退场键同理**:L4/L5 消失的键原本「朝行外平移 + 淡出」,一边淡出一边横穿还留着的
+那几把,读起来像布局在乱挤。用户要**原地消失** ⇒ 只淡出、位置一帧不动。
+补位的键各自走进入动画的位移 —— **两件事分开,各自看得懂**。
 
 ---
 
 ## 死区:常量值,不是比例
 
-三处拖动手势(候选行横滑、候选行内起手的上滑飞字、L5 横滑、键盘表面飞字)共用:
-
 | 量 | 取值 | 可调? | 管什么 |
 | --- | --- | --- | --- |
 | **死区** `DEAD_DP` | **常量 16dp** | 不可调 | 抖动不启动拖动;死区内给 `DEAD_SLIP=0.33` 权重的最小响应 |
-| **提交线** | 见上表 | 三档可调 | 松手/过线是否算翻页 |
+| **提交线** | 见上表 | 三档可调 | 过线/松手是否算翻页 |
 
 **死区为什么必须是常量**(2026-10-02 用户连下四道指令才定案:不随阈值变 → 横竖都固定 →
 不用比例 → 改为常量值):
@@ -108,7 +119,7 @@ if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PR
 必须靠 `pageDragging` 区分:位移接着走、不起动画,动画仍由手指驱动,松手交给
 `endPageDrag` 收尾。
 
-## 附带推翻的一个测试前提
+## 附带推翻的测试前提
 
 `the old 24dp flick now falls inside the dead zone` 的**名字和前提都失效了**:
 旧的 24dp 一划在 598dp 逻辑宽对应密度下约 58px,死区改成常量 32px 之后,58px
@@ -198,4 +209,16 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   kind: decision
   summary: "翻页跟手/弹性只有一份实现(候选行与键盘表面共用);提交线各按各的量纲;v0.4.9 已发布并验过站点哈希"
   source: "2026-10-02 真机报障定位 + 251 个单测 + 站点验哈希"
+  affects: [paging-feel]
+
+- time: 2026-10-02T12:15:34
+  kind: reversal
+  summary: "死区被扣两次导致外部拖动进度 NaN;打断一律反向而非跳变;退场键只淡出不横移"
+  source: "2026-10-02 用户连报三条:翻页触发不了 / 打断要反向动画 / L4L5 应原地消失"
+  affects: [paging-feel]
+
+- time: 2026-10-02T12:16:07
+  kind: decision
+  summary: "死区只算一次;打断一律反向;退场键原地淡出;v0.5.0 已发布并验过站点哈希"
+  source: "2026-10-02 三条真机报障 + 253 个单测 + 站点验哈希"
   affects: [paging-feel]
