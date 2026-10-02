@@ -5,28 +5,80 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-02T10:50:27"
+updated: "2026-10-02T11:40:30"
 ---
 
 <!-- compiled_truth -->
 ---
 id: paging-feel
-title: "死区与提交线是一对:死区是常量,提交线可调"
+title: "翻页跟手/弹性只有一份实现;提交线各按各的量纲"
 category: decision
 status: active
-tags: [gesture, animation, paging, threshold]
+tags: [gesture, animation, paging, threshold, duplicate-implementation]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-02T10:50:00"
+updated: "2026-10-02T11:40:00"
 ---
 
 <!-- compiled_truth -->
-三处拖动手势(候选行横滑翻页、候选行内起手的上滑飞字、L5 横滑)共用同一套换算
-`DragGesture`,两条独立的线:
+## 头号教训:同一个手势有两条实现时,「有没有动画」取决于手落在哪
+
+2026-10-02 用户报「翻页到尽头的弹性动画和跟手动画还是没有」。**代码里动画一直都在** ——
+`CandidateBarView` 的跟手位移、`RubberDrag` 橡皮筋、`onDraw` 的三个分支全都好着,251 个单测全过。
+
+真正的原因:**键盘表面上左右划也是翻页,但那条路的事件根本到不了候选行**。
+它走的是 `ImeService` 里一条老实现:
+
+```kotlin
+// ACTION_UP 才判一次
+if (adx > pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
+// → handleFlyMotion → controller.pageStep(±1)
+```
+
+**抬手才翻、整条拖动不画位移、到头什么都不发生。** 于是同一个「翻页」有两套实现,
+「跟手和弹性到底有没有」取决于手落在哪块屏幕上。
+
+**为什么前面几次修对这个报障无效**:死区常量、过阈值当帧提交,改的全是候选行那条路。
+每一处单独看都对,合起来仍然漏掉另一条路。
+
+**所以判断报障时先问一句:这个手势有几条入口?** 入口多于一条而只有一条被改,
+症状就精确地表现为「改了还是那样」。候选栏/键盘表面/L5 三处滑动入口、
+九处选字入口,都是这个形状 —— 每次都要把所有入口一起数一遍。
+
+## 修法:共用一份实现,提交线各按各的
+
+把「有相邻页就起跟手翻页、到头就起橡皮筋」抽成 `CandidateBarView.takeOverPageDrag`,
+两条入口都走它(候选行自己的 `onTouchEvent`、键盘表面的 `FlyDetector`)。
+跟手 1:1、过阈值当帧提交、到头橡皮筋拉伸+弹回+轻震,全部只有一份实现,不会再分叉。
+
+`FlyDetector` 的横滑判定从 UP 移到 MOVE(过死区就接管),UP 只负责收尾。
+原来那条 UP 判定保留成**兜底** —— 只在这条手势压根没进过 MOVE 时
+(比如事件被系统合并成一次 DOWN+UP)才轮得到它。
+
+**共用绘制,但提交线不能共用。** 键盘面上能划的距离本来就小,照搬候选行
+「行宽 1/3 = 475px」的话轻轻一划根本翻不动。所以 `pageDragSlide`/`pageDragProgress`
+的参数从 `commitFrac`(行宽比例)改成 `commitPx`(绝对 px):
+
+| 入口 | 提交线 |
+| --- | --- |
+| 候选行自己翻页 | `width * pageCommitFrac` |
+| 键盘表面翻页 | `externalCommitPx` = `FlyDetector.pageThresholdPx`(三档,默认 60px) |
+
+单测钉住这条:同一个 70px 位移,在 60px 提交线下过线、在 475px 提交线下不过。
+**量纲分开是有理由的,别哪天"顺手统一"掉。**
+
+顺带对齐一处语义:键盘表面横滑被系统取消(ACTION_CANCEL)走 `pageDragCancel`,
+橡皮筋直接归零**不弹轻震** —— 「到头了」那下震是给用户主动确认的,系统抢走手势时不该有。
+
+---
+
+## 死区:常量值,不是比例
+
+三处拖动手势(候选行横滑、候选行内起手的上滑飞字、L5 横滑、键盘表面飞字)共用:
 
 | 量 | 取值 | 可调? | 管什么 |
 | --- | --- | --- | --- |
 | **死区** `DEAD_DP` | **常量 16dp** | 不可调 | 抖动不启动拖动;死区内给 `DEAD_SLIP=0.33` 权重的最小响应 |
-| **提交线** | 横滑 158/238/324dp(按行宽比例)<br>上滑 50/80/120dp(绝对距离) | 三档可调 | 松手是否算过线 |
+| **提交线** | 见上表 | 三档可调 | 松手/过线是否算翻页 |
 
 **死区为什么必须是常量**(2026-10-02 用户连下四道指令才定案:不随阈值变 → 横竖都固定 →
 不用比例 → 改为常量值):
@@ -42,8 +94,13 @@ updated: "2026-10-02T10:50:00"
 "手在动、屏幕微动"的响应;死区只在死区**之前**完全静默。所以「16dp 死区」不等于
 「前 16dp 无反馈」,而是「前 16dp 只有 1/3 幅度的微小跟随」。
 
-**过阈值当帧就提交**:与上滑一致(上滑在 MOVE 里 `progress >= 1f` 就 `onFlyCommit`),
-横滑此前是**抬手才判**。`setPageDrag` 里越线即 `onPage` + 轻震,手指不用抬。
+**从类型上不给"按比例算"留后路**:`progress`/`slide` 的 `dead` 是**必填参数**,
+`DEAD_FRAC` 常量与 `dead(threshold)` 函数直接删掉。
+
+## 过阈值当帧就提交
+
+与上滑一致(上滑在 MOVE 里 `progress >= 1f` 就 `onFlyCommit`),横滑此前是**抬手才判**。
+过线即 `onPage` + 轻震,手指不用抬。
 
 配套的一处反直觉细节:**拖动中提交时位移不能回零**。`onPageIndexChanged` 的
 "整页重切"分支里,若照常 `pageSlide = 0f` 并启动 settle 动画,画面会先跳回旧页
@@ -51,18 +108,9 @@ updated: "2026-10-02T10:50:00"
 必须靠 `pageDragging` 区分:位移接着走、不起动画,动画仍由手指驱动,松手交给
 `endPageDrag` 收尾。
 
-**死区一次改了四处**:候选行横滑 `pageDeadPx`、候选行内上滑 `flyDeadPx`、
-L5 横滑 `swipeDeadPx`、键盘表面飞字 `FlyDetector.deadPx`(它脱离 View 拿不到
-density,由 `ImeService` 注入)。
-
-**从类型上不给"按比例算"留后路**:`progress`/`slide` 的 `dead` 是**必填参数**,
-`DEAD_FRAC` 常量与 `dead(threshold)` 函数直接删掉。
-
----
-
 ## 附带推翻的一个测试前提
 
-`the old 24dp flick now falls inside the dead zone` 这条单测的**名字和前提都失效了**:
+`the old 24dp flick now falls inside the dead zone` 的**名字和前提都失效了**:
 旧的 24dp 一划在 598dp 逻辑宽对应密度下约 58px,死区改成常量 32px 之后,58px
 **已经在死区之外**了 —— 它不再是被死区吞掉,改由提交线(475px)挡住。
 
@@ -138,4 +186,16 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   kind: decision
   summary: "死区改为常量 16dp(横滑/上滑/L5 共用),过阈值当帧提交;v0.4.8 已发布并验过站点哈希"
   source: "2026-10-02 实现 + 250 个单测 + 真机口径的重新推导"
+  affects: [paging-feel]
+
+- time: 2026-10-02T11:39:50
+  kind: reversal
+  summary: "翻根因:键盘表面横滑走的是另一条 UP 才判的老路,动画从来没写在那条路上;两条路改为共用一份实现"
+  source: "2026-10-02 用户报障「翻页到尽头的弹性动画和跟手动画还是没有」+ 代码核算"
+  affects: [paging-feel]
+
+- time: 2026-10-02T11:40:30
+  kind: decision
+  summary: "翻页跟手/弹性只有一份实现(候选行与键盘表面共用);提交线各按各的量纲;v0.4.9 已发布并验过站点哈希"
+  source: "2026-10-02 真机报障定位 + 251 个单测 + 站点验哈希"
   affects: [paging-feel]
