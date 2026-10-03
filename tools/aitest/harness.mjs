@@ -68,24 +68,52 @@ export class Device {
 
   /** 返回并清空 logcat 中匹配行(证据用)。 */
   takeLog(pattern) {
-    const out = this.shell(`logcat -d -s ImeService:* 2>/dev/null | grep -E "${pattern}" | tail -20`)
+    // tag 白名单:**`-s` 会把不在列表里的 tag 全部丢掉**,所以在别处加的日志
+    // 必须把它的 tag 加进来,否则断言永远看不到(加日志 ≠ 可观测)。
+    // CandidateBar 是 2026-10-03 补的 —— 翻页手势在那边,而它此前一条日志都没有。
+    const out = this.shell(`logcat -d -s ImeService:* CandidateBar:* 2>/dev/null | grep -E "${pattern}" | tail -20`)
     this.shell('logcat -c')
     return out.trim()
   }
 
-  screenshot(file) { execFileSync(this.adb, [...this.args, 'shell', 'screencap -d 4627039422300187648 -p /sdcard/aitest.png'], { timeout: 20000 }); execFileSync(this.adb, [...this.args, 'pull', '/sdcard/aitest.png', file], { timeout: 20000, stdio: 'ignore' }); this.shell('rm /sdcard/aitest.png') }
+  /**
+   * 截图。原来写的是 `screencap -d 4627039422300187648 -p /sdcard/…` —— 那个 `-d` 是
+   * **Titan 单屏专用的 displayId**,在模拟器上直接 `Command failed`
+   * (2026-10-03:compose-space / candidate-center 两个场景都死在这,看着像场景有问题)。
+   * `tools/aitest/shots.mjs` 里早就写了这件事,这里却没跟上。
+   * 改用 `exec-out screencap -p`:不过 sdcard、不用 pull、字节流直出。
+   */
+  screenshot(file) {
+    const buf = execFileSync(this.adb, [...this.args, 'exec-out', 'screencap', '-p'], { timeout: 20000, maxBuffer: 64 * 1024 * 1024 })
+    writeFileSync(file, buf)
+  }
 
-  /** EditText 内容(UI dump;注意组词中 IME 全屏窗口会盖住 app,此法仅无组词时可用)。 */
+  /**
+   * 主输入框的内容(UI dump)。
+   *
+   * **必须按 resource-id 取,不能取「最后一个 EditText」**。
+   *
+   * 原来那个写法在 2026-10-03 表现成:l2-output 场景拿到
+   * `"密码 → 强制英文"` —— 那是 `playground_password_hint`,**密码框的 hint**。
+   * 两个原因叠在一起:
+   *   1. 循环里每个 EditText 都覆盖一次 `et`,所以留下的是 dump 里最后那个,
+   *      而 playground 的最后一个是 `et_password`;
+   *   2. 空的 EditText,uiautomator 的 `text` 属性会**回落到 hint**。
+   *
+   * 所以那个断言失败跟 Alt+W 没关系 —— 键可能一直是好的,只是读错了框。
+   * 这比「功能坏了」更难查:它给出一个**看起来像内容**的真值。
+   */
   editText() {
     try {
       this.shell('uiautomator dump /sdcard/u.xml', 20000)
       const xml = this.shell('cat /sdcard/u.xml', 10000)
-      let et = ''
       for (const m of xml.matchAll(/<node[^>]*>/g)) {
-        if (!m[0].includes('android.widget.EditText')) continue
-        et = (m[0].match(/text="([^"]*)"/) ?? [])[1] ?? ''
+        const node = m[0]
+        if (!node.includes('android.widget.EditText')) continue
+        if (!/resource-id="[^"]*\/et_playground"/.test(node)) continue
+        return (node.match(/text="([^"]*)"/) ?? [])[1] ?? ''
       }
-      return et
+      return ''
     } catch { return '' }
   }
 }

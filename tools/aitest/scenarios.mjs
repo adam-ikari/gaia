@@ -73,6 +73,17 @@ export const scenarios = [
   {
     name: 'page-flip',
     desc: '键盘面左右滑翻页(左滑=下一页)',
+    // 断言的是 `page begin` / `page end`,**不是** `fly judge` / `fly page:`。
+    //
+    // 原因(2026-10-03 实测):横滑在 MOVE 里就被接管去画跟手动画
+    // (`FlyDetector.paging = true`),抬手走 CandidateBarView.endPageDrag,
+    // **不经过** ACTION_UP 的兜底分支。而 `fly judge` / `fly page: next`
+    // 两条日志都只打在兜底分支上 —— 那条分支只在「MOVE 压根没接管」时才轮得到。
+    //
+    // 所以旧断言在**翻页完全正常**时也三条全红(看着像功能坏了)。
+    // 修法不是把场景改松,而是给正常路径补上可观测的日志(见 CandidateBarView)。
+    // 顺带断言 `commit=true`:到头时 begin 走橡皮筋、end 也 commit=false,
+    // 这样「翻页」与「到头弹回」分得开。
     steps: [
       async (c) => {
         c.device.key(K.n, K.i)
@@ -80,12 +91,12 @@ export const scenarios = [
         c.device.shell('logcat -c')
         c.device.swipe(1100, 1100, 500, 1100, 200)
         await sleep(700)
-        const log1 = c.device.takeLog('fly (judge|page)')
-        c.expectLog(log1, 'fly judge', 'fly page: next')
+        const log1 = c.device.takeLog('page (begin|end)')
+        c.expectLog(log1, 'page begin: dir=1.0 → 跟手翻页', 'commit=true')
         c.device.swipe(500, 1100, 1100, 1100, 200)
         await sleep(700)
-        const log2 = c.device.takeLog('fly (judge|page)')
-        c.expectLog(log2, 'fly page: prev')
+        const log2 = c.device.takeLog('page (begin|end)')
+        c.expectLog(log2, 'page begin: dir=-1.0 → 跟手翻页', 'commit=true')
         c.device.key(K.del, K.del)
       },
     ],

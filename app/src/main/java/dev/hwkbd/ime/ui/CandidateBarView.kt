@@ -484,6 +484,8 @@ class CandidateBarView @JvmOverloads constructor(
         return if (neighbour.isNotEmpty() && neighbour.any { it != null }) {
             // **反向从橡皮筋接管**:拉伸量弹回,而不是被清零(见 [settleRubberBack])
             if (rubberDrag.tracking || rubberDrag.raw > 0f) settleRubberBack()
+            // 与 [endPageDrag] 里 `step` 同一套符号约定:dir>0 = 往下一页
+            android.util.Log.i(TAG, "page begin: dir=$dir → 跟手翻页 $page→${page + (if (dir > 0f) 1 else -1)}")
             beginPageDrag(dir, x, eventTimeMs)
             true
         } else {
@@ -492,6 +494,7 @@ class CandidateBarView @JvmOverloads constructor(
             // [pageDragMove] 的 when 里橡皮筋优先 —— 翻页那条名义上在拖却吃不到事件,
             // 抬手又走 [endRubber],于是 pageDragging 永远清不掉,画面卡在中间态。
             if (pageDragging || pageFrom.isNotEmpty()) reversePageTurn()
+            android.util.Log.i(TAG, "page begin: dir=$dir → 到头,走橡皮筋")
             beginRubber(dir, x)
         }
     }
@@ -630,6 +633,24 @@ class CandidateBarView @JvmOverloads constructor(
             pageCommitted = false
             settlePage(Landing.project(pageSlide, 0f, v).coerceAtMost(pageSlide))
         }
+        // 这条日志是**必需**的,不是调试残留(2026-10-03 E2E 才发现):
+        //
+        // 横滑在 MOVE 里就被接管去画跟手动画(`FlyDetector.paging = true`),
+        // 抬手走的是这里 —— **不经过** ACTION_UP 那条兜底分支。
+        // 而 `fly judge` / `fly page: next` 两条日志都只打在兜底分支上,
+        // 于是「翻页成功」这条**正常路径在 logcat 里一个字都没有**:
+        // E2E 场景 page-flip 断言 `fly judge` + `fly page: next`,三条全红,
+        // 看起来像翻页坏了,其实它可能好得很 ———只是没有证据。
+        //
+        // 判据选「过线方式」而不只是「翻没翻」,是因为到头橡皮筋那条路
+        // ( neighbour 为空 → 接管但没有新页)也走同一个 endPageDrag,
+        // 只看结果分不出「翻页」与「到头弹回」。
+        android.util.Log.i(
+            TAG,
+            "page end: step=$step by=${if (byFinger) "finger" else "fling"} " +
+                "slide=${pageSlide.toInt()} landing=${landing.toInt()} " +
+                "thr=${threshold.toInt()} v=${v.toInt()} commit=${byFinger || byFling}"
+        )
     }
 
     /**
@@ -1324,6 +1345,14 @@ private fun onTap(x: Float) {
     private fun dip(v: Int): Float = v * density
 
     private companion object {
+        /**
+         * 日志 tag。翻页手势的成败要能被 E2E 断言,所以这个 tag **必须**
+         * 出现在 `tools/aitest/harness.mjs` 的 `takeLog` 过滤里
+         * (`logcat -s ImeService:* CandidateBar:*`)—— `-s` 会把不在列表里的
+         * tag 全部丢掉,加日志而不改过滤 = 白加。
+         */
+        private const val TAG = "CandidateBar"
+
         /** 中槽 = 第一候选(空格键位)。 */
         const val CENTER_SLOT = 2
 
