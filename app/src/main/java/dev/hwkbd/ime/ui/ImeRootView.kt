@@ -67,6 +67,23 @@ class ImeRootView @JvmOverloads constructor(
         val contentTop = uiTop()
         val inUi = ev.y >= contentTop
         val h = flyHandler
+        // **只在起手记一笔**:2026-10-03 E2E 的 page-flip 场景三条断言全红且**一条日志都没有**,
+        // 而同一批的 fly-select 通过。两条路走的是同一个 dispatchTouchEvent,差别只在
+        // 落点 y —— 于是问题必然在「这个 y 算不算 UI 区」这一句上,而不是手势逻辑里。
+        //
+        // 但那一句取决于三件互相遮蔽的事:`uiTop()`(L5 可见时取 l5.top)、
+        // `flyMode`(false 时窗口是 WRAP_CONTENT,ev.y 根本到不了 1100)、以及
+        // L5 在组词态恒隐藏。**读代码分不出来**,所以把判据打出来。
+        //
+        // 只打 DOWN:一次手势一条,足够定位,而且不会把 logcat 冲掉
+        // (之前 `fly judge` 那种每次抬手都打的日志,正是被 `tail -20` 截掉的原因)。
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            android.util.Log.i(
+                TAG,
+                "touch DOWN: y=${ev.y.toInt()} contentTop=$contentTop inUi=$inUi " +
+                    "flyMode=$flyMode h=${h != null} winH=$height"
+            )
+        }
         if (!inUi || flyTracking) {
             if (ev.actionMasked == MotionEvent.ACTION_DOWN || flyTracking) {
                 flyTracking = ev.actionMasked != MotionEvent.ACTION_UP &&
@@ -75,6 +92,14 @@ class ImeRootView @JvmOverloads constructor(
             }
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    private companion object {
+        /**
+         * tag 必须在 `tools/aitest/harness.mjs` 的 `takeLog` 白名单里
+         * (`logcat -s ImeService:* CandidateBar:* ImeRoot:*`)—— `-s` 会丢掉不在列表里的。
+         */
+        private const val TAG = "ImeRoot"
     }
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {

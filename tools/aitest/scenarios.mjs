@@ -88,6 +88,11 @@ export const scenarios = [
       async (c) => {
         c.device.key(K.n, K.i)
         await sleep(900)
+        // **先验「有组词」再验手势**(2026-10-03 加)。
+        //
+        // 没有组词时 `onPageDragBegin` 直接静默早退,logcat 里一个字都没有 ——
+        // 与「手势压根没进窗口」完全同形。这条断言把两者分开,否则每次红都只能靠猜。
+        c.expectLog(c.device.takeLog('hasComposition'), 'hasComposition=true')
         c.device.shell('logcat -c')
         c.device.swipe(1100, 1100, 500, 1100, 200)
         await sleep(700)

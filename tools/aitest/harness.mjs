@@ -71,7 +71,7 @@ export class Device {
     // tag 白名单:**`-s` 会把不在列表里的 tag 全部丢掉**,所以在别处加的日志
     // 必须把它的 tag 加进来,否则断言永远看不到(加日志 ≠ 可观测)。
     // CandidateBar 是 2026-10-03 补的 —— 翻页手势在那边,而它此前一条日志都没有。
-    const out = this.shell(`logcat -d -s ImeService:* CandidateBar:* 2>/dev/null | grep -E "${pattern}" | tail -20`)
+    const out = this.shell(`logcat -d -s ImeService:* CandidateBar:* ImeRoot:* 2>/dev/null | grep -E "${pattern}" | tail -20`)
     this.shell('logcat -c')
     return out.trim()
   }
@@ -208,6 +208,21 @@ async function main() {
     } catch (e) {
       console.log(`\n   ⇒ ERROR: ${e.message}`)
       report.scenarios.push({ name, passed: false, results: [ok(false, e.message)], shots: [] })
+    } finally {
+      // **每个场景都留一份自己的 logcat**(2026-10-03 加)。
+      //
+      // 之前只有 runDir 末尾一份 `ime.log`,内容是 `tail -20` —— 而 `takeLog`
+      // 每次断言后都 `logcat -c` 清空。于是最后剩下的那 27 行**只覆盖最后一个场景**,
+      // 前面失败的场景什么都没有。那次 page-flip 三条断言全红、一条日志都没有,
+      // 事后完全无法判断是「手势没进来」还是「进来了被门挡住」——
+      // 而这两种的修法完全不同。
+      //
+      // 所以:场景跑完立刻把这一段期间的日志落到**它自己的目录**里。
+      // 代价是几 KB,收益是任何一次失败都能事后查。
+      try {
+        const log = device.shell('logcat -d -v time 2>/dev/null | tail -400')
+        writeFileSync(join(dir, 'ime.log'), log + '\n')
+      } catch { /* 取不到就算了,不能因为存证据而让场景失败 */ }
     }
   }
 

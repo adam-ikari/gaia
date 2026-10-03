@@ -683,7 +683,16 @@ class ImeService : InputMethodService() {
     private fun handleFlyMotion(ev: MotionEvent): Boolean {
         // 滑动许可只在 DOWN 问一次(见 KeyEventGate):刚敲过键就落在这里的手势整条不接 ——
         // 喂给 FlyDetector 的话它会正常起拖,画面跟着手指走,松手却什么都不做。
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) flyArmed = !keyGate.swipeBlocked()
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            flyArmed = !keyGate.swipeBlocked()
+            // 与 [ImeRootView] 的 DOWN 埋点配对:那条说「事件到了没有」,
+            // 这条说「到了之后被哪个门挡住」。两条都没有 ⇒ 事件没进窗口。
+            android.util.Log.i(
+                TAG,
+                "fly DOWN: y=${ev.rawY.toInt()} armed=$flyArmed " +
+                    "blocked=${keyGate.swipeBlocked()} comp=${controller.state.hasComposition}"
+            )
+        }
         if (!flyArmed) return true
         val zone = flyDetector.onMotion(ev.actionMasked, ev.rawX, ev.rawY.toInt(), ev.eventTime)
         if (zone == null) return true
@@ -721,7 +730,12 @@ class ImeService : InputMethodService() {
          * 那条 `pageStep` 兜底自己会 no-op)。返回 false 就是"这次不接管"。
          */
         override fun onPageDragBegin(dir: Float, x: Float, eventTime: Long): Boolean {
-            if (!controller.state.hasComposition) return false
+            if (!controller.state.hasComposition) {
+                // 静默早退过一次:「没组词 → 不接管」在 logcat 里什么都不留,
+                // 看起来与「手势没进来」完全一样。两条要能分开。
+                android.util.Log.i(TAG, "page begin: 无组词,不接管")
+                return false
+            }
             return candidateBar?.pageDragBegin(dir, x, eventTime) == true
         }
 
