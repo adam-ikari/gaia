@@ -67,16 +67,44 @@ if [ -n "$TAG" ]; then
   [ "$TAG" = "v$VERSION_NAME" ] \
     || fail "tag '$TAG' 与 $GRADLE 的 versionName '$VERSION_NAME' 不一致 —— 站点页面显示的是 tag,应用报的是 versionName,两者不一致就是骗用户"
 else
-  echo "  (没给 tag,按 HEAD 当前版本 $VERSION_NAME 校验递增性)"
+  # 不给 tag 时**排除所有指向 HEAD 的 tag**。
+  #
+  # 常见场景:tag 已经打好了(本地 `git tag -a v0.7.0`),还没推。这时候那个 tag 就挂在
+  # HEAD 上,不排除的话自己跟自己比 → 误报「已被用过」。
+  #
+  # 用「指向同一个 commit」而不是「名字等于某个值」来判,因为我们不知道用户刚打了哪个名字。
+  HEAD_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo '')"
+  SELF_TAG=""
+  if [ -n "$HEAD_COMMIT" ]; then
+    SELF_TAG="$(git tag --points-at "$HEAD_COMMIT" 2>/dev/null | head -1)"
+  fi
+  if [ -n "$SELF_TAG" ]; then
+    TAG="$SELF_TAG"
+    echo "  (没给 tag,按 HEAD 上的 $SELF_TAG 校验)"
+  else
+    echo "  (没给 tag,按 HEAD 当前版本 $VERSION_NAME 校验递增性)"
+  fi
 fi
 
-# ---- versionCode 必须严格大于所有已存在的 tag 所带的号 ------------------------
+# ---- versionCode 必须严格大于所有**其他** tag 所带的号 ------------------------
 # 比"最近一个 tag"更严:任何一个旧 tag 的 versionCode 都不得 >= 当前值,
 # 否则那个版本会被覆盖掉/回退。v0.3.0 没发出去但烧掉了 3 号,所以历史里有个空洞,
 # 这条规则天然容忍空洞(只比大小,不比连续)。
+#
+# ## 为什么要把 $TAG 自己排除掉(2026-10-03 接进 CI 时踩到)
+#
+# 这个脚本在 CI 里是**在 tag 已经存在之后**跑的 —— tag 的 push 就是工作流的触发条件。
+# 所以 `$TAG` 必然出现在 `git tag` 的输出里,而它带的 versionCode **恰好等于**当前值,
+# 于是 `>=` 判定成立、每次发版都报 "versionCode 19 已被 tag v0.7.0 用过"——
+# 自己跟自己比,永远通不过。
+#
+# 本地跑时(`不给 tag`)看不到这个问题,因为那时新 tag 还没打。这就是
+# 「本地验过、CI 里必挂」的典型:两个入口的**初始状态**不同。
 prev_desc=""
 conflict=0
 while read -r t; do
+  # 排除待发布的那个 tag 自己(见上面那段)
+  [ "$t" = "$TAG" ] && continue
   vc="$(git show "${t}:${GRADLE}" 2>/dev/null \
         | sed -n 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -1)"
   [ -n "$vc" ] || continue
