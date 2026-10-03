@@ -6,7 +6,8 @@
 ## 为什么换
 
 `term-ime`(TTY 中文拼音输入法)已经把 librime 在无桌面环境下的三处硬骨头解决了:
-**librime 被改成用 `std::regex` 而非 `boost::regex`**(不需要交叉编译 boost_regex,也没有 ICU),
+**librime 被改成用 `std::regex` 而非 `boost::regex`,boost 本身也被清空了**
+(不需要交叉编译 boost_regex,也没有 ICU;连头文件都不需要),
 vendored deps 分两段编,leveldb 不带 snappy。直接复用它的构建配方。
 
 ## 架构:换的只有一层
@@ -72,7 +73,24 @@ Android 交叉编译比原生编译多三道坎,都在 `app/src/main/cpp/CMakeLi
 3. **`opencc_dict` 不在 PATH**。它在 `<build>/src/tools/` 而不是 build 根下,
    而且**只在 install 那一步需要在 PATH**(configure 阶段一切正常)。
 
-依赖只有 `libdl` / `libm` / `libc` —— boost 是纯头文件,无 ICU 无 glog。
+依赖只有 `libdl` / `libm` / `libc`,无 ICU 无 glog。
+
+### 不需要 boost(2026-10-03 核实)
+
+那份 fork 把 boost 依赖清干净了,所以**本机不用装 boost,CI 也不用装**:
+
+- 正则走 `std::regex`(`algo/calculus.cc` 里是 `std::regex_replace` / `std::regex_match`);
+- `starts_with` / `split` / `trim` / `is_any_of` 这些它**自己**在
+  `src/rime/string_utils.hpp` 里用 `namespace boost { ... }` 重写了一份,
+  再以 `boost::algorithm::` 的名字再导出一次(有些调用点写的是全限定名);
+- 源码里剩下的 `#include <boost/...>` 只有两处,都编不到:
+  `plugins/plugins_module.cc` 被 `ENABLE_EXTERNAL_PLUGINS`(默认 OFF)挡住,
+  `deps/opencc/deps/pybind11-*/tests/test_stl.cpp` 是 pybind11 的测试文件。
+
+留个坑提醒:CMake 里曾有一段 `find boost/version.hpp` 的检查,于是三条 CI 流水线
+都在 `apt-get install libboost-dev`。那是**过时的检查**,代价除了慢,还有一条
+「找不到 boost 头文件」的报错 —— 报错本身没错,但**指向 CMake 而不是 CI**,
+排查要多绕一圈(实际栽在这上面一次)。
 
 ## JNI:为什么走 `rime_get_api()`
 

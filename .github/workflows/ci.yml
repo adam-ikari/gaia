@@ -22,12 +22,19 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
-      # assembleDebug 会编 native(librime),所以 NDK / CMake / Boost 头文件一个都不能少。
+      # assembleDebug 会编 native(librime),所以 NDK / CMake 一个都不能少。
       # 版本与 release.yml 一致,且要与 app/build.gradle.kts 的 ndkVersion 对上。
       #
-      # 这里曾漏装,报的是 CMakeLists.txt:158「找不到 boost 头文件」——
-      # 报错本身是对的(它确实找不到),但**指向的是 CMake 而不是 CI**,排查要多绕一圈。
+      # 这里曾漏装。**不需要 boost**(2026-10-03 用户「不需要boost」+ 核实):
+      # 那份 librime fork 把 boost 全部替掉了 —— 正则走 `std::regex`,而
+      # `starts_with` / `split` / `trim` 这些它自己在 `string_utils.hpp` 里
+      # 用 `namespace boost { ... }` 重新实现了一份。源码里唯一剩下的
+      # `#include <boost/...>` 在 `plugins/plugins_module.cc`,被
+      # `ENABLE_EXTERNAL_PLUGINS`(默认 OFF)挡住,我们也不链它。
+      # 曾在这里 `apt-get install libboost-dev`,纯粹是因为一段过时的 CMake 检查,
+      # 而那条检查报的是「找不到 boost 头文件」——**指向 CMake 而不是 CI**,多绕一圈。
       - name: Accept licenses, install NDK and CMake
         run: |
           set -uo pipefail
@@ -35,13 +42,6 @@ jobs:
           export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
           yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1' >/dev/null
-
-      - name: Install Boost headers
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libboost-dev
-          grep BOOST_LIB_VERSION /usr/include/boost/version.hpp || true
-          cache: gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

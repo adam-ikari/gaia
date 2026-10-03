@@ -28,8 +28,7 @@ jobs:
 
       # -----------------------------------------------------------------------------
       # native 构建的前提 + Android SDK 许可(2026-10-03 起必需:内核换成 librime,
-      # 要交叉编译 .so,于是 CI 必须有 NDK / CMake / Boost 头文件)
-      #
+      # 要交叉编译 .so,于是 CI 必须有 NDK / CMake)
       #
       # ## 走过三段弯路,记下来免得再犯
       #
@@ -54,21 +53,13 @@ jobs:
           yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1'
 
-      # Boost **头文件**:librime 用了 signals2 / unordered_map / crc / regex 之外的部分。
-      # 它被改成用 std::regex,所以只要头、不要编库(runner 上也没有编好的 boost)。
-      - name: Install Boost headers
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libboost-dev
-          # 1.74 是 librime 的最低要求(find_package(Boost 1.74.0));
-          # 装到的比这新也没关系 —— 只用头文件
-          dpkg -s libboost-dev | grep -i '^Version'
-
-      - name: Report NDK / CMake / Boost
+      # **不装 boost**。曾经装过,是因为 CMake 里有一段过时的 boost 检查;
+      # 那份 librime fork 其实已经把 boost 全替掉了(见 ci.yml 的详细注释)。
+      - name: Report NDK / CMake
         run: |
           echo "ndk    : $(ls $ANDROID_HOME/ndk)"
           echo "cmake  : $(ls $ANDROID_HOME/cmake)"
-          echo "boost  : $(grep BOOST_LIB_VERSION /usr/include/boost/version.hpp || echo missing)"
+          echo "boost  : 不需要(librime fork 已替成 std::regex / 自带 shim)"
 
       # 有签名 Secret 时解码 keystore;没有则跳过(release 包未签名)
       - name: Decode signing keystore

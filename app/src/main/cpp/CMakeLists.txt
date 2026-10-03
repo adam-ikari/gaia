@@ -8,14 +8,16 @@ project(rime_android CXX)
 #
 # term-ime 已经把 librime 在**无桌面环境**下的三处硬骨头解决了,这一版直接继承:
 #
-# 1. **librime 被改成用 `std::regex` 而不是 `boost::regex`**(见 term-ime 的注释):
+# 1. **librime 的正则用 `std::regex` 而不是 `boost::regex`**(见 term-ime 的注释):
 #    于是不需要交叉编译 boost_regex/filesystem,也没有 ICU 依赖。
-#    只用 boost 的**头文件部分**(signals2 / unordered_map / algorithm / crc),
-#    编译进我们的二进制 ⇒ **零运行时 boost 依赖**。这是 Android 能编的前提。
+#    而那份 fork 里**boost 已经一个都不剩**(2026-10-03 核实:`grep -rhoE
+#    "boost/[a-z_/]+\.hpp" src include` 命中 0)⇒ 我们的构建**完全不需要 boost**,
+#    本机不用装,CI 也不用装。这正是 Android 能编的前提。
 # 2. **vendored deps 分两段编**:先作为独立 CMake 工程装到 `_deps_stage`,
 #    再 `CMAKE_PREFIX_PATH` 指过去,然后才 configure librime。
 #    NDK 的 toolchain 会把 `CMAKE_FIND_ROOT_PATH_MODE_{LIBRARY,INCLUDE}` 设成 ONLY,
-#    于是 librime 的 `Find*.cmake` **看不见** 刚编出来的 `.a` —— 不分两段就死在 "Boost:" 那行。
+#    于是 librime 的 `Find*.cmake`(yaml-cpp / leveldb / marisa / opencc)
+#    **看不见**刚编出来的 `.a` —— 不分两段就死在第一行 find 上。
 # 3. **leveldb 不带 snappy**(静态 stage 里找不到 snappy,`HAVE_SNAPPY` 保持 OFF),
 #    去掉一个运行时依赖;**opencc 用自带的 marisa 但不内嵌**(`USE_SYSTEM_MARISA=OFF`),
 #    避免与 librime 自己的 marisa 重复链接。
@@ -150,16 +152,19 @@ endif()
 list(PREPEND CMAKE_PREFIX_PATH ${DEPS_STAGE})
 list(APPEND CMAKE_FIND_ROOT_PATH ${DEPS_STAGE})
 
-# boost 只用头文件;term-ime 用系统 boost。NDK 不带 boost,所以要指到构建机的那份。
-if(NOT DEFINED BOOST_INCLUDE_DIR)
-    if(EXISTS /usr/include/boost/version.hpp)
-        set(BOOST_INCLUDE_DIR /usr/include)
-    else()
-        message(FATAL_ERROR "找不到 boost 头文件。装 libboost-dev,或用 -DBOOST_INCLUDE_DIR=<path> 指定")
-    endif()
-endif()
-message(STATUS "Boost headers (build-time only): ${BOOST_INCLUDE_DIR}")
-
+# -----------------------------------------------------------------------------
+# Boost:**不需要**(2026-10-03 用户「不需要boost」)
+#
+# 早期版本这里有一段 `find boost/version.hpp` 的检查 + BOOST_INCLUDE_DIR 兜底,
+# 因为当时以为 librime 还要 Boost 的头文件部分(signals2 / unordered_map / crc)。
+# 核实后是**过时的**:那份 fork 已经把 boost 全部替掉了 ——
+#   - `boost::regex` → `std::regex`(`algo/calculus.cc` 里是 `std::regex_replace` /
+#     `std::regex_match`);
+#   - 源码里 `grep -rhoE "boost/[a-z_/]+\.hpp"` 命中数 **0**。
+#
+# 所以这里既不需要 `find_package(Boost)`,也不需要 CI 装 libboost-dev。
+# 留着那段检查的代价:CI 里多一个装 Boost 的步骤(慢),以及一条
+# 「找不到 boost 头文件」的报错 —— 而它指向 CMake,排查要多绕一圈(实际发生过)。
 # -----------------------------------------------------------------------------
 # librime 本体 —— 与 term-ime 的 set() 完全一致
 # -----------------------------------------------------------------------------
