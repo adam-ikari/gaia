@@ -55,6 +55,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        # librime 是 submodule,它的 vendored deps 又是子模块。
+        # **不带 submodules 就是空目录**,CMake 在 configure 阶段报
+        # 「The source directory .../deps/yaml-cpp does not exist」——
+        # 那个报错完全指不到真正的原因(看着像依赖缺失,其实是没 checkout)。
+        with:
+          submodules: recursive
 
       - uses: actions/setup-java@v6
         with:
