@@ -136,6 +136,32 @@ export class Device {
     return ok
   }
 
+  /**
+   * 等引擎真正就绪 —— **在探针之前**,不是靠探针去发现。
+   *
+   * librime 的首次部署(把 4.6MB 的 `essay.txt` + 890KB 的 `luna_pinyin.dict.yaml`
+   * 转成 `.ocd2` 并建 LevelDB)是**异步**的。那段时间里:
+   *   - `state.raw` 正常累积、`updateSelection comp=0..2 raw=ni` 正常;
+   *   - `imeShown()` 为 true、前台是 PlaygroundActivity;
+   *   - 但 `state.candidates` **是空的** ⇒ `handleSpace()` 走 `commitRaw()`,
+   *     空格上屏的是原始字母。
+   *
+   * 也就是说**所有代理指标都是绿的**,只有引擎自己知道它没准备好。
+   * 以前是靠 compose-space 断言变红才发现的,那时已经浪费了一整轮。
+   *
+   * 判据用 `ImeController.logCandidates` 的 `n=<非零>`。给 120s:
+   * 词库转换在 CI 的模拟器上真的要几十秒,给少了会变成随机失败。
+   */
+  waitEngineReady() {
+    const deadline = Date.now() + 120000
+    while (Date.now() < deadline) {
+      const l = this.shell('logcat -d -s ImeService:* 2>/dev/null')
+      if (/candidates\[[^\]]*\]:[^\n]* n=[1-9]/.test(l)) return true
+      execSync('sleep 2')
+    }
+    return false
+  }
+
   /** 把编辑框清空:MOVE_END + 若干次 DEL。探针与场景前置都要用,字段会跨场景累积。 */
   clearField() {
     this.shell('input keyevent 123') // KEYCODE_MOVE_END
@@ -276,14 +302,19 @@ async function main() {
   const preflight = async () => {
     device.wake()
     device.ime()
+    // 先把引擎等就绪,再做别的。顺序很重要:IME 刚切回来时它才开始部署词库,
+    // 而探针要求「候选非零」—— 不先等的话探针必然失败(见 [Device.waitEngineReady])。
+    console.log('… 等引擎就绪(librime 首次部署词库)')
+    const engineReady = device.waitEngineReady()
+    console.log(engineReady ? '   引擎已就绪' : '   ⚠ 120s 内引擎没给出候选,继续(场景会明确失败而不是给出假象)')
     device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
     await sleep(2500)
     device.tap(700, 400)
     await sleep(2500)
     const fg = device.foreground()
     const shown = device.imeShown()
-    const processing = shown ? device.probeIme() : false
-    return { fg, shown, processing }
+    const processing = shown && engineReady ? device.probeIme() : false
+    return { fg, shown, processing, engineReady }
   }
   const ready = (p) => p.fg.includes('PlaygroundActivity') && p.shown && p.processing
   let pf = await preflight()
@@ -292,6 +323,7 @@ async function main() {
     console.error(`✗ 设备未就绪:前台=${pf.fg},输入法显示=${pf.shown},IME在处理输入=${pf.processing}`)
     console.error('  可能:安全锁屏(需手动解锁)、主屏熄灭、用户正在使用手机,')
     console.error('  或编辑框没真正聚焦(此时按键会作为普通文本进 EditText,而不是走 IME)。')
+    console.error(`  或词库还没部署完(引擎就绪=${pf.engineReady})。`)
     process.exitCode = 2
     return
   }
