@@ -46,16 +46,23 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # **必须接受许可**:setup-android 内部会跑一次 sdkmanager,没接受许可时
-      # 它自己就退出(exit 1),后面的 NDK 安装根本没机会执行。
-      - name: Accept Android SDK licenses
-        uses: android-actions/accept-android-sdk-licenses@v3
-
+      # NDK + CMake + 许可,**合成一步**。
+      #
+      # ## 为什么不用 accept-android-sdk-licenses 那个 action
+      #
+      # 试过,报 `Unable to resolve action android-actions/accept-android-sdk-licenses,
+      # repository not found` —— 那个 action 路径不存在。少一个 action 依赖更稳,
+      # 所以直接用 `yes | sdkmanager --licenses`(社区通行做法)。
+      #
+      # **顺序有讲究**:`setup-android` 自己内部就会跑一次 sdkmanager,许可没接受时
+      # 它当场退出(exit 1),所以许可必须在它**之后**、装 NDK 之前接受。
+      #
       # NDK 版本**必须与本机一致**(app/build.gradle.kts 的 ndkVersion):
       # 不同 NDK 编出来的 .so 有差异(运行库版本、C++ 标准库细节),
       # 「本地能跑线上崩」这类问题从 Kotlin 侧看不出来。
-      - name: Install NDK and CMake
+      - name: Accept licenses, install NDK and CMake
         run: |
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
           yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1'
 
