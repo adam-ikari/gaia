@@ -1,22 +1,24 @@
 package dev.hwkbd.ime.strategy
 
-import dev.hwkbd.ime.engine.PinyinDict
-import dev.hwkbd.ime.engine.PinyinEngine
-import dev.hwkbd.ime.engine.UserDict
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 拼音策略层:查询前只做归一(滤杂质、收敛分隔符),**分隔符原样进引擎**——
- * 词库键带音节分隔符,xi'an ≠ xian 由引擎的分节位约束兑现。
+ * 拼音策略层:查询前只做归一(滤杂质、收敛分隔符)。
+ *
+ * ## 为什么只剩归一这一件事可测(2026-10-03 换 librime)
+ *
+ * 原先这里有两条测试,第二条是「分隔符透传引擎,`xi'an` 只中西安」——
+ * 它验的是**引擎的分节位约束**:带分节的 `xi'an` 不该命中不带分节的 `xian` 词条。
+ *
+ * 换 librime 之后那段逻辑在 C++ 里(方案自己的 speller/alphabet 规则),JVM 上跑不了,
+ * 所以**这条测试无法保留**。它也不该保留:那本来是「词典怎么建索引」的实现细节,
+ * 不是「策略层要做什么」。策略层的职责只有一个 —— **归一,并把归一后的串原样交给引擎**。
+ *
+ * 分节能力本身现在是 `assets/rime/luna_pinyin.schema.yaml` 的 `alphabet` 规则,
+ * 只能在真机上验。见 `docs/rime.md`。
  */
 class PinyinInputMethodTest {
-
-    private fun method(vararg lines: String): PinyinInputMethod {
-        val dict = PinyinDict()
-        dict.load(lines.toList())
-        return PinyinInputMethod(PinyinEngine(dict, UserDict()))
-    }
 
     @Test
     fun `查询前归一 滤杂质并收敛分隔符`() {
@@ -27,9 +29,31 @@ class PinyinInputMethodTest {
     }
 
     @Test
-    fun `分隔符透传引擎 xi'an 只中西安`() {
-        val m = method("xian\t先\t25558", "xi'an\t西安\t2576")
-        assertEquals(listOf("西安"), m.query("xi'an", 10).map { it.word })
-        assertEquals(listOf("先", "西安"), m.query("xian", 10).map { it.word })
+    fun `归一后的串才交给引擎 不是原始输入`() {
+        // 这条替换掉原来那条「分节能不能匹配到词」的测试:分节解析归引擎了,
+        // 但**归一必须发生**这件事仍是策略层的责任,而且是可测的。
+        // librime 不认识 `'`,所以如果这里把原始串送过去,引擎会把它当普通字符。
+        val fake = FakePinyinInputMethod(table = mapOf("xian" to listOf("先")))
+        val m = PinyinInputMethod.forTest(fake)
+        m.query("xi-an 3", 10)
+        assertEquals("引擎收到的是归一后的串", listOf("xian"), fake.queried)
+    }
+
+    @Test
+    fun `分隔符保留在归一结果里`() {
+        // 末尾 `'` 表示"本音节到此为止",语义上要传给引擎,由引擎的分节规则兑现
+        val fake = FakePinyinInputMethod(table = mapOf("xi'" to listOf("西")))
+        PinyinInputMethod.forTest(fake).query("xi'", 10)
+        assertEquals(listOf("xi'"), fake.queried)
+    }
+
+    @Test
+    fun `不支持逐词删除 时接口如实报告`() {
+        // librime 的用户词频在 LevelDB 里,没有删单个词的 API。
+        // 这里钉住的是「**不许假装成功**」—— 返回 true 会让调用方告诉用户"删掉了",
+        // 而词还在,下次输出来又冒出来,比没有这个入口更糟。
+        val m = PinyinInputMethod.forTest(FakePinyinInputMethod())
+        assertEquals(false, m.supportsWordRemoval)
+        assertEquals(false, m.removeUserWord("你好"))
     }
 }

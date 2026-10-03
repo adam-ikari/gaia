@@ -1,0 +1,3 @@
+[submodule "app/src/main/cpp/librime"]
+	path = app/src/main/cpp/librime
+	url = https://github.com/adam-ikari/librime.git

@@ -4,9 +4,6 @@ import android.text.InputType
 import android.view.KeyEvent
 import dev.hwkbd.ime.engine.Candidate
 import dev.hwkbd.ime.engine.CandidateKind
-import dev.hwkbd.ime.engine.PinyinDict
-import dev.hwkbd.ime.engine.PinyinEngine
-import dev.hwkbd.ime.engine.UserDict
 import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
 import dev.hwkbd.ime.ime.ImeState
@@ -41,6 +38,19 @@ class ImeRegistryTest {
         }
     }
 
+    /**
+     * 用 [FakePinyinInputMethod](查表)而不是真引擎(2026-10-03 换 librime)。
+     *
+     * 本类验的是「注册表能不能按 id 找到方法、语言切换后候选来源对不对」,
+     * 与拼音解码无关。把词典建进来只会让换引擎时重写构造。
+     */
+    private fun rig(): Rig {
+        val h = RecHost()
+        val registry = ImeRegistry.builtin()
+            .registerMethod(FakePinyinInputMethod.common())
+        return Rig(ImeController(h, KeyLayout.default(), registry), h)
+    }
+
     /** 语言策略样例:上屏形态来自策略(可选:字母进组词缓冲,用于绑新输入法)。 */
     private class BracketLanguage(
         override val id: String,
@@ -73,21 +83,6 @@ class ImeRegistryTest {
         override fun userCount(word: String): Int = 7
     }
 
-    private fun rig(): Rig {
-        val dict = PinyinDict()
-        dict.load(
-            listOf(
-                "ni\t你\t500",
-                // 分节符语义用例:先(xian) 与 西安(xi'an) 不同键,xi'an 不中 xian
-                "xian\t先\t5000",
-                "xi'an\t西安\t3000",
-            ),
-        )
-        val h = RecHost()
-        val registry = ImeRegistry.builtin()
-            .registerMethod(PinyinInputMethod(PinyinEngine(dict, UserDict())))
-        return Rig(ImeController(h, KeyLayout.default(), registry), h)
-    }
 
     @Test
     fun `输入类型决定 L4 键位套与 Alt 文字`() {
@@ -504,15 +499,19 @@ class ImeRegistryTest {
         assertTrue(before.isNotEmpty())
         r.c.commitL4Key(KeyOut.Text(ChineseLanguage.SEPARATOR))
         assertEquals("ni'", r.c.state.raw) // 分节符显示在组词区(xi'an 语义)
-        // 末尾分节符:ni' 仍中 你(全串已输完,末尾分节只约束后续前缀)
-        assertEquals(before, r.c.state.candidates.map { it.word })
-        // 内部分节符才是要害:xi'an 按分节位切,只中西安、不中 xian 的先
+        assertTrue("加末尾分节后仍应有候选", r.c.state.candidates.isNotEmpty())
+        // 内部分节符的组词缓冲:xi'an 完整拼出来
+        //
+        // **不断言「只中西安、不中先」**(2026-10-03 换 librime):那是旧引擎词库
+        // 索引的分节位行为,现在由方案的 alphabet 规则决定,不是状态机的性质。
+        // 这条测试现在守的是**状态机该守的东西**:分节符进缓冲、缓冲内容正确、
+        // 组词不被打断。引擎侧的分节行为只能真机验,见 `docs/rime.md`。
         r.c.abandonComposition()
         r.type("xi")
         r.c.commitL4Key(KeyOut.Text(ChineseLanguage.SEPARATOR))
         r.type("an")
         assertEquals("xi'an", r.c.state.raw)
-        assertEquals(listOf("西安"), r.c.state.candidates.map { it.word })
+        assertTrue("分节拼出的 xi'an 仍有候选", r.c.state.candidates.isNotEmpty())
         // 不带分隔符歧义照旧:先 词频高排前,西安 照样在列
         r.c.abandonComposition()
         r.type("xian")

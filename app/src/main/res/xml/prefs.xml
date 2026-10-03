@@ -71,12 +71,6 @@
 
     <PreferenceCategory android:title="@string/pref_category_dict">
         <Preference
-            android:key="dict_import"
-            android:title="@string/pref_dict_import" />
-        <Preference
-            android:key="dict_export"
-            android:title="@string/pref_dict_export" />
-        <Preference
             android:key="dict_reset"
             android:title="@string/pref_dict_reset" />
         <Preference

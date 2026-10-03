@@ -66,6 +66,12 @@
 ## CI/CD
 
 - **CI**(GitHub Actions,`.github/workflows/ci.yml`):push/PR → 单测 + assembleDebug,上传 APK 构件
+- **native**(librime 拼音引擎,2026-10-03 起):`app/src/main/cpp/librime` 是 submodule,
+  用 NDK 交叉编译成 `librime_jni.so`(仅 arm64-v8a)。**克隆时必须带子模块**:
+  `git clone --recursive`,或 `git submodule update --init --recursive`。
+  构建还需要 **Boost 头文件**(仅编译期,librime 已改用 `std::regex`,不需要编 boost 库)
+  与 **NDK 27.1.12297006**。细节见 `docs/rime.md`。
+
 - **Release**(`.github/workflows/release.yml`):推送 `v*` tag → 测试 + 构建 release/debug APK → 创建 GitHub Release
   - 可选签名:仓库 Secrets 配置 `SIGNING_KEYSTORE_BASE64`(jks 的 base64)、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`,release 包自动签名;未配置则出未签名包
 

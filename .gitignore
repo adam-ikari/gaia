@@ -42,3 +42,14 @@ _tmp_s3.png
 _tmp_sm.png
 _tmp_t1.png
 _tmp_lc.txt
+
+# native (NDK/CMake) 中间产物 —— 可由 CMakeLists 重建,几十 MB,不该进库
+app/.cxx/
+app/src/main/cpp/librime/build/
+
+# R8 产物:mapping.txt 是**每个版本一份**的符号表,归 release.yml 的 artifact 管,
+# 不进版本库(8MB+ 且每个版本都会变)。resources.txt / seeds.txt / usage.txt 同理。
+app/build/outputs/mapping/
+
+# 本地调试日志(gradle / submodule / 构建脚本留下的)
+*.log

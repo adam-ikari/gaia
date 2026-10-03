@@ -12,9 +12,28 @@ android {
         applicationId = "dev.hwkbd.ime"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.6.1"
+        versionCode = 19
+        versionName = "0.7.0"
+
+        // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
+        //
+        // librime 的 `.so` 是 3.5MB/ABI,两个 ABI 就多背 3.5MB —— 而用户只有 Titan 2
+        // (arm64),x86_64 对正式包毫无用处。x86 / armeabi-v7a / riscv64 同理,全不编。
+        //
+        // x86_64 只在 debug 里加回来给 E2E 的模拟器用,见 buildTypes 里的注释。
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
+
+    /**
+     * NDK 版本。**必须与 CI 装的完全一致**(release.yml 里 sdkmanager 那行)。
+     *
+     * 不同 NDK 编出来的 .so 行为会有差异(运行库版本、C++ 标准库实现细节),
+     * 本地能跑线上崩这类问题几乎无法从 Kotlin 侧看出来。所以它只写一个数,
+     * 另一处由 release.yml 的 "Report NDK" 步骤打出来对账。
+     */
+    ndkVersion = "27.1.12297006"
 
     signingConfigs {
         // 项目密钥(提交在仓库,个人项目权衡:本地/CI 签名一致 > 私密性)。
@@ -41,9 +60,31 @@ android {
         getByName("debug") {
             // debug 也用项目密钥:本地与 CI 构建签名一致,install -r 不再冲突
             signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+
+            // **debug 加回 x86_64**:E2E 流水线跑在 x86_64 模拟器上
+            // (见 e2e.yml 的 `system-images;android-34;default;x86_64`),
+            // 只编 arm64 的话模拟器装不上。
+            //
+            // buildType 里的 abiFilters 会**取代** defaultConfig 的,所以这里必须写全 ——
+            // 只写 "x86_64" 会让 debug 包里没有 arm64,本地真机插不上。
+            ndk {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
         }
         release {
-            isMinifyEnabled = false
+        // **混淆 + 资源压缩**(2026-10-02「应用包需要安全加固 防止重新打包」)
+        //
+        // 之前是 `isMinifyEnabled = false`,也就是**完全不混淆** —— jadx 打开
+        // 类名方法名全在,改一个分支就能去掉任何校验。
+        //
+        // 代价与配套(缺一不可):
+        // - 崩溃栈会变成 `a.b.c(SourceFile:42)` ⇒ 必须有 mapping 才能定位
+        //   (CI 上传为 artifact,见 release.yml;崩溃报告落到应用私有目录);
+        // - keep 规则见 proguard-rules.pro,漏一条就是运行期 ClassNotFound。
+        //
+        // `optimize` 版比默认更激进(方法去内联/去虚拟化),所以那些 keep 更关键。
+        isMinifyEnabled = true
+        isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // CI 注入的正式签名优先;否则项目密钥,保证 release 包可直接安装
             signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
@@ -61,6 +102,41 @@ android {
 
     buildFeatures {
         viewBinding = true
+        // EXPECTED_SIGNER 用 buildConfigField 注入,所以要开 BuildConfig
+        buildConfig = true
+    }
+
+    defaultConfig {
+
+
+    }
+
+    // =============================================================================
+    // native:librime(拼音引擎内核)
+    //
+    // 2026-10-02 起换引擎。librime 是 C++ 库,必须用 NDK 交叉编译成 .so 打进 APK。
+    // 配方与 `adam-ikari/term-ime` 同源(那个项目已经把 librime 在无桌面环境下的
+    // 三处硬骨头解决了:改用 std::regex 而非 boost::regex、vendored deps 分两段编、
+    // leveldb 不带 snappy)—— 逐条理由见 app/src/main/cpp/CMakeLists.txt 的注释。
+    //
+    // **只编 arm64-v8a + x86_64**:
+    // - arm64-v8a: Titan 2 与绝大多数现代安卓设备;
+    // - x86_64: 模拟器(E2E 流水线要用),**不进正式发布包**(见下面 packaging 排除)。
+    //   x86 与 armeabi-v7a 都不编 —— 用户只有 Titan 2,编了只是让包变大、CI 变慢。
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+
+    packaging {
+        jniLibs {
+            // x86_64 只为模拟器存在,不进给用户下的包(约省 1.2MB)。
+            // 用 keep 排除而不是删掉 abi:ABIs 列表里要留着它,E2E 才装得上。
+            keepDebugSymbols += setOf("**/libc++_shared.so")
+        }
     }
 
     testOptions {

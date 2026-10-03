@@ -16,8 +16,6 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.ImeRuntime
 import dev.hwkbd.ime.R
-import dev.hwkbd.ime.engine.PinyinDict
-import dev.hwkbd.ime.engine.PinyinEngine
 import dev.hwkbd.ime.ime.Haptics
 import dev.hwkbd.ime.ime.ImeController
 import dev.hwkbd.ime.ime.ImeHost
@@ -35,6 +33,7 @@ import dev.hwkbd.ime.keymap.KeyLayoutStore
 import dev.hwkbd.ime.keymap.Layer
 import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
+import dev.hwkbd.ime.rime.RimeEngine
 import dev.hwkbd.ime.strategy.PinyinInputMethod
 import dev.hwkbd.ime.ui.CandidateBarView
 import dev.hwkbd.ime.ui.ImeRootView
@@ -152,10 +151,22 @@ class ImeService : InputMethodService() {
         // 不透明,会把背后 App 整片盖住(Termux 表现为"界面空白")。
         window?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
         ImeRuntime.init(this)
-        val dict = PinyinDict()
-        val engine = PinyinEngine(dict, ImeRuntime.userDict)
-        // 策略注册表:出厂语言/输入框表现 + 本进程的拼音输入法(加语言/输入法只需注册)
-        val registry = ImeRegistry.builtin().registerMethod(PinyinInputMethod(engine))
+        // **librime 是异步就绪的**:首次启动要把 assets/rime 里的 *.yaml 部署成 *.bin,
+        // 几秒到几十秒,放主线程会 ANR。所以先注册一个「未就绪时返回空候选」的引擎,
+        // 部署完成后再回调刷新 —— 期间界面正常可用,只是拼音查不出候选。
+        //
+        // 为什么不用旧引擎兜底:用户 2026-10-03「不用对比 直接替换」。未就绪期间的表现
+        // 是「敲拼音没候选」,而不是崩溃或静默换引擎。
+        val rime = RimeEngine(this)
+        ImeRuntime.rime = rime
+        val registry = ImeRegistry.builtin().registerMethod(PinyinInputMethod(rime))
+        Thread({
+            rime.prepare { ok ->
+                android.util.Log.i(TAG, "rime 部署完成 ok=$ok version=${rime.version}")
+                // 切回主线程再碰 UI:prepare 的回调在部署线程上
+                mainHandler.post { if (ok) controller?.refreshQuery() }
+            }
+        }, "rime-boot").apply { isDaemon = true }.start()
         // 触感:全应用唯一的 [Haptics] 实例,控制器(锁定类)与候选行(翻页/飞字类)共用,
         // 总开关从 PREF_HAPTIC 读(设置 → 常规 → 震动反馈)
         haptics = Haptics(this).apply { enabled = ImeRuntime.prefs.getBoolean(PREF_HAPTIC, true) }
@@ -173,45 +184,17 @@ class ImeService : InputMethodService() {
         renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
-        executor.execute {
-            val t0 = System.currentTimeMillis()
-            try {
-                val lines = ArrayList<String>(300_000)
-                openDictAsset().use { ins ->
-                    BufferedReader(InputStreamReader(ins, Charsets.UTF_8), 1 shl 16).useLines { seq ->
-                        seq.forEach { lines.add(it) }
-                    }
-                }
-                dict.load(lines)
-                ImeRuntime.dict = dict
-                android.util.Log.i(TAG, "dict loaded: ${dict.size} entries, ${System.currentTimeMillis() - t0} ms")
-            } catch (e: Exception) {
-                android.util.Log.e(TAG, "dict load FAILED", e)
-            }
-            controller.refreshQuery()
-        }
-    }
-
-    /**
-     * 打开内置词库流。AAPT2 打包时会把 assets 的 dict.txt.gz 解压并改名为 dict.txt,
-     * 所以资产名动态解析,并按 gzip 魔数(1f 8b)自适应明文/压缩两种形态。
-     */
-    private fun openDictAsset(): java.io.InputStream {
-        val names = assets.list("") ?: emptyArray()
-        val name = names.firstOrNull { it.startsWith("dict.txt") }
-            ?: throw java.io.FileNotFoundException("no dict.txt* asset, got: ${names.joinToString()}")
-        val raw = java.io.PushbackInputStream(assets.open(name), 2)
-        val magic = ByteArray(2)
-        val n = raw.read(magic)
-        if (n == 2) raw.unread(magic)
-        val gz = n == 2 && magic[0] == 0x1f.toByte() && magic[1] == 0x8b.toByte()
-        return if (gz) GZIPInputStream(raw) else raw
+        // librime 的部署已经在上面起的 rime-boot 线程里跑了,这里不需要再做事。
+        // 原先这里是「executor 读 assets/dict.txt.gz → PinyinDict.load → refreshQuery」,
+        // 现在整块删掉:词典由 librime 自己从 files/rime/ 读,不需要应用预先建索引。
     }
 
     override fun onDestroy() {
         scope.cancel() // 敲击窗口事件流的收集(见 startGestureCollector)
         ImeRuntime.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
-        ImeRuntime.saveUserDict(this)
+        // 原先这里 saveUserDict():旧引擎的用户词频是应用自己的 JSON,退出时要落盘。
+        // librime 的用户词频在 files/rime/user/ 里由它自己同步,**退出时不需要通知** ——
+        // 反过来说,如果这里还有保存动作,说明还在走旧引擎那条路。
         executor.shutdown()
         super.onDestroy()
     }
@@ -344,7 +327,7 @@ class ImeService : InputMethodService() {
     }
 
     override fun onFinishInput() {
-        ImeRuntime.saveUserDict(this)
+        // 同样不需要保存用户词频,理由见 onDestroy。
         super.onFinishInput()
     }
 

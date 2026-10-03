@@ -11,6 +11,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # librime 是 submodule(C++ 源码 + 六个 vendored deps 的子模块)。
+          # 不带这个开关就是空目录,CMake 会在 configure 阶段报"找不到 deps/yaml-cpp"。
+          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -21,6 +25,35 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      # -----------------------------------------------------------------------------
+      # NDK + CMake —— 2026-10-02 起必需(拼音内核换成 librime,要交叉编译 .so)
+      #
+      # 三样都必须显式装:
+      # - **NDK**:编 .so;
+      # - **CMake 3.22.1**:AGP 拒绝比自己新的?不,是不装就用系统那个,而 ubuntu runner 上
+      #   预装的版本与 AGP 要求的格式不保证一致 ⇒ 版本对不上会在 configure 期报难懂的错;
+      # - **Boost 头文件**:librime 用 Boost.Regex 之外的**头文件部分**(signals2 /
+      #   unordered_map / crc)。它被改成用 std::regex,所以只要头、不要编库;
+      #   但头文件本身构建机上得存在,而 runner 镜像不带。
+      #
+      # 版本与本机一致(NDK 27.1.12297006):**native 与 CI 编出来的 .so 必须同版本**,
+      # 否则同一份 Kotlin 在两端行为不同,最难查。
+      - name: Set up Android SDK, NDK and CMake
+        run: |
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libboost-dev
+          # 1.74 是 librime 的最低要求(其 CMakeLists 里 find_package(Boost 1.74.0)),
+          # 装到的比这新也没关系 —— 只用头文件,不链接 boost_regex
+          dpkg -s libboost-dev | grep -i '^Version'
+
+      - name: Report NDK / CMake / Boost
+        run: |
+          echo "ndk    : $(ls $ANDROID_HOME/ndk)"
+          echo "cmake  : $(ls $ANDROID_HOME/cmake)"
+          echo "boost  : $(grep BOOST_LIB_VERSION /usr/include/boost/version.hpp || echo missing)"
 
       # 有签名 Secret 时解码 keystore;没有则跳过(release 包未签名)
       - name: Decode signing keystore
@@ -33,6 +66,10 @@ jobs:
           else
             echo "no signing keystore configured, release APK will be unsigned"
           fi
+
+      # 版本号错就别往下走了(见 docs/versioning.md)
+      - name: Check version consistency
+        run: tools/release/check-version.sh "${GITHUB_REF_NAME}"
 
       - name: Unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest

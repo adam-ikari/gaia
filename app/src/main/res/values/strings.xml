@@ -67,10 +67,8 @@
     <string name="pref_select_keys">五键选字键位</string>
 
     <string name="pref_category_dict">词库</string>
-    <string name="pref_dict_import">导入词库文件</string>
-    <string name="pref_dict_export">导出用户词库</string>
-    <string name="pref_dict_reset">清空用户词库</string>
-    <string name="pref_dict_stats">词库状态</string>
+            <string name="pref_dict_reset">清空学习记录</string>
+    <string name="pref_dict_stats">引擎与词典状态</string>
 
     <string name="pref_category_dev">调试</string>
     <string name="pref_probe">按键探测器（抓 Sym/Fn 真实键值）</string>
@@ -107,10 +105,12 @@
     <string name="done_reset">已恢复默认</string>
     <string name="import_result">导入成功 %1$d 条，失败 %2$d 条</string>
     <string name="import_no_file">没有选择文件</string>
-    <string name="dict_stats_builtin">内置词条：%1$d</string>
-    <string name="dict_stats_user_entries">用户导入词条：%1$d</string>
-    <string name="dict_stats_user_freq">使用频次记录：%1$d</string>
-    <string name="dict_stats_loading">内置词库尚未载入（输入法未启动过）</string>
+    <string name="dict_stats_engine">引擎：librime %1$s</string>
+    <string name="dict_stats_user_size">学习记录：%1$s（%2$d 个文件）</string>
+    <string name="dict_clear_confirm">将删除全部学习记录（用户词频与自造词）。\n\n位置：%1$s\n\n删除后需重启输入法才生效。</string>
+    <string name="dict_cleared">已清空，请重启输入法</string>
+    <string name="dict_clear_failed">清空失败，请手动删除该目录</string>
+    <string name="dict_nothing_to_clear">还没有学习记录</string>
     <string name="select_keys_summary">Shift / Sym / 空格 / Ctrl / Alt（左→右对应候选 4/2/1/3/5，暂不可改）；Ctrl+字母只转发给应用</string>
     <string name="about_body">盖亚输入法 v%1$s\n为 Unihertz Titan 2 全键盘设计的硬件键盘拼音输入。\n词库来源：fxsjy/jieba (MIT)。</string>
 </resources>
