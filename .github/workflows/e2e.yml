@@ -99,6 +99,29 @@ jobs:
       - name: 构建 debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
 
+      # ---- 把磁盘腾出来,否则 AVD 建不起来 ------------------------------
+      #
+      # 2026-10-03:模拟器启动后立刻 FATAL 退出,报的是
+      #   `Not enough space to create userdata partition.
+      #    Available: 6725.43 MB, need 7372.80 MB`
+      # 也就是**磁盘不够**,不是 APK 的问题、也不是 AVD 配置写错了。
+      #
+      # 为什么突然不够了:接了 native 之后这条流水线多装了 NDK(约 2.5GB)+ CMake,
+      # 加上 x86_64 系统镜像与 Gradle 缓存,把 runner 的盘吃掉了。
+      #
+      # APK 已经打完了,后面**再也不需要 NDK / CMake**,所以直接删。
+      # `df -h` 是为了下次再挂时不用猜 —— 之前这个 FATAL 藏在
+      # android-emulator-runner 输出的第 17 行,前面全是 INFO,极易看漏。
+      - name: 回收磁盘(AVD 需要 7.4GB)
+        run: |
+          set -uo pipefail
+          echo "--- 清理前 ---"; df -h /home/runner | tail -1
+          rm -rf "$ANDROID_SDK_ROOT/ndk" "$ANDROID_SDK_ROOT/cmake"
+          rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/daemon"
+          sudo rm -rf /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake
+          sudo rm -rf /opt/hostedtoolcache/Node/*/x64/lib/node_modules/npm/node_modules 2>/dev/null || true
+          echo "--- 清理后 ---"; df -h /home/runner | tail -1
+
       # ---------------------------------------------------------------- 模拟器
       - name: 打开 KVM 权限
         run: |
@@ -143,6 +166,8 @@ jobs:
           avdhome="$HOME/.android/avd"
           rm -rf "$avdhome/titan2.avd" "$avdhome/titan2.ini"
           mkdir -p "$avdhome/titan2.avd"
+          echo "--- 建 AVD 时的可用空间(不够会 FATAL)---"
+          df -h --output=avail,target "$avdhome" | tail -1
 
           cat > "$avdhome/titan2.ini" <<EOF
           avd.ini.encoding=UTF-8
@@ -168,6 +193,9 @@ jobs:
           hw.lcd.height=1440
           hw.lcd.density=320
           hw.initialOrientation=portrait
+          # 数据分区:装 APK + 部署后的 librime 工作目录(约 50MB),2G 绰绰有余。
+          # **不要为了"保险"往大写** —— runner 的盘有限,而这一项直接决定
+          # `Not enough space to create userdata partition` 会不会触发(见上面那一步)。
           disk.dataPartition.size=2G
           skin.dynamic=yes
           EOF
