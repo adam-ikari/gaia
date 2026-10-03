@@ -22,6 +22,25 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # assembleDebug 会编 native(librime),所以 NDK / CMake / Boost 头文件一个都不能少。
+      # 版本与 release.yml 一致,且要与 app/build.gradle.kts 的 ndkVersion 对上。
+      #
+      # 这里曾漏装,报的是 CMakeLists.txt:158「找不到 boost 头文件」——
+      # 报错本身是对的(它确实找不到),但**指向的是 CMake 而不是 CI**,排查要多绕一圈。
+      - name: Accept licenses, install NDK and CMake
+        run: |
+          set -uo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1' >/dev/null
+
+      - name: Install Boost headers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libboost-dev
+          grep BOOST_LIB_VERSION /usr/include/boost/version.hpp || true
           cache: gradle
 
       - name: Grant execute permission for gradlew
