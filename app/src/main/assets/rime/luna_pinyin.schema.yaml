@@ -8,6 +8,9 @@
 # 这个 schema 本身来自 librime 的 data/minimal/,改动**不要在上游更新时直接覆盖**:
 # 上游若改了拼音部分,合并这一段即可;若上游不再需要 cangjie,反过来删掉这段注释。
 # 另:schema_id 是 `luna_pinyin`(不是 `_simp`),它本身即输出简体,符合只做简体。
+#
+# `menu.page_size` 见文件末尾那一段 —— 它是**翻页能不能用的关键**,不是调优项,
+# 上游更新时别顺手删掉。原因见那段注释。
 # ──────────────────────────────────────────────────────────────────────
 
 # Rime schema
@@ -139,3 +142,34 @@ recognizer:
     alphabet: '(?<![A-Z]):[^;]*;?$'
     pinyin: "P:[a-z']*;?$"
     reverse_lookup: "`[a-z]*'?$"
+
+# ── menu:page_size 必须调大(2026-10-03,E2E 第一次跑 librime 时发现)──────
+#
+# ## 不加这一段,翻页在**结构上**就不可能
+#
+# librime 的 `RimeContext.menu` 给的是**当前页**的候选:最多 `page_size` 个。
+# 不写 `menu:` 段时 librime 默认 `page_size = 5`(见 `src/rime/schema.cc`)。
+#
+# 而本项目的分页是**自己**做的:`ImeState.totalPages = ceil(candidates.size / pageSize)`,
+# `pageSize` 是 5。所以拿到的候选永远 ≤ 5 个 ⇒ `totalPages` 恒等于 1 ⇒
+# `CandidateBarView.pageNextSlots` / `pagePrevSlots` 恒为空 ⇒
+# 每次左右滑都走「到头,橡皮筋」分支。
+#
+# 症状很有欺骗性:界面看着完全正常(候选、飞字、空格上屏都对),
+# 只有「翻到第二页」这件事永远不发生。而 E2E 的 page-flip 场景
+# 一开始红的是**截图**,没人怀疑翻页;直到补了埋点,才在 logcat 里看到
+# `page begin: dir=1.0 → 到头,走橡皮筋`。
+#
+# 把 `page_size` 设成与 `ImeController.CANDIDATE_LIMIT` 相同的 45,
+# 一次 `ctx.menu.candidates[]` 就把全部候选交出来,`candidates` 于是是**完整列表**,
+# 现有的 `totalPages` / `pageSlotsAt` 逻辑原样可用。
+#
+# **两个数字必须一致**:本项目要 45 个,schema 也只给 45 个。
+# 不一致不会报错,只会静默截断(JNI 侧还有一层 `limit` 与硬顶 100)。
+#
+# 为什么不用 `change_page` 逐页取:本项目的 `query()` 是**无状态**的 ——
+# 每次都以 `state.raw` 为准 `clear_composition()` + 逐字重喂(见 RimeEngine 类注释)。
+# 用 `change_page` 翻 librime 的内部页码等于引入第二份状态,正是那条约定要避免的。
+# ──────────────────────────────────────────────────────────────────────
+menu:
+  page_size: 45

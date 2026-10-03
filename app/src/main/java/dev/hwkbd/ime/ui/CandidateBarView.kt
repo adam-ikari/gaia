@@ -485,7 +485,11 @@ class CandidateBarView @JvmOverloads constructor(
             // **反向从橡皮筋接管**:拉伸量弹回,而不是被清零(见 [settleRubberBack])
             if (rubberDrag.tracking || rubberDrag.raw > 0f) settleRubberBack()
             // 与 [endPageDrag] 里 `step` 同一套符号约定:dir>0 = 往下一页
-            android.util.Log.i(TAG, "page begin: dir=$dir → 跟手翻页 $page→${page + (if (dir > 0f) 1 else -1)}")
+            android.util.Log.i(
+                TAG,
+                "page begin: dir=$dir → 跟手翻页 $page→${page + (if (dir > 0f) 1 else -1)} " +
+                    "(page=$page/$totalPages)"
+            )
             beginPageDrag(dir, x, eventTimeMs)
             true
         } else {
@@ -494,7 +498,9 @@ class CandidateBarView @JvmOverloads constructor(
             // [pageDragMove] 的 when 里橡皮筋优先 —— 翻页那条名义上在拖却吃不到事件,
             // 抬手又走 [endRubber],于是 pageDragging 永远清不掉,画面卡在中间态。
             if (pageDragging || pageFrom.isNotEmpty()) reversePageTurn()
-            android.util.Log.i(TAG, "page begin: dir=$dir → 到头,走橡皮筋")
+            // 带上 totalPages:2026-10-03 这个 bug(只有一页 → 恒「到头」)就是靠
+            // 「dir 两个方向都到头」推出来的,而**页数**是那条线索的直接证据。
+            android.util.Log.i(TAG, "page begin: dir=$dir → 到头,走橡皮筋 (page=$page/$totalPages)")
             beginRubber(dir, x)
         }
     }
@@ -649,7 +655,8 @@ class CandidateBarView @JvmOverloads constructor(
             TAG,
             "page end: step=$step by=${if (byFinger) "finger" else "fling"} " +
                 "slide=${pageSlide.toInt()} landing=${landing.toInt()} " +
-                "thr=${threshold.toInt()} v=${v.toInt()} commit=${byFinger || byFling}"
+                "thr=${threshold.toInt()} v=${v.toInt()} commit=${byFinger || byFling} " +
+                "page=$page/$totalPages"
         )
     }
 

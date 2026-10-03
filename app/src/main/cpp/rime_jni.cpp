@@ -209,8 +209,25 @@ JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeReset(JNIEnv*, j
  * 一页 10 个词就是 10 次 JNI 往返,而输入法里这是**每个按键**都会走的路径。
  *
  * 迭代器唯一的优势(自己控制页大小)在 menu 这里拿不到:`RimeMenu` 有 `page_size` /
- * `page_no`,但那是**读**当前方案的配置,不能设。所以本页取多少由方案决定,
- * 上层要更多就得翻页(候选栏本来就在做这件事)。
+ * `page_no`,但那是**读**当前方案的配置,不能设。
+ *
+ * ## 所以「要更多候选」的正确做法是改方案,不是在这里翻页
+ *
+ * 上面那句「上层要更多就得翻页」曾经被读成「上层自己去调 `change_page`」。
+ * **那样会把翻页功能整个废掉**,而且症状极隐蔽(2026-10-03 E2E 实测):
+ *
+ * - `page_size` 不写就是 librime 默认的 **5**(见 `src/rime/schema.cc`);
+ * - 于是每次按键最多拿 5 个候选 ⇒ `ImeState.totalPages` 恒为 1 ⇒
+ *   `CandidateBarView.pageNextSlots/pagePrevSlots` 恒空 ⇒ 左右滑永远是「到头」;
+ * - 而界面其它一切(候选、飞字、空格上屏)**全都正常**,只有翻页不发生。
+ *
+ * 现在的约定:`assets/rime/luna_pinyin.schema.yaml` 里写
+ * `menu: page_size: 45`(与 `ImeController.CANDIDATE_LIMIT` 一致),
+ * 于是 `candidates[]` 一次给全,本项目自己那份扁平列表就是**完整候选集**。
+ *
+ * **不要在这里用 `change_page` 翻 librime 的页码** —— 本项目的 `query()`
+ * 是无状态的(每次 `clear_composition()` + 逐字重喂),引入第二份页码状态
+ * 就会和 `state.raw` 漂移,而漂移出来的 bug 复现不了。
  *
  * @return 候选词数组;空数组表示没候选(不是 null)
  */
@@ -230,8 +247,19 @@ JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidat
   // 上限有两个:调用方给的 limit,以及一个硬顶。
   // 硬顶防的是**方案配错**(page_size 写成几百)时一次吐出巨大数组 —— 那会直接
   // 在输入法主线程上分配几百 KB 并逐个 NewStringUTF。
+  //
+  // 注意这两个上限是**静默截断**,不报错。所以它们必须与方案里的 `page_size`
+  // 一起看:schema 给 45、这里 limit 45 → 相等,不会截。
+  // 万一哪天有人只改了其中一头,症状是「候选数莫名少一截」而不是报错。
   const int cap = limit > 0 ? std::min<int>(limit, 100) : 100;
   if (n > cap) n = cap;
+  // 截断发生了就留下痕迹:这一行是唯一能看出「方案给的比我们要的多」的地方。
+  if (menu.num_candidates > n) {
+    __android_log_print(ANDROID_LOG_WARN, "RimeNative",
+                        "candidates truncated: got %d, cap %d "
+                        "(schema menu/page_size 与调用方 limit 不一致)",
+                        menu.num_candidates, n);
+  }
 
   std::vector<std::string> out;
   out.reserve(static_cast<size_t>(n));
