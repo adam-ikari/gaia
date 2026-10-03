@@ -195,6 +195,31 @@ async function main() {
   const report = { startedAt: '', device: device.serial ?? 'default', scenarios: [] }
 
   // 前置检查:解锁 + 实验场到前台 + 编辑框聚焦,失败立刻终止(避免整场假失败)
+  //
+  // **就绪判据是「IME 真的在处理输入」,不是「窗口在前台」**(2026-10-03)。
+  //
+  // 原来只查 `mCurrentFocus` 与 `mInputShown`,两个都是**代理指标**。
+  // 于是在 IME 还没真正挂上编辑框时,`input keyevent` 里的按键被系统当**普通文本**
+  // 直接送进 EditText —— compose-space 拿到 `editText="ni"`(原始字母),
+  // 而不是候选词「你」。**输入法看起来完全没参与**,但所有代理指标都是绿的。
+  //
+  // 所以探针直接问 IME:敲一个 `n`,看有没有 `updateSelection … comp=`。
+  // 有 ⇒ 键盘事件真的走到 IME 了。没有 ⇒ 还没就绪,重来。
+  const imeProcessing = async () => {
+    device.shell('logcat -c')
+    device.key(42) // KEYCODE_N
+    let ok = false
+    for (let i = 0; i < 12 && !ok; i++) {
+      // `comp=<数字>` = 组词区间非空 ⇒ 键盘事件真的进了 IME。
+      // (`comp=-1..-1` 是没有组词,不算就绪信号。)
+      const l = device.shell('logcat -d -s ImeService:* 2>/dev/null')
+      ok = /updateSelection[^\n]*comp=(?!-1)/.test(l)
+      if (!ok) await sleep(250)
+    }
+    device.key(67) // KEYCODE_DEL 收尾,别把探针的字母留在框里
+    return ok
+  }
+
   const preflight = async () => {
     device.wake()
     device.ime()
@@ -203,13 +228,17 @@ async function main() {
     device.tap(700, 400)
     await sleep(2500)
     const fg = device.foreground()
-    return { fg, shown: device.imeShown() }
+    const shown = device.imeShown()
+    const processing = shown ? await imeProcessing() : false
+    return { fg, shown, processing }
   }
+  const ready = (p) => p.fg.includes('PlaygroundActivity') && p.shown && p.processing
   let pf = await preflight()
-  if (!pf.fg.includes('PlaygroundActivity') || !pf.shown) pf = await preflight() // 失败重试一次
-  if (!pf.fg.includes('PlaygroundActivity') || !pf.shown) {
-    console.error(`✗ 设备未就绪:前台=${pf.fg},输入法显示=${pf.shown}`)
-    console.error('  可能:安全锁屏(需手动解锁)、主屏熄灭或用户正在使用手机。处理后重跑。')
+  if (!ready(pf)) pf = await preflight() // 失败重试一次
+  if (!ready(pf)) {
+    console.error(`✗ 设备未就绪:前台=${pf.fg},输入法显示=${pf.shown},IME在处理输入=${pf.processing}`)
+    console.error('  可能:安全锁屏(需手动解锁)、主屏熄灭、用户正在使用手机,')
+    console.error('  或编辑框没真正聚焦(此时按键会作为普通文本进 EditText,而不是走 IME)。')
     process.exitCode = 2
     return
   }
