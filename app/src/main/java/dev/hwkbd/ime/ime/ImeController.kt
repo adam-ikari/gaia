@@ -627,7 +627,35 @@ class ImeController(
             state.page = 0
             state.highlight = -1
         }
+        logCandidates("refresh")
         host.render()
+    }
+
+    /**
+     * 候选数变化时打一行。
+     *
+     * ## 为什么必须有
+     *
+     * 2026-10-03 E2E:`compose-space` 空格后拿到 `editText="ni"` —— 原始字母上屏了。
+     * 顺着 `handleSpace()` 读下来是 `candidates` 为空 → 走 `commitRaw()`,
+     * 而**「为什么候选是空的」在 logcat 里一个字都没有**:
+     * `updateSelection … comp=0..2 raw=ni` 说明组词在、拼音在,
+     * 但候选栏那边**完全静默**。于是「librime 还没部署完」与
+     * 「查了但查不到」两件事长得一模一样。
+     *
+     * 只在**数量变化**时打:候选数每个按键都在变,每次都打会把 logcat 冲掉
+     * (而 `takeLog` 只取 `tail -20` —— 之前正是被这个坑过)。
+     */
+    private var lastCandidateCount = -1
+
+    private fun logCandidates(why: String) {
+        val n = state.candidates.size
+        if (n == lastCandidateCount) return
+        lastCandidateCount = n
+        android.util.Log.i(
+            "ImeService",
+            "candidates[$why]: raw=\"${state.raw}\" n=$n pages=${state.totalPages}"
+        )
     }
 
     fun clearComposition() {

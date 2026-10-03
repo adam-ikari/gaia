@@ -113,10 +113,23 @@ export class Device {
   probeIme() {
     this.shell('logcat -c')
     this.key(42) // KEYCODE_N
+    // **两个条件都要满足**(2026-10-03 加第二个)。
+    //
+    // 原来只验「组词建立」(`comp=<数字>`),那证明的是**按键到达了 IME**。
+    // 但它**不证明引擎给出了候选** —— 而这两个是独立的:
+    // librime 的首次部署(装 4.6MB 词库)是异步的,那段时间里
+    // `state.raw` 正常累积、组词正常、`comp=0..2 raw=ni` 正常,
+    // 而 `state.candidates` 是**空的**。
+    //
+    // 于是 `handleSpace()` 走 `commitRaw()` 分支,空格上屏的是原始字母:
+    // `compose-space` 拿到 `editText="ni"` 而不是「你」。
+    // 探针当时是**绿的** —— 它问的问题太弱。
+    //
+    // 判据用 `candidates[…]: … n=<非零>`(见 ImeController.logCandidates)。
     let ok = false
-    for (let i = 0; i < 12 && !ok; i++) {
+    for (let i = 0; i < 24 && !ok; i++) {
       const l = this.shell('logcat -d -s ImeService:* 2>/dev/null')
-      ok = /updateSelection[^\n]*comp=(?!-1)/.test(l)
+      ok = /updateSelection[^\n]*comp=(?!-1)/.test(l) && /candidates\[[^\]]*\]:[^\n]* n=[1-9]/.test(l)
       if (!ok) execSync('sleep 0.25')
     }
     this.clearField()
@@ -220,7 +233,7 @@ async function runScenario(name, device, dir) {
   await sleep(2500)
   // 探针放这里而不是只在 preflight —— 理由见 [Device.probeIme]。
   // 不通过就让这个场景明确地失败,而不是产出一个「原始字母进了框」的假象。
-  if (!device.probeIme()) throw new Error('探针:IME 没有响应按键(按键会作为普通文本进 EditBox)')
+  if (!device.probeIme()) throw new Error('探针:IME 没能给出候选(按键没到 IME,或词库还没部署完 —— 两种都会让断言读到原始字母)')
 
   for (const step of sc.steps) await step(ctx)
   return { name, results, shots }
