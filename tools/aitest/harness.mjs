@@ -66,14 +66,22 @@ export class Device {
     //
     // 判据用 `mDreamingLockscreen` 而不是「有没有 Unlocked 日志」:
     // 后者要等日志落盘,前者是**当下的状态**。
-    for (let i = 0; i < 60; i++) {
-      const p = this.shell('dumpsys window policy 2>/dev/null')
-      const dreaming = /mDreamingLockscreen=true/.test(p)
-      const keyguard = /isStatusBarKeyguard(ing)?=true/.test(p) || /mShowingLockscreen=true/.test(p)
+    //
+    // **按墙钟兜底,不按次数**:`dumpsys window policy` 在这个模拟器上不便宜,
+    // 原来 60 次迭代实测要 ~20s/场景,而 `ci-capture.sh` 给每个场景的
+    // `timeout 300` 是硬上限 —— 白烧掉 1/15 的预算。
+    // 6s 还没干净就放弃并**把看到的字段打出来**:那时候需要的是信息,不是继续等。
+    const deadline = Date.now() + 6000
+    let last = ''
+    while (Date.now() < deadline) {
+      last = this.shell('dumpsys window policy 2>/dev/null')
+      const dreaming = /mDreamingLockscreen=true/.test(last)
+      const keyguard = /isStatusBarKeyguard(ing)?=true/.test(last) || /mShowingLockscreen=true/.test(last)
       if (!dreaming && !keyguard) return
       execSync('sleep 0.25')
     }
-    console.warn('⚠ 等了 15s 锁屏还没走干净,后面的场景可能继续被抢焦点')
+    const fields = last.split('\n').filter((l) => /Lockscreen|Keyguard|keyguard/.test(l)).slice(0, 4).join(' ; ')
+    console.warn(`⚠ 等了 6s 锁屏还没走干净,后面的场景可能继续被抢焦点。\n  看到的字段: ${fields || '(一个都没有)'}`)
   }
 
   ime() { return this.shell('ime set dev.hwkbd.ime/.service.ImeService && echo OK').includes('OK') }
@@ -256,6 +264,16 @@ async function main() {
   const fullFd = openSync(fullLog, 'w')
   const logProc = spawn(device.adb, [...device.args, 'logcat', '-v', 'time'], { stdio: ['ignore', fullFd, 'ignore'] })
   const lineCount = () => { try { return readFileSync(fullLog, 'utf8').split('\n').length } catch { return 0 } }
+  // **`unref()` 是必须的**(2026-10-03 踩过:每个场景后面多等 282 秒才退出)。
+  //
+  // spawn 出来的子进程默认会让 node 的事件循环保持「有活干」,于是 node **不肯退出** ——
+  // 而 `process.on('exit')` 里那句 `kill()` 是**永远不会被执行到**的,因为
+  // exit 事件本身就要求事件循环先空下来。死锁。
+  //
+  // 症状极有欺骗性:所有输出都已经打印完了(汇总、证据路径、报告路径全在),
+  // 日志尾部看起来一切正常,只是进程赖着不走 —— 于是每个场景白等 4 分半,
+  // 而 job 上限是 45 分钟,6 个场景就顶满了。
+  logProc.unref()
   process.on('exit', () => { try { logProc.kill() } catch {} })
 
   for (const name of selected) {
@@ -290,6 +308,9 @@ async function main() {
       } catch { /* ignore */ }
     }
   }
+
+  // 先收摊再汇总:子进程还在写 full.log,让它活得比汇总更久没有意义。
+  try { logProc.kill() } catch {}
 
   report.crashesDuringRun = device.crashCount() - crashesBefore
 
