@@ -12,8 +12,11 @@ android {
         applicationId = "dev.hwkbd.ime"
         minSdk = 26
         targetSdk = 34
-        versionCode = 19
-        versionName = "0.7.0"
+        // 0.7.1 = 纯补丁:修 0.7.0 里「翻页结构性失效」那一个功能缺失。
+        // 0.7.0 已发布,不能就地重发(见 docs/versioning.md:同一个 versionCode
+        // 配不同字节 ⇒ Android 拒装升级,且同一下载链接在不同时刻给出不同的包)。
+        versionCode = 20
+        versionName = "0.7.1"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
