@@ -85,6 +85,49 @@ export class Device {
   }
 
   ime() { return this.shell('ime set dev.hwkbd.ime/.service.ImeService && echo OK').includes('OK') }
+
+  /**
+   * 就绪探针:**敲一个 `n`,看 IME 有没有真的建立组词**。
+   *
+   * ## 为什么不能用「窗口在前台」当就绪判据
+   *
+   * 原来只看 `mCurrentFocus` 与 `mInputShown`,两个都是**代理指标**。
+   * IME 还没真正挂到编辑框上时,`input keyevent` 的按键会被系统当**普通文本**
+   * 直接送进 EditText —— 症状是拿到原始字母(`editText="nni"`)而不是候选词,
+   * **输入法看起来完全没参与**,而所有代理指标都是绿的。
+   *
+   * 探针直接问 IME:`updateSelection … comp=<数字>`(组词区间非空)才算就绪。
+   * `comp=-1..-1` 是没有组词,不算信号。
+   *
+   * ## 为什么探针必须放在**每个场景的前置**里,而不是只在 preflight 跑一次
+   *
+   * 场景前置会 `am start` 重启 PlaygroundActivity,焦点要重新建立,
+   * 那个窗口里按键照样会绕过 IME。preflight 证明过一次「设备就绪」,
+   * **不能**推论出第 5 个场景前置之后仍然就绪。
+   * 这就是 compose-space(第一个跑的场景,离 preflight 最近)反而失败的原因 ——
+   * 它的输入直接以普通文本进了框。
+   *
+   * 探针用完必须**把输入框清干净**:多一个残留字母会让后面所有 `editText()`
+   * 断言读到脏数据(实测 `editText="nni"` 里的第一个 n 就是探针留下的)。
+   */
+  probeIme() {
+    this.shell('logcat -c')
+    this.key(42) // KEYCODE_N
+    let ok = false
+    for (let i = 0; i < 12 && !ok; i++) {
+      const l = this.shell('logcat -d -s ImeService:* 2>/dev/null')
+      ok = /updateSelection[^\n]*comp=(?!-1)/.test(l)
+      if (!ok) execSync('sleep 0.25')
+    }
+    this.clearField()
+    return ok
+  }
+
+  /** 把编辑框清空:MOVE_END + 若干次 DEL。探针与场景前置都要用,字段会跨场景累积。 */
+  clearField() {
+    this.shell('input keyevent 123') // KEYCODE_MOVE_END
+    for (let i = 0; i < 12; i++) this.shell('input keyevent 67') // KEYCODE_DEL
+  }
   /** 前台窗口名。双屏设备(主屏 + subdisplay)每屏各有一个 mCurrentFocus,全取再拼接——只取第一个会永远命中副屏 launcher。 */
   foreground() {
     const all = [...this.shell('dumpsys window').matchAll(/mCurrentFocus=Window\{[^ ]+ ([^}]+)\}/g)].map((m) => m[1])
@@ -168,13 +211,16 @@ async function runScenario(name, device, dir) {
     run: (fn) => fn(ctx), // 自定义步骤
   }
 
-  // 前置:唤醒 + 切回本输入法 + 打开实验场
+  // 前置:唤醒 + 切回本输入法 + 打开实验场 + **验 IME 真的在处理输入**
   device.wake()
   device.ime()
   device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
   await sleep(2000)
   device.tap(700, 400)
   await sleep(2500)
+  // 探针放这里而不是只在 preflight —— 理由见 [Device.probeIme]。
+  // 不通过就让这个场景明确地失败,而不是产出一个「原始字母进了框」的假象。
+  if (!device.probeIme()) throw new Error('探针:IME 没有响应按键(按键会作为普通文本进 EditBox)')
 
   for (const step of sc.steps) await step(ctx)
   return { name, results, shots }
@@ -213,20 +259,6 @@ async function main() {
   //
   // 所以探针直接问 IME:敲一个 `n`,看有没有 `updateSelection … comp=`。
   // 有 ⇒ 键盘事件真的走到 IME 了。没有 ⇒ 还没就绪,重来。
-  const imeProcessing = async () => {
-    device.shell('logcat -c')
-    device.key(42) // KEYCODE_N
-    let ok = false
-    for (let i = 0; i < 12 && !ok; i++) {
-      // `comp=<数字>` = 组词区间非空 ⇒ 键盘事件真的进了 IME。
-      // (`comp=-1..-1` 是没有组词,不算就绪信号。)
-      const l = device.shell('logcat -d -s ImeService:* 2>/dev/null')
-      ok = /updateSelection[^\n]*comp=(?!-1)/.test(l)
-      if (!ok) await sleep(250)
-    }
-    device.key(67) // KEYCODE_DEL 收尾,别把探针的字母留在框里
-    return ok
-  }
 
   const preflight = async () => {
     device.wake()
@@ -237,7 +269,7 @@ async function main() {
     await sleep(2500)
     const fg = device.foreground()
     const shown = device.imeShown()
-    const processing = shown ? await imeProcessing() : false
+    const processing = shown ? device.probeIme() : false
     return { fg, shown, processing }
   }
   const ready = (p) => p.fg.includes('PlaygroundActivity') && p.shown && p.processing
@@ -340,7 +372,11 @@ async function main() {
   const skipped = report.scenarios.filter((s) => s.pending).length
   // **分母只算真的判过的**。把待判卷的算进分母,等于宣布「这次跑不可能全绿」,
   // 于是没人再看这个数字 —— 一个永远达不到的指标等于没有指标。
-  console.log(`\n=== ${passed}/${total - skipped} 场景通过${skipped ? `(${skipped} 个待判卷)` : ''} ===`)
+  const judged = total - skipped
+  const verdict = judged === 0
+    ? `=== 无场景含确定性断言(${skipped} 个全待判卷) ===`
+    : `=== ${passed}/${judged} 场景通过${skipped ? `(${skipped} 个待判卷)` : ''} ===`
+  console.log(`\n${verdict}`)
   console.log(`证据: ${runDir}`)
   console.log(`报告: ${reportFile}`)
   if (report.crashesDuringRun > 0) console.log(`⚠ 测试期间发生 ${report.crashesDuringRun} 次崩溃!`)
