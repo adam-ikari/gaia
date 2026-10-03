@@ -266,12 +266,22 @@ async function main() {
     try {
       const r = await runScenario(name, device, dir)
       r.results.forEach((x) => process.stdout.write(`\n   ${x.pass ? '✓' : '✗'} ${x.msg}`))
-      const passed = r.results.length > 0 && r.results.every((x) => x.pass)
-      console.log(`\n   ⇒ ${passed ? 'PASS' : 'FAIL'}`)
-      report.scenarios.push({ name, passed, results: r.results, shots: r.shots })
+      // 三态而不是两态。
+      //
+      // 有些场景(candidate-center / layer-chips)的判定**全部**交给 AI 判卷,
+      // 自己一条确定性断言都没有。这种场景在 `AITEST_API_KEY` 没配时
+      // `results` 必然为空,而旧写法 `results.length > 0 && …` 会把它判成 **FAIL**。
+      //
+      // 后果不是「多报一个失败」,而是**这两个场景永远红着** ——
+      // 而永远红的场景会教会人无视红灯,连带真的失败也被看过去。
+      // 所以这里先记成 `pending`,判卷之后把答案附回来(见下面)。
+      const pending = r.results.length === 0
+      const passed = !pending && r.results.every((x) => x.pass)
+      console.log(`\n   ⇒ ${pending ? 'PENDING(待判卷)' : passed ? 'PASS' : 'FAIL'}`)
+      report.scenarios.push({ name, passed, pending, results: r.results, shots: r.shots })
     } catch (e) {
       console.log(`\n   ⇒ ERROR: ${e.message}`)
-      report.scenarios.push({ name, passed: false, results: [ok(false, e.message)], shots: [] })
+      report.scenarios.push({ name, passed: false, pending: false, results: [ok(false, e.message)], shots: [] })
     } finally {
       // 每个场景留**自己那一段**的完整 logcat(见上面常驻 logcat 的说明)。
       // 取不到就算了 —— 不能因为存证据而让场景失败。
@@ -282,21 +292,38 @@ async function main() {
   }
 
   report.crashesDuringRun = device.crashCount() - crashesBefore
-  report.finishedAt = new Date().toISOString()
-  const reportFile = join(runDir, 'report.json')
-  writeFileSync(reportFile, JSON.stringify(report, null, 2))
 
   // AI 视觉判卷:有 API Key 时对每张截图执行场景定义的 judge 问题
   const { judgeEvidence } = await import('./judge.mjs')
   await judgeEvidence(report, runDir, device)
+  // **不**把判卷答案再猜成 pass/fail。
+  //
+  // `judge.mjs` 只产出自由文本(「共 5 个候选,「你」在正中间」),没有可用的判定。
+  // 用正则去猜「答案里有没有『不』」会造出**假信心** —— 中文答复里出现「不」太常见了,
+  // 于是「是」可能被判成失败、「不是」可能被判成通过。
+  //
+  // 所以待判卷的场景就**一直是 pending**:把答案附在结果里给人/代理看,
+  // 由人读。要自动判定,得在场景的 judge 定义里加一条明确的判据,而不是猜。
+  for (const sc of report.scenarios) {
+    if (!sc.pending) continue
+    const answers = (report.judge ?? []).filter((j) => j.scenario === sc.name && j.answer)
+    if (answers.length) sc.results = answers.map((j) => ok(true, `判卷(${j.shot}): ${j.answer}`))
+  }
+
+  report.finishedAt = new Date().toISOString()
+  const reportFile = join(runDir, 'report.json')
+  writeFileSync(reportFile, JSON.stringify(report, null, 2))
 
   const total = report.scenarios.length
   const passed = report.scenarios.filter((s) => s.passed).length
-  console.log(`\n=== ${passed}/${total} 场景通过 ===`)
+  const skipped = report.scenarios.filter((s) => s.pending).length
+  // **分母只算真的判过的**。把待判卷的算进分母,等于宣布「这次跑不可能全绿」,
+  // 于是没人再看这个数字 —— 一个永远达不到的指标等于没有指标。
+  console.log(`\n=== ${passed}/${total - skipped} 场景通过${skipped ? `(${skipped} 个待判卷)` : ''} ===`)
   console.log(`证据: ${runDir}`)
   console.log(`报告: ${reportFile}`)
   if (report.crashesDuringRun > 0) console.log(`⚠ 测试期间发生 ${report.crashesDuringRun} 次崩溃!`)
-  process.exitCode = passed === total && report.crashesDuringRun === 0 ? 0 : 1
+  process.exitCode = passed === total - skipped && report.crashesDuringRun === 0 ? 0 : 1
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
