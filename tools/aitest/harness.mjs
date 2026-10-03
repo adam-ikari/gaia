@@ -12,8 +12,8 @@
  *
  * 证据输出:tools/aitest/evidence/<时间戳>/<场景名>/ 下保存截图、ui.xml、logcat 片段、结果 JSON。
  */
-import { execFileSync, execSync, spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { execFileSync, execSync, spawnSync, spawn } from 'node:child_process'
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scenarios } from './scenarios.mjs'
@@ -53,8 +53,27 @@ export class Device {
     if (st.includes('SCREEN_STATE_OFF')) this.shell('input keyevent KEYCODE_POWER')
     this.shell('input keyevent KEYCODE_WAKEUP')
     this.shell('input swipe 700 1350 700 300 200') // 上滑过锁屏
+    // AVD 上没有 home app,锁屏是 `FallbackHome`。`wm dismiss-keyguard` 只是**请求**,
+    // 它要过几百毫秒才真正打完(日志里就是 `FallbackHome: User unlocked`)。
+    this.shell('locksettings set-disabled true 2>/dev/null || true')
     this.shell('wm dismiss-keyguard')
     this.shell('svc power stayon true') // USB 供电期间保持常亮,防 10s 熄屏
+    // **必须等它真的走完**(2026-10-03 page-flip 就是这么红的)。
+    //
+    // 不等的话,解锁会**落在场景跑到一半的时候**:那一刻抢走焦点 ⇒ IME 断连 ⇒
+    // 组词被清掉(`winmode: composing=false` / `raw=`),而症状是
+    // 「手势没反应」—— 日志里连 `touch DOWN` 都没有,看起来像代码问题。
+    //
+    // 判据用 `mDreamingLockscreen` 而不是「有没有 Unlocked 日志」:
+    // 后者要等日志落盘,前者是**当下的状态**。
+    for (let i = 0; i < 60; i++) {
+      const p = this.shell('dumpsys window policy 2>/dev/null')
+      const dreaming = /mDreamingLockscreen=true/.test(p)
+      const keyguard = /isStatusBarKeyguard(ing)?=true/.test(p) || /mShowingLockscreen=true/.test(p)
+      if (!dreaming && !keyguard) return
+      execSync('sleep 0.25')
+    }
+    console.warn('⚠ 等了 15s 锁屏还没走干净,后面的场景可能继续被抢焦点')
   }
 
   ime() { return this.shell('ime set dev.hwkbd.ime/.service.ImeService && echo OK').includes('OK') }
@@ -195,9 +214,25 @@ async function main() {
     return
   }
 
+  // ---- 常驻 logcat(整轮),场景结束时按行切片存证据 -------------------
+  //
+  // 不能靠 `logcat -d` 取:`takeLog` 每次断言后都 `logcat -c` 清空缓冲区,
+  // 所以**任何时刻** `-d` 能看到的只有最后一次断言之后的东西。
+  // 2026-10-03 就是这样:page-flip 目录里的 ime.log 只剩 9 行,
+  // 而那 9 行恰好**不含**失败发生时的三条埋点 —— 证据机制自己把证据抵消了。
+  //
+  // 所以开一个不间断的 `logcat -v time`,落成 runDir/full.log,
+  // 每个场景记录起始行号,结束时把那段切出来。
+  const fullLog = join(runDir, 'full.log')
+  const fullFd = openSync(fullLog, 'w')
+  const logProc = spawn(device.adb, [...device.args, 'logcat', '-v', 'time'], { stdio: ['ignore', fullFd, 'ignore'] })
+  const lineCount = () => { try { return readFileSync(fullLog, 'utf8').split('\n').length } catch { return 0 } }
+  process.on('exit', () => { try { logProc.kill() } catch {} })
+
   for (const name of selected) {
     const dir = join(runDir, name)
     mkdirSync(dir, { recursive: true })
+    const startLine = lineCount()
     process.stdout.write(`▶ ${name} ... `)
     try {
       const r = await runScenario(name, device, dir)
@@ -209,20 +244,11 @@ async function main() {
       console.log(`\n   ⇒ ERROR: ${e.message}`)
       report.scenarios.push({ name, passed: false, results: [ok(false, e.message)], shots: [] })
     } finally {
-      // **每个场景都留一份自己的 logcat**(2026-10-03 加)。
-      //
-      // 之前只有 runDir 末尾一份 `ime.log`,内容是 `tail -20` —— 而 `takeLog`
-      // 每次断言后都 `logcat -c` 清空。于是最后剩下的那 27 行**只覆盖最后一个场景**,
-      // 前面失败的场景什么都没有。那次 page-flip 三条断言全红、一条日志都没有,
-      // 事后完全无法判断是「手势没进来」还是「进来了被门挡住」——
-      // 而这两种的修法完全不同。
-      //
-      // 所以:场景跑完立刻把这一段期间的日志落到**它自己的目录**里。
-      // 代价是几 KB,收益是任何一次失败都能事后查。
+      // 每个场景留**自己那一段**的完整 logcat(见上面常驻 logcat 的说明)。
+      // 取不到就算了 —— 不能因为存证据而让场景失败。
       try {
-        const log = device.shell('logcat -d -v time 2>/dev/null | tail -400')
-        writeFileSync(join(dir, 'ime.log'), log + '\n')
-      } catch { /* 取不到就算了,不能因为存证据而让场景失败 */ }
+        writeFileSync(join(dir, 'ime.log'), readFileSync(fullLog, 'utf8').split('\n').slice(startLine).join('\n'))
+      } catch { /* ignore */ }
     }
   }
 

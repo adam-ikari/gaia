@@ -90,9 +90,13 @@ export const scenarios = [
         await sleep(900)
         // **先验「有组词」再验手势**(2026-10-03 加)。
         //
-        // 没有组词时 `onPageDragBegin` 直接静默早退,logcat 里一个字都没有 ——
-        // 与「手势压根没进窗口」完全同形。这条断言把两者分开,否则每次红都只能靠猜。
-        c.expectLog(c.device.takeLog('hasComposition'), 'hasComposition=true')
+        // 没有组词时 `onPageDragBegin` 静默早退,logcat 里没有 `page begin` ——
+        // 与「手势压根没进窗口」同形。这条断言把两者分开。
+        //
+        // 判据用 `updateSelection … comp=` 而不是 `hasComposition=true`:
+        // 后者只在 `commitFly`(飞字提交)那条日志里出现,**量词阶段根本不会有**。
+        // (第一版就写成 `hasComposition`,于是无论组词有没有都必红 —— 自己造的假信号。)
+        c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
         c.device.shell('logcat -c')
         c.device.swipe(1100, 1100, 500, 1100, 200)
         await sleep(700)
