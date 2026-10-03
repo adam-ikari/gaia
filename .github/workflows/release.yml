@@ -46,11 +46,17 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      # **必须接受许可**:setup-android 内部会跑一次 sdkmanager,没接受许可时
+      # 它自己就退出(exit 1),后面的 NDK 安装根本没机会执行。
+      - name: Accept Android SDK licenses
+        uses: android-actions/accept-android-sdk-licenses@v3
+
       # NDK 版本**必须与本机一致**(app/build.gradle.kts 的 ndkVersion):
       # 不同 NDK 编出来的 .so 有差异(运行库版本、C++ 标准库细节),
       # 「本地能跑线上崩」这类问题从 Kotlin 侧看不出来。
       - name: Install NDK and CMake
         run: |
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1'
 
       # Boost **头文件**:librime 用了 signals2 / unordered_map / crc / regex 之外的部分。
