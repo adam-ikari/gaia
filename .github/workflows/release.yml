@@ -39,14 +39,28 @@ jobs:
       #
       # 版本与本机一致(NDK 27.1.12297006):**native 与 CI 编出来的 .so 必须同版本**,
       # 否则同一份 Kotlin 在两端行为不同,最难查。
-      - name: Set up Android SDK, NDK and CMake
+      # **用 android-actions/setup-android 而不是裸 sdkmanager**:
+      # runner 镜像上 `sdkmanager` 不在 PATH(本机有 $ANDROID_HOME 环境变量,CI 没有),
+      # 直呼 `sdkmanager` 报的是 `command not found`(exit 127)——
+      # 那个 action 会自己把 ANDROID_HOME/cmdline-tools 配好。
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # NDK 版本**必须与本机一致**(app/build.gradle.kts 的 ndkVersion):
+      # 不同 NDK 编出来的 .so 有差异(运行库版本、C++ 标准库细节),
+      # 「本地能跑线上崩」这类问题从 Kotlin 侧看不出来。
+      - name: Install NDK and CMake
         run: |
-          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1'
+
+      # Boost **头文件**:librime 用了 signals2 / unordered_map / crc / regex 之外的部分。
+      # 它被改成用 std::regex,所以只要头、不要编库(runner 上也没有编好的 boost)。
+      - name: Install Boost headers
+        run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libboost-dev
-          # 1.74 是 librime 的最低要求(其 CMakeLists 里 find_package(Boost 1.74.0)),
-          # 装到的比这新也没关系 —— 只用头文件,不链接 boost_regex
+          # 1.74 是 librime 的最低要求(find_package(Boost 1.74.0));
+          # 装到的比这新也没关系 —— 只用头文件
           dpkg -s libboost-dev | grep -i '^Version'
 
       - name: Report NDK / CMake / Boost

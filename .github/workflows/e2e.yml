@@ -103,6 +103,18 @@ jobs:
       # 中区宽度跟着变:状态行中区 = 屏宽 − 2 × bar_side_box − 12dp。
       # 手机(1080dp 屏)上只有 159dp,Titan 2 上是 346dp —— 差一倍多,
       # L4 一行装得下几把键、哪些要溢出到 L5 全都不一样。**按手机的宽度拍,版式就是错的。**
+      # assembleDebug 会编 native(librime),所以 NDK / CMake / Boost 头文件一个都不能少。
+      # 版本与 release.yml 一致,且要与 app/build.gradle.kts 的 ndkVersion 对上。
+      - name: 装 NDK / CMake / Boost
+        run: |
+          set -uo pipefail
+          export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1' >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libboost-dev
+          echo "ndk: $(ls $ANDROID_SDK_ROOT/ndk)"
+
       - name: 手写一个 Titan 2 屏幕的 AVD
         run: |
           set -uo pipefail
