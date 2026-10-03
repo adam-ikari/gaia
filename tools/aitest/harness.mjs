@@ -110,7 +110,32 @@ export class Device {
    * 探针用完必须**把输入框清干净**:多一个残留字母会让后面所有 `editText()`
    * 断言读到脏数据(实测 `editText="nni"` 里的第一个 n 就是探针留下的)。
    */
-  probeIme() {
+  /**
+   * 等引擎真正就绪 —— 就是这个探针本身,**不要**另做一个「等就绪」步骤。
+   *
+   * librime 的首次部署(4.6MB `essay.txt` + 890KB `luna_pinyin.dict.yaml`
+   * 转 `.ocd2` 并建 LevelDB)是**异步**的。那段时间里:
+   *   - `state.raw` 正常累积、`updateSelection comp=0..2 raw=ni` 正常;
+   *   - `imeShown()` 为 true、前台是 PlaygroundActivity;
+   *   - 但 `state.candidates` **是空的** ⇒ `handleSpace()` 走 `commitRaw()`,
+   *     空格上屏的是原始字母。
+   *
+   * **所有代理指标都是绿的**,只有引擎自己知道它没准备好。
+   *
+   * ## 这里踩过的坑:另做一个「等引擎就绪」步骤是**不可能成功**的
+   *
+   * 我先写了个 `waitEngineReady()`,在 preflight 开头轮询 `candidates[…]: n>=1`。
+   * 它永远等不到 —— 因为那条日志**只在按过键之后**才出现,而那时一个键都还没按。
+   * 结果每个场景白等 2 × 120s,10 个场景把 job 的 45 分钟吃光。
+   *
+   * 所以**等待必须由「按一个键」触发**,而按键正是探针干的事。
+   * 一个探针就够了:它同时是「触发查询」+「等候选出现」+「确认按键真的到了 IME」。
+   *
+   * @param timeoutMs 给多长。首次部署在 CI 模拟器上真的要几十秒,
+   *   给少了会变成随机失败;但也别给太大 —— 这段时间是每个场景进程都要付的。
+   */
+  probeIme(timeoutMs = 90000) {
+    this.clearField()
     this.shell('logcat -c')
     this.key(42) // KEYCODE_N
     // **两个条件都要满足**(2026-10-03 加第二个)。
@@ -126,40 +151,15 @@ export class Device {
     // 探针当时是**绿的** —— 它问的问题太弱。
     //
     // 判据用 `candidates[…]: … n=<非零>`(见 ImeController.logCandidates)。
+    const deadline = Date.now() + timeoutMs
     let ok = false
-    for (let i = 0; i < 24 && !ok; i++) {
+    while (Date.now() < deadline && !ok) {
       const l = this.shell('logcat -d -s ImeService:* 2>/dev/null')
       ok = /updateSelection[^\n]*comp=(?!-1)/.test(l) && /candidates\[[^\]]*\]:[^\n]* n=[1-9]/.test(l)
-      if (!ok) execSync('sleep 0.25')
+      if (!ok) execSync('sleep 1')
     }
     this.clearField()
     return ok
-  }
-
-  /**
-   * 等引擎真正就绪 —— **在探针之前**,不是靠探针去发现。
-   *
-   * librime 的首次部署(把 4.6MB 的 `essay.txt` + 890KB 的 `luna_pinyin.dict.yaml`
-   * 转成 `.ocd2` 并建 LevelDB)是**异步**的。那段时间里:
-   *   - `state.raw` 正常累积、`updateSelection comp=0..2 raw=ni` 正常;
-   *   - `imeShown()` 为 true、前台是 PlaygroundActivity;
-   *   - 但 `state.candidates` **是空的** ⇒ `handleSpace()` 走 `commitRaw()`,
-   *     空格上屏的是原始字母。
-   *
-   * 也就是说**所有代理指标都是绿的**,只有引擎自己知道它没准备好。
-   * 以前是靠 compose-space 断言变红才发现的,那时已经浪费了一整轮。
-   *
-   * 判据用 `ImeController.logCandidates` 的 `n=<非零>`。给 120s:
-   * 词库转换在 CI 的模拟器上真的要几十秒,给少了会变成随机失败。
-   */
-  waitEngineReady() {
-    const deadline = Date.now() + 120000
-    while (Date.now() < deadline) {
-      const l = this.shell('logcat -d -s ImeService:* 2>/dev/null')
-      if (/candidates\[[^\]]*\]:[^\n]* n=[1-9]/.test(l)) return true
-      execSync('sleep 2')
-    }
-    return false
   }
 
   /** 把编辑框清空:MOVE_END + 若干次 DEL。探针与场景前置都要用,字段会跨场景累积。 */
@@ -259,7 +259,10 @@ async function runScenario(name, device, dir) {
   await sleep(2500)
   // 探针放这里而不是只在 preflight —— 理由见 [Device.probeIme]。
   // 不通过就让这个场景明确地失败,而不是产出一个「原始字母进了框」的假象。
-  if (!device.probeIme()) throw new Error('探针:IME 没能给出候选(按键没到 IME,或词库还没部署完 —— 两种都会让断言读到原始字母)')
+  // 90s 与 preflight 一致:第一个跑的场景要等 librime 首次部署完词库。
+  // 注意 `ci-capture.sh` 是**每个场景起一个 node 进程**,所以每个进程都会付这个等待;
+  // 好在部署是一次性的,后面的场景第一次轮询就过。
+  if (!device.probeIme(90000)) throw new Error('探针:IME 没能给出候选(按键没到 IME,或词库还没部署完 —— 两种都会让断言读到原始字母)')
 
   for (const step of sc.steps) await step(ctx)
   return { name, results, shots }
@@ -302,19 +305,17 @@ async function main() {
   const preflight = async () => {
     device.wake()
     device.ime()
-    // 先把引擎等就绪,再做别的。顺序很重要:IME 刚切回来时它才开始部署词库,
-    // 而探针要求「候选非零」—— 不先等的话探针必然失败(见 [Device.waitEngineReady])。
-    console.log('… 等引擎就绪(librime 首次部署词库)')
-    const engineReady = device.waitEngineReady()
-    console.log(engineReady ? '   引擎已就绪' : '   ⚠ 120s 内引擎没给出候选,继续(场景会明确失败而不是给出假象)')
+
     device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
     await sleep(2500)
     device.tap(700, 400)
     await sleep(2500)
     const fg = device.foreground()
     const shown = device.imeShown()
-    const processing = shown && engineReady ? device.probeIme() : false
-    return { fg, shown, processing, engineReady }
+    // 探针自己就是「等引擎就绪」那一步(见 [Device.probeIme] 的说明)。
+    // 首给 90s:词库转换在 CI 模拟器上真的要几十秒。
+    const processing = shown ? device.probeIme(90000) : false
+    return { fg, shown, processing }
   }
   const ready = (p) => p.fg.includes('PlaygroundActivity') && p.shown && p.processing
   let pf = await preflight()
@@ -323,7 +324,7 @@ async function main() {
     console.error(`✗ 设备未就绪:前台=${pf.fg},输入法显示=${pf.shown},IME在处理输入=${pf.processing}`)
     console.error('  可能:安全锁屏(需手动解锁)、主屏熄灭、用户正在使用手机,')
     console.error('  或编辑框没真正聚焦(此时按键会作为普通文本进 EditText,而不是走 IME)。')
-    console.error(`  或词库还没部署完(引擎就绪=${pf.engineReady})。`)
+    console.error('  或词库还没部署完 —— 探针会等 90s 再判,到这里说明 90s 都没给出候选。')
     process.exitCode = 2
     return
   }

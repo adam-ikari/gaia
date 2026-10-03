@@ -646,12 +646,19 @@ class ImeController(
      * 只在**数量变化**时打:候选数每个按键都在变,每次都打会把 logcat 冲掉
      * (而 `takeLog` 只取 `tail -20` —— 之前正是被这个坑过)。
      */
-    private var lastCandidateCount = -1
+    private var lastCandidateSig = ""
 
     private fun logCandidates(why: String) {
         val n = state.candidates.size
-        if (n == lastCandidateCount) return
-        lastCandidateCount = n
+        // 判据是 **(raw, n) 这一对**,不是只看 n。
+        //
+        // 只看数量会踩这个坑:E2E 探针每次都是「清空 → 敲一个 n」,
+        // 于是每次的数量都是同一个值,第二次开始 `n` 没变 ⇒ **一行都不打** ⇒
+        // 探针等不到自己要的信号,判定成「引擎没就绪」。
+        // 带上 raw 之后,「清空(n=0, raw=空)」与「敲了 n(n=5, raw=n)」是两件事。
+        val sig = "${state.raw}|$n"
+        if (sig == lastCandidateSig) return
+        lastCandidateSig = sig
         android.util.Log.i(
             "ImeService",
             "candidates[$why]: raw=\"${state.raw}\" n=$n pages=${state.totalPages}"
@@ -661,6 +668,9 @@ class ImeController(
     fun clearComposition() {
         state.raw = ""
         state.candidates = emptyList()
+        // 清空本身不调 [logCandidates],所以在这里把签名失效 ——
+        // 否则「清空后再敲同一个键」因为 (raw,n) 与上一次相同而**不打日志**。
+        lastCandidateSig = ""
         state.page = 0
         state.highlight = -1
     }
