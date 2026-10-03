@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [e2e, ci, emulator, media, capture]
 created: "2026-10-01T05:09:58"
-updated: "2026-10-03T11:49:31"
+updated: "2026-10-03T14:00:29"
 ---
 
 <!-- compiled_truth -->
@@ -156,3 +156,9 @@ FATAL | Not enough space to create userdata partition.
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-03 v0.7.0 首跑 + 三处修复"
   affects: [e2e-capture]
+
+- time: 2026-10-03T14:00:29
+  kind: decision
+  summary: "埋点一次定位 page-flip:不是环境,是只有一页候选(librime page_size 默认 5)"
+  source: "2026-10-03 E2E run 37124100743 的常驻 logcat"
+  affects: [e2e-capture, librime-android-build]

@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-03T11:49:31.017Z._
+_Auto-generated. Last updated 2026-10-03T14:00:29.448Z._
 
 - [e2e-capture](pages/e2e-capture.md) — category: project | tags: [e2e, ci, emulator, media, capture] | ## 好消息:2026-10-03 E2E 第一次把 librime 跑起来了
 - [ime-insets-contract](pages/ime-insets-contract.md) — category: decision | tags: [ime android termux] | 输入法窗口的 insets 契约：**窗口全屏 ≠ 内容全屏**。

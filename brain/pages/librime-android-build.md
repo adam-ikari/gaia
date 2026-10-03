@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-03T11:24:36"
+updated: "2026-10-03T14:00:16"
 ---
 
 <!-- compiled_truth -->
@@ -16,6 +16,45 @@ v0.7.0 把拼音内核从自写的 `PinyinEngine`(查表 + 分节位)换成 **li
 (arm64-v8a + x86_64),**只依赖 `libdl` / `libm` / `libc`**,无 ICU 无 glog。
 
 **不对比,直接替换** —— 用户明确要求,测试也不需要与以前一致。
+
+## ⭐ 坑零:`page_size` 默认 5 ⇒ **翻页结构性失效**(E2E 才暴露)
+
+这是换引擎带进来的**功能缺失**,而且是这一轮最重要的教训。
+
+librime 的 `RimeContext.menu` 给的是**当前页**候选,最多 `page_size` 个。
+schema 不写 `menu:` 段时,librime 默认 **`page_size = 5`**
+(见 `librime/src/rime/schema.cc`,只兜 `page_size < 1`)。
+
+而本项目的分页是**自己**做的:
+
+```
+ImeState.totalPages = ceil(candidates.size / pageSize)   // pageSize = 5
+CandidateBarView.pageNextSlots = state.pageSlotsAt(page + 1)
+```
+
+于是 `candidates.size ≤ 5` ⇒ `totalPages` 恒等于 1 ⇒ `pageNextSlots` /
+`pagePrevSlots` **恒空** ⇒ `takeOverPageDrag` 每次都走「到头,橡皮筋」分支。
+**翻页在结构上就不可能发生。**
+
+修法:schema 加 `menu: page_size: 45`,与 `ImeController.CANDIDATE_LIMIT`
+一致,一次 `ctx.menu.candidates[]` 给全,`candidates` 就是完整列表,
+现有 `totalPages` / `pageSlotsAt` 逻辑原样可用。
+
+**为什么不用 `change_page` 逐页取**:本项目 `query()` 是**无状态**的
+——每次以 `state.raw` 为准 `clear_composition()` + 逐字重喂。
+翻 librime 的内部页码等于引入第二份状态,正是那条约定要避免的。
+
+### 为什么这个 bug 躲过了所有静态检查
+
+- **单测全绿**:`FakePinyinInputMethod` 要多少候选给多少,永远有第 2 页。
+- **构建通过**:schema 是合法的 YAML,librime 也不校验 `page_size` 是否合理。
+- **界面看着完全正常**:候选、飞字、空格上屏全对,**只有翻页不发生**。
+- **E2E 的 page-flip 一开始红的是截图**,不是翻页 —— 所以没人怀疑它。
+
+**教训:换引擎/换库时,要逐个核对「新库用自己方式表达的量」在新架构里
+还成不成立。** `page_size` 在 librime 里是「一页几个」,在本项目里分页是自己
+做的、librime 那个值就成了一个**没人注意的静默上限**。
+单测替身掩盖了它 —— **替身越方便,接口契约的漏洞越藏得深**。
 
 ## 坑一:`ANDROID_ABI` 必须转发给独立子工程
 
@@ -74,10 +113,14 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
 `namespace rime` 下的 **C++ 符号**,JNI 层不能按 C 名字找。
 
 1. `RimeTraits.data_size` **必填**,不给就是栈上垃圾。
-2. `RimeContext.menu.candidates[]` **一次给全页**。用迭代器是每词一次 JNI 往返,
-   一页 9 词就是 9 次跨语言边界 —— 没必要。
+2. `RimeContext.menu.candidates[]` **一次给一页**(不是全部!见坑零),
+   `page_size` / `is_last_page` 同在这个结构里。迭代器
+   (`candidate_iterator_*`)在这份 fork 里**已被移除**,不存在。
 3. `get_context(session, &ctx)` **两参数** + `RimeContext` 用 `RIME_STRUCT_INIT`
    预置。清空用 `clear_composition()`。
+
+还有两处**静默截断**:JNI 里 `limit` 与硬顶 100。改一头不换另一头,
+症状是「候选莫名少一截」而不是报错 —— 已补 WARN 日志。
 
 ## SCHEMA_ID 必须是 `luna_pinyin`,不是 `luna_pinyin._simp`
 
@@ -91,10 +134,9 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
 
 ## 还没验证的
 
-- **一次都没在真机上跑过**(`adb devices` 空)。librime 能否查出候选、
-  翻译栈是否正常、分节行为 —— 全部未验证。
-- R8 只有构建验证,没有运行验证。**JNI keep 规则写错就是 `UnsatisfiedLinkError`**,
-  而 R8 现在默认开着。
+- **一次都没在真机上跑过**(`adb devices` 空)。模拟器上已验证:librime 查出候选、
+  JNI 加载、R8 未炸(debug 包;**release 包的 R8 仍未运行验证**,
+  keep 规则写错就是 `UnsatisfiedLinkError`)。
 - 引擎侧解码质量无 JVM 覆盖(那段在 C++)。
 - 旧 `files/user_dict.json` 学习成果与 Rime 的 LevelDB **无转换路径**
   ⇒ 换引擎后用户已有学习成果会丢。这是 v0.7.0 标 breaking 的原因。
@@ -112,4 +154,10 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-03 v0.7.0 换内核的实战记录(配方同源 adam-ikari/term-ime)"
+  affects: [librime-android-build]
+
+- time: 2026-10-03T14:00:16
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-03 E2E 实测:page_size 默认 5 ⇒ 翻页结构性失效"
   affects: [librime-android-build]
