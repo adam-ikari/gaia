@@ -5,42 +5,88 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-09-30T11:10:51"
+updated: "2026-10-03T11:25:09"
 ---
 
 <!-- compiled_truth -->
-发布 = 改版本号 → 打 `v*` tag → 推 tag,CI 负责出包和 release 页面。**现在是两步**(应用仓库出包 + 传到公开站点仓库)。
+## 发版前:同一个检查在两个环境跑通,不代表它对
 
-**第一步(照旧)**:版本号唯一来源是 `app/build.gradle.kts` 的 `versionCode` / `versionName`,随功能
-提交一起改;推 `v*` tag 触发 `.github/workflows/release.yml` → 单测 → `assembleRelease` +
-`assembleDebug` → 建 GH Release。CI 硬编码 `app-release.apk` / `app-debug.apk` 两个文件名。
+`check-version.sh` 验三件事:格式、tag 与 `versionName` 一致、
+`versionCode` 未与任何旧 tag 冲突。它在 release.yml 里排在「Unit tests」之前
+—— 版本号错了就不该浪费时间跑测试。
 
-**第二步(2026-09-30 起,别漏)**:把两个包传到公开站点仓库 `adam-ikari/gaia` 的**同名** Release ——
-```bash
-gh release create v0.4.1 \
-  app/build/outputs/apk/release/app-release.apk#app-release.apk \
-  app/build/outputs/apk/debug/app-debug.apk#app-debug.apk \
-  --repo adam-ikari/gaia
+接进 CI 的第一次就挂在 `versionCode 19 已被 tag v0.7.0 用过` ——
+**自己跟自己比**。
+
+原因:CI 里跑的时候 **tag 已经存在**(tag 的 push 就是工作流的触发条件),
+所以待发布的那个 tag 必然出现在 `git tag` 输出里,而它带的 `versionCode`
+恰好等于当前值,`>=` 判定成立。本地跑时看不到,因为那时新 tag 还没打。
+
+**两个入口的初始状态不同**:本地是「tag 未打」,CI 是「tag 已存在」。
+所以脚本现在排除待发布的那一个;不给 tag 参数时自动取「指向 HEAD 的 tag」
+来排除(对应「本地 `git tag -a` 打完还没推」的状态)。
+
+**教训:接一个检查进 CI 时,要问「两边初始状态一样吗」,而不是「本地过了吗」。**
+
+## Android SDK 许可:三段弯路
+
+1. 裸调 `sdkmanager` → `command not found`(runner 镜像上不在 PATH)
+2. 加 `android-actions/setup-android` → 它内部就会跑一次 sdkmanager,
+   **许可没接受时它自己就 exit 1**,报的是一屏 SDK Preview 许可条款
+3. 试 `android-actions/accept-android-sdk-licenses` →
+   `Unable to resolve action ... repository not found`(那个路径不存在)
+
+最终:**不用那些 action**。GitHub 的 ubuntu runner **本来就预装了
+cmdline-tools**(`/usr/local/lib/android/sdk/cmdline-tools/16.0`),
+只是不在 PATH 上。把 `$ANDROID_HOME/cmdline-tools/latest/bin` 加进 PATH,
+然后 `yes | sdkmanager --licenses`(要 `|| true`,`yes` 被 SIGPIPE 杀掉会非零)
++ `sdkmanager --install`。
+
+## 三条流水线的依赖清单要一起改
+
+release.yml 加了 `submodules: recursive` + NDK + Boost 时,ci.yml / e2e.yml
+**没跟着改**。两个后果,各自报一个**指不到真正原因**的错:
+
+- 没带 submodules ⇒ librime 的 vendored deps 是空目录 ⇒
+  `CMake Error: The source directory .../deps/yaml-cpp does not exist`
+  (看着像依赖缺失,其实是没 checkout)
+- 没装 NDK/Boost ⇒ `CMakeLists.txt:158「找不到 boost 头文件」`
+  (它确实找不到,但指向 CMake 而不是 CI)
+
+**教训:加了「某条流水线才需要的东西」,要么三条都加,要么抽成 reusable workflow。**
+只加一条,后面两条会以「看起来像别的问题」的形式挂掉。
+
+顺带一提:`gh run rerun` 重跑的是**原来那次 run 的 commit**,不是最新的 master。
+改了东西想验证,得推新 commit(空提交也行)。
+
+## E2E 模拟器:FATAL 藏在第 17 行,前面全是 INFO
+
+2026-10-03:模拟器启动后立刻退出,超时 600s 未 boot。真正的错是:
+
 ```
-站点下载页 `Downloads.vue` 读的是**这个仓库**的 `releases/latest`,不传的话站点永远停在旧版本。
-**目前这步是手工的**:`hwkbd_ime` 没有 `WEB_RELEASE_TOKEN` secret(2026-09-30 核对为空)。想自动化
-就照 `powerkit` 的做法,在主仓库 CI 加 `publish-site` 任务 + 一个只授权 `gaia` 写 Contents 的
-fine-grained PAT。详见 [[project-licensing]]。
+FATAL | Not enough space to create userdata partition.
+ Available: 6725.43 MB, need 7372.80 MB
+```
 
-**签名现状**:仓库 Secrets 里**没有**配 `SIGNING_KEYSTORE_BASE64` 等,所以 CI 走的是仓库内
-提交的 `hwkbd.keystore`(CN=Gaia IME,SHA-256 `26bb762c…`),debug 与 release 同签 ——
-`adb install -r` / 应用内升级都不会撞 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。代价是签名私钥随
-仓库一起(仓库已转私有,见 [[project-licensing]])。若将来配了 CI secret,`ci` 签名配置会顶掉项目
-密钥,届时证书指纹会变,和已装的旧包不兼容。
+**磁盘不够**,不是 APK 的问题,也不是 AVD 配置写错。原因是接了 native 之后
+这条流水线多装了 NDK(2.5GB)+ CMake,加上系统镜像与 Gradle 缓存把盘吃掉了。
+APK 打完就删 NDK/CMake/`~/.gradle/caches`,并在 AVD 步骤前打 `df -h`。
 
-**已知 flake(不是代码问题)**:runner 上 `maven.aliyun.com` 偶发 502,会让
-`:app:lintVitalAnalyzeRelease` 解析 `com.android.tools.analytics-library:tracker` /
-`jakarta.activation-api` 失败,整条 release job 挂在 `assembleRelease` 那一步(debug 不跑 lint,
-所以 CI workflow 看不出来)。502 是硬错误、不顺延到下一个仓库,不会自愈。
-**处理:`gh run rerun <run-id> --failed`**(v0.4.0 首发撞过一次,重跑通过)。
+**教训:action 的输出前面一堆 INFO 时,先去尾部找 FATAL/ERROR,别顺着读。**
 
-**版本节奏**:v0.3.0 只改了 build.gradle、没发 tag,连同 23 个提交并进 v0.4.0 发了;发布历史
-(v0.1.0 / v0.2.0 / v0.4.0 / v0.4.1)以 GH Release 为准,tag 不连续是正常的。
+## 站点同步
+
+`publish-site` job 需要 `WEB_RELEASE_TOKEN`(PAT)。**没配就一直 skipped
+且退出码 0** —— 流水线全绿但站点链接停在旧版本。2026-10-02 就这样让 v0.4.2 /
+v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
+
+所以脚本里在没配 token 时打 `::warning::`,并提示手动跑
+`tools/release/sync-apk-to-site.sh <tag>`。有 `repo` scope 的本机 gh 可以直接跑。
+
+验收方式(不只看文件名):匿名下载 `releases/latest/download/app-release.apk`
+与 release 附件**逐字节 sha256 对比**,再从 APK 里读 manifest 版本号 +
+确认 `lib/arm64-v8a/librime_jni.so` 在包里。Pages 部署完后
+`https://adam-ikari.github.io/gaia/media/gaia.apk` 也要同样核对一遍。
 
 
 ## Timeline
@@ -67,4 +113,16 @@ fine-grained PAT。详见 [[project-licensing]]。
   kind: decision
   summary: "发布变成两步:应用仓库出包 + 传到公开站点仓库 gaia 的同名 Release(匿名可下)"
   source: "2026-09-30 建 Gaia 站点时定"
+  affects: [release-flow]
+
+- time: 2026-10-03T11:24:43
+  kind: evidence
+  summary: "check-version.sh 在 CI 里必然自比较失败(tag 已存在,自己跟自己比);三段 sdkmanager 弯路;E2E 模拟器 FATAL 其实是磁盘不够"
+  source: "2026-10-03 v0.7.0 发版,CI 连续失败三轮"
+  affects: [release-flow, librime-android-build]
+
+- time: 2026-10-03T11:25:09
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-03 v0.7.0 发版实战"
   affects: [release-flow]
