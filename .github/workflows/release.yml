@@ -27,41 +27,29 @@ jobs:
         run: chmod +x gradlew
 
       # -----------------------------------------------------------------------------
-      # NDK + CMake —— 2026-10-02 起必需(拼音内核换成 librime,要交叉编译 .so)
+      # native 构建的前提 + Android SDK 许可(2026-10-03 起必需:内核换成 librime,
+      # 要交叉编译 .so,于是 CI 必须有 NDK / CMake / Boost 头文件)
       #
-      # 三样都必须显式装:
-      # - **NDK**:编 .so;
-      # - **CMake 3.22.1**:AGP 拒绝比自己新的?不,是不装就用系统那个,而 ubuntu runner 上
-      #   预装的版本与 AGP 要求的格式不保证一致 ⇒ 版本对不上会在 configure 期报难懂的错;
-      # - **Boost 头文件**:librime 用 Boost.Regex 之外的**头文件部分**(signals2 /
-      #   unordered_map / crc)。它被改成用 std::regex,所以只要头、不要编库;
-      #   但头文件本身构建机上得存在,而 runner 镜像不带。
       #
-      # 版本与本机一致(NDK 27.1.12297006):**native 与 CI 编出来的 .so 必须同版本**,
-      # 否则同一份 Kotlin 在两端行为不同,最难查。
-      # **用 android-actions/setup-android 而不是裸 sdkmanager**:
-      # runner 镜像上 `sdkmanager` 不在 PATH(本机有 $ANDROID_HOME 环境变量,CI 没有),
-      # 直呼 `sdkmanager` 报的是 `command not found`(exit 127)——
-      # 那个 action 会自己把 ANDROID_HOME/cmdline-tools 配好。
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      # NDK + CMake + 许可,**合成一步**。
+      # ## 走过三段弯路,记下来免得再犯
       #
-      # ## 为什么不用 accept-android-sdk-licenses 那个 action
+      # 1. 裸调 `sdkmanager` → `command not found`(runner 镜像上不在 PATH);
+      # 2. 加 `android-actions/setup-android` → 它内部就会跑一次 sdkmanager,
+      #    **许可没接受时它自己就 exit 1**,报的是一屏 SDK Preview 许可条款;
+      # 3. 试 `android-actions/accept-android-sdk-licenses` → `Unable to resolve
+      #    action ... repository not found`(那个路径不存在)。
       #
-      # 试过,报 `Unable to resolve action android-actions/accept-android-sdk-licenses,
-      # repository not found` —— 那个 action 路径不存在。少一个 action 依赖更稳,
-      # 所以直接用 `yes | sdkmanager --licenses`(社区通行做法)。
-      #
-      # **顺序有讲究**:`setup-android` 自己内部就会跑一次 sdkmanager,许可没接受时
-      # 它当场退出(exit 1),所以许可必须在它**之后**、装 NDK 之前接受。
+      # 最终做法:**不用 setup-android**,只用它之后的一个 run 步骤接受许可 ——
+      # 因为 GitHub 的 ubuntu runner **本来就预装了 cmdline-tools**
+      # (`/usr/local/lib/android/sdk/cmdline-tools/16.0`),只是不在 PATH。
       #
       # NDK 版本**必须与本机一致**(app/build.gradle.kts 的 ndkVersion):
       # 不同 NDK 编出来的 .so 有差异(运行库版本、C++ 标准库细节),
       # 「本地能跑线上崩」这类问题从 Kotlin 侧看不出来。
       - name: Accept licenses, install NDK and CMake
         run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
           yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
           sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1'
