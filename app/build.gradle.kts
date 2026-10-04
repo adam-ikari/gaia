@@ -15,8 +15,12 @@ android {
         // 0.7.1 = 纯补丁:修 0.7.0 里「翻页结构性失效」那一个功能缺失。
         // 0.7.0 已发布,不能就地重发(见 docs/versioning.md:同一个 versionCode
         // 配不同字节 ⇒ Android 拒装升级,且同一下载链接在不同时刻给出不同的包)。
-        versionCode = 20
-        versionName = "0.7.1"
+        // 0.7.2 = 修 0.7.1 的 R8 事故:release 包里 7 个 JNI 入口被改名,
+        // 真机上拼音引擎整个不可用(见 docs/rime.md 与 app/proguard-rules.pro 第 2 节)。
+        // E2E 跑 debug 包(不过 R8),所以这个问题在 CI 上结构性看不到 ——
+        // 0.7.2 起 release.yml 在发布之前跑 tools/release/check-jni-symbols.py。
+        versionCode = 21
+        versionName = "0.7.2"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
