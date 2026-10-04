@@ -34,6 +34,24 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
 
     override fun selectAndRemain(index: Int): Pair<String, String?>? = engine.selectAndRemain(index)
 
+    /**
+     * 转发,别用接口默认值。
+     *
+     * ## 这里踩过一次:漏转发 ⇒ 整道就绪门形同虚设
+     *
+     * 生产注册的是 `ImeRegistry.builtin().registerMethod(PinyinInputMethod(rime))`
+     * —— **外面套着这一层装饰器**,不是裸引擎。
+     * 而接口默认 `isReady = true`,所以漏转发时状态机永远看到「已就绪」,
+     * `refreshQuery` 的就绪门一次都不会触发,候选行照旧「清空↔填满」地闪。
+     *
+     * 单测当时用的是**裸** `FakePinyinInputMethod` 注册,所以测不到这一层 ——
+     * 生产代码里的 bug 反而是绿的。
+     *
+     * ⇒ 教训:给 [InputMethod] 加成员时,记得**两处**都要动 ——
+     * 接口默认值 + 这个装饰器的转发。改完把装饰器也测上(见 `PinyinInputMethodTest`)。
+     */
+    override val isReady: Boolean get() = engine.isReady
+
     companion object {
         /** 测试注入点:用任意 [InputMethod] 构造策略。生产代码不用这个。 */
         internal fun forTest(engine: InputMethod) = PinyinInputMethod(engine)

@@ -15,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import dev.hwkbd.ime.strategy.withRemainAfterSelect
 import dev.hwkbd.ime.strategy.withReady
+import dev.hwkbd.ime.strategy.PinyinInputMethod
 
 class ImeControllerTest {
 
@@ -91,13 +92,21 @@ class ImeControllerTest {
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
         // 注册表 = 出厂语言/表现 + 拼音输入法(加语言/输入法走注册,不改状态机)
-        val method = FakePinyinInputMethod.common()
+        val engine = FakePinyinInputMethod.common()
             .withRemainAfterSelect(remainAfterSelect)
             .withReady(engineReady)
+        // **注册的是装饰器**,和 `ImeService.kt:162` 的生产写法一样
+        // (`registerMethod(PinyinInputMethod(rime))`)。
+        //
+        // 之前这里直接注册裸替身,于是「装饰器漏转发某个成员」这类 bug 单测一律是绿的,
+        // 生产上却静默走接口默认值 —— `isReady` 就这么漏过一次(候选行闪)。
+        // 测试装置要照抄生产的组合方式,否则测的就不是生产那套东西。
+        val method = PinyinInputMethod.forTest(engine)
         val registry = ImeRegistry.builtin().registerMethod(method)
         val c = ImeController(h, KeyLayout.default(), registry)
         c.state.pageSize = pageSize
-        return Rig(c, h, method)
+        // `Rig.method` 要能读到 `queried`(那是引擎替身上的),所以传 engine 不是装饰器。
+        return Rig(c, h, engine)
     }
 
     companion object {
@@ -236,13 +245,15 @@ class ImeControllerTest {
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
-        val method = FakePinyinInputMethod.common()
+        val engine = FakePinyinInputMethod.common()
+        // 同样套装饰器(见 rig() 里那段:测试装置要照抄生产的组合方式)
+        val method = PinyinInputMethod.forTest(engine)
         val registry = ImeRegistry.builtin().registerMethod(method)
         // 自定义布局:L1 q→"-."(L4 datetime 键的同文本)、e→"+"、v→"v"(拼音 mapText 改写成 `'`);
         // [L4 datetime] 段两把:`-.` 三层按得出(q 键)→ 不进 L4,`'` 按不出 → 进 L4
         val layout = KeyLayout.parseText("[L1]\nq=-.\ne=+\nv=v\n[L4 datetime]\n重复=-.\n分隔='").layout!!
         val c = ImeController(h, layout, registry)
-        val r = Rig(c, h, method)
+        val r = Rig(c, h, engine)
         c.state.fieldKind = FieldKind.DATETIME
         // 拼音态 L4 = 核心键(去掉 `$`) + l4Extras(`￥`)+ datetime 段,再过 producible 那把筛。
         // `' ` 按不出 → 留;`￥` 拼音态 L2/L3 都能敲出 → 被筛掉(否则屏上会出现两把同义的键)。

@@ -1,6 +1,8 @@
 package dev.hwkbd.ime.strategy
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -55,5 +57,34 @@ class PinyinInputMethodTest {
         val m = PinyinInputMethod.forTest(FakePinyinInputMethod())
         assertEquals(false, m.supportsWordRemoval)
         assertEquals(false, m.removeUserWord("你好"))
+    }
+
+    /**
+     * 装饰器必须把 `isReady` 转发给引擎(2026-10-04)。
+     *
+     * 漏了转发时接口默认值 `true` 会生效 ⇒ 状态机的就绪门永远不触发 ⇒
+     * 候选行照旧「清空↔填满」地闪。生产注册的就是这一层装饰器,
+     * 所以只测裸引擎是测不到这个 bug 的。
+     */
+    @Test
+    fun `引擎没就绪 装饰器也要如实报告`() {
+        val method = PinyinInputMethod.forTest(FakePinyinInputMethod.common().withReady(false))
+        assertFalse("装饰器不能拿接口默认的 true 糊弄过去", method.isReady)
+    }
+
+    /** 引擎就绪时照实报 true —— 别把上一条修成永远 false。 */
+    @Test
+    fun `引擎就绪 装饰器照实报告`() {
+        assertTrue(PinyinInputMethod.forTest(FakePinyinInputMethod.common().withReady(true)).isReady)
+    }
+
+    /** 选后剩余拼音也要转发(拼音消费按段那条依赖它)。 */
+    @Test
+    fun `选后剩余拼音经装饰器转发`() {
+        val engine = FakePinyinInputMethod.common().withRemainAfterSelect("hao")
+        // 替身的 `selectAndRemain` 靠 `queried` 里最后一次查询来定位候选,
+        // 所以得先真查一次(这是替身的实现约定,不是被测行为)。
+        assertTrue("前置条件:引擎真的查得到候选", engine.query("ni", 5).isNotEmpty())
+        assertEquals("你" to "hao", PinyinInputMethod.forTest(engine).selectAndRemain(0))
     }
 }
