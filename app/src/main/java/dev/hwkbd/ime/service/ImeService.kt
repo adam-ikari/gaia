@@ -164,7 +164,9 @@ class ImeService : InputMethodService() {
             rime.prepare { ok ->
                 android.util.Log.i(TAG, "rime 部署完成 ok=$ok version=${rime.version}")
                 // 切回主线程再碰 UI:prepare 的回调在部署线程上
-                mainHandler.post { if (ok) controller?.refreshQuery() }
+                // `from` 是这条埋点里**最要紧的字段**:2026-10-04 用户报「候选行自己
+                // 交替闪烁」时,一眼就能看出是这里在异步改候选列表。
+                mainHandler.post { if (ok) controller?.refreshQuery(from = "部署完成回调") }
             }
         }, "rime-boot").apply { isDaemon = true }.start()
         // 触感:全应用唯一的 [Haptics] 实例,控制器(锁定类)与候选行(翻页/飞字类)共用,

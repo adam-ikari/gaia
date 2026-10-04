@@ -540,7 +540,7 @@ class ImeController(
             state.raw = remaining
             state.page = 0
             state.highlight = -1
-            refreshQuery()
+            refreshQuery(from = "选词后剩余")
         }
         host.render()
     }
@@ -551,7 +551,7 @@ class ImeController(
         val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
         inputMethod().removeUserWord(c.word)
-        refreshQuery()
+        refreshQuery(from = "删词条")
     }
 
     /**
@@ -565,7 +565,7 @@ class ImeController(
                 val text = language().mapText(out.text, state)
                 if (language().composes(text, state)) {
                     state.raw += text
-                    refreshQuery()
+                    refreshQuery(from = "L4 文本键")
                 } else {
                     flushComposition()
                     host.commitText(text)
@@ -650,7 +650,7 @@ class ImeController(
     private var querySeq = 0
 
     /** 词库异步载入完成后主动刷新当前查询。 */
-    fun refreshQuery() {
+    fun refreshQuery(from: String = "?") {
         // **引擎没就绪时不去问它**(2026-10-04 用户报候选行自己交替闪烁)。
         //
         // 没就绪时 `query()` 只能给空表,而空表 = 「这个拼音没有候选」。
@@ -685,13 +685,14 @@ class ImeController(
         // 用户报「候选行自己交替闪烁」——「交替」意味着**两个来源在轮流写**。
         // 一次按键只应写一次;这里把序号、调用者、raw、候选数一起打出来:
         // 序号不连续或调用者成对出现,就是重复刷新。
+        //
+        // `from` 由**调用方显式传**,不是这里 `Throwable().stackTrace` 走栈 ——
+        // 走栈能自动得到调用者,但每次按键都要爬一遍调用栈,而这是输入法的热路径
+        // (每个字母都走一遍)。显式传是零成本,而且中文标签比 `类名.方法名` 好读。
         querySeq++
-        val caller = Throwable().stackTrace
-            .firstOrNull { it.className.contains("hwkbd") && it.className != javaClass.name }
-            ?.let { "${it.className.substringAfterLast('.')}.${it.methodName}" } ?: "?"
         android.util.Log.i(
             "ImeService",
-            "query#$querySeq from=$caller raw=\"${state.raw}\" n=${state.candidates.size}"
+            "query#$querySeq from=$from raw=\"${state.raw}\" n=${state.candidates.size}"
         )
         // ----------------------------------------------------------------
         host.render()
@@ -833,7 +834,7 @@ class ImeController(
             KeyEvent.KEYCODE_DEL -> {
                 if (state.hasComposition) {
                     state.raw = state.raw.dropLast(1)
-                    refreshQuery()
+                    refreshQuery(from = "退格")
                 } else {
                     host.sendKey(KeyEvent.KEYCODE_DEL)
                 }
@@ -877,7 +878,7 @@ class ImeController(
                 if (lang.composes(text, state)) {
                     // 进组词缓冲(拼音字母;分隔符只在组词中被接纳)
                     state.raw += text
-                    refreshQuery()
+                    refreshQuery(from = "字符键")
                 } else {
                     // 语言策略决定上屏形态:英文跟大写、中文按开关全角;**数字类放行的字符强制半角**
                     // (全角 `－` `。` `：` 进不了日期/小数/电话/签名的合法格式,数字本身本就半角)
