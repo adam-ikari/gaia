@@ -27,6 +27,14 @@ actions:
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
+<h2>动画是算出来的。</h2>
+<p>不是预先画好的曲线。把当前位置和手指的速度交给它，剩下的路它自己算 —— 所以快划和慢划，收尾不一样。</p>
+<p>翻页、选字到位那一下很干脆；没选中、滑回去的时候也不晃。</p>
+</div>
+:::
+
+::: band
+<div class="gaia-band-inner gaia-band-narrow">
 <h2>键盘分三层。</h2>
 <p>字母、符号、编程。Alt 和 Sym 换层：单按一下用一次，双击锁住这一层，连按三次就在三层之间轮着切。</p>
 <p>Titan 2 没有独立数字行，符号得靠换层才打得出。</p>
@@ -44,6 +52,14 @@ actions:
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>越打越顺手。</h2>
 <p>内置 34.8 万个词，常用的会自己往前挪。懒得打全拼就敲首字母：nh 就是「你好」。</p>
+</div>
+:::
+
+::: band
+<div class="gaia-band-inner gaia-band-narrow">
+<h2>排序交给 Rime。</h2>
+<p>输入引擎换成了 Rime —— 一个开源的中文输入引擎，装在应用里。</p>
+<p>哪个词更常用、你更常用哪几个，都由它排；用得多了，它自己就记住了。</p>
 </div>
 :::
 

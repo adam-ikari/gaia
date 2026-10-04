@@ -123,7 +123,10 @@ export default defineConfig({
     returnToTopLabel: '回到顶部',
 
     footer: {
-      message: '内置词库数据来自 jieba（MIT）与 pinyin-pro（MIT）。',
+      // 2026-10-04:换内核后 jieba / pinyin-pro 已经不在包里了(那是旧引擎的依赖),
+      // 留着是**错的署名**。现在是 librime(BSD-3-Clause)与它的词库。
+      // 完整的第三方清单在应用仓库的 THIRD_PARTY_NOTICES.md。
+      message: '输入引擎与词库来自 Rime 项目（BSD-3-Clause）。',
       copyright: 'Copyright © 2026 盖亚输入法',
     },
   },
