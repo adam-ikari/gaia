@@ -12,6 +12,8 @@
 - `androidx.core:core-ktx:1.13.1`
 - `androidx.appcompat:appcompat:1.7.0`
 - `androidx.preference:preference:1.2.1`
+- `androidx.dynamicanimation:dynamicanimation:1.1.0` —— **手势与动画的物理引擎**
+  (所有翻页/键帽/上屏动画都由它的 `SpringAnimation` 积分,见 `ui/SpringBridge.kt`)
 - 版权：The Android Open Source Project
 - 许可证全文：https://www.apache.org/licenses/LICENSE-2.0
 
@@ -23,72 +25,89 @@
 - 许可证全文：https://www.apache.org/licenses/LICENSE-2.0
 - Kotlin 例外条款（Kotlin Exception to the Apache 2.0 License）：https://kotlinlang.org/legal/apache-2.0-exception.html
 
-## 3. 内置词库数据 — MIT License
+## 3. Rime 输入引擎（librime） — BSD-3-Clause
 
-内置词库 `app/src/main/assets/dict.txt.gz` 由 `tools/dictgen/gen_dict.mjs` 在**构建期**离线生成，
-运行时不包含下列项目的代码。
+**2026-10-03 换内核**:此前是自己写的查表引擎,词库由 `tools/dictgen` 在构建期
+从 jieba + pinyin-pro 生成 `dict.txt.gz`。那一整套(第 4 节的 jieba / pinyin-pro
+以及 `dict.txt.gz`)**已经随换内核删除,不再随应用分发**。
 
-### 3.1 jieba 词频表
-
-- 用途：词条与词频（`dict.txt`，1–6 字 CJK 词条）
-- 来源：https://github.com/fxsjy/jieba
-
-```
-The MIT License (MIT)
-
-Copyright (c) 2013 Sun Junyi
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### 3.2 pinyin-pro
-
-- 用途：构建期为词条生成读音（`tools/dictgen/package.json` 的依赖）
-- 来源：https://www.npmjs.com/package/pinyin-pro
+- 用途:拼音引擎内核。子模块 `app/src/main/cpp/librime`,编译为 `librime_jni.so`
+- 来源:https://github.com/rime/librime
+- 版权:Copyright (c) 2014, RIME Developers
 
 ```
-MIT License
+Copyright (c) 2014, RIME Developers All rights reserved.
 
-Copyright (c) 2022-present zh-lx
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+* Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+* Neither the name of the RIME Developers nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+### 3.1 静态编进 `librime_jni.so` 的第三方组件
+
+librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
+
+| 组件 | 许可 | 版权 |
+| --- | --- | --- |
+| yaml-cpp | MIT | Copyright (c) 2008-2015 Jesse Beder |
+| leveldb | BSD-3-Clause | Copyright (c) 2011 The LevelDB Authors |
+| marisa-trie | BSD-2-Clause OR LGPL-2.1-or-later | Copyright (c) Suneido Software Corp. |
+| OpenCC | Apache License 2.0 | Copyright (c) BYTEDANCE |
+
+其中 OpenCC 是 Apache-2.0,它的许可证全文见
+`app/src/main/cpp/librime/deps/opencc/LICENSE.txt`。
+
+**其余组件**:librime 原先把 Boost 换成了 `std::regex`,并自带等价实现
+(`src/rime/string_utils.hpp` 里的 `namespace boost { … }` shim),
+所以**不依赖 Boost**;`deps/sml` 与 `deps/glog`、`deps/googletest`
+不在编译路径上。
+
+### 3.2 内置词库数据
+
+- `assets/rime/luna_pinyin.schema.yaml`、`luna_pinyin.dict.yaml`、`symbols.yaml`
+  与 `default.yaml` 来自 librime 的 `data/minimal/`,许可同 librime(BSD-3-Clause)。
+- `assets/rime/essay.txt`(词频,3.8MB)来自 `adam-ikari/term-ime-dict`。
+  **该文件本身没有附带许可声明,来源仓库也未标明许可** ——
+  见下面「待补」。
+
+## 4. 待补:essay.txt 的许可(2026-10-04 记下)
+
+`assets/rime/essay.txt` 有 297,731 行词频,是「越打越顺手」那个功能的依据,
+随包分发 3.8MB。它来自 `adam-ikari/term-ime-dict`,但:
+
+- 文件里没有许可头、没有版权行;
+- 应用仓库与站点仓库都没有记录它的许可;
+- term-ime 与 librime 都用同一份 essay.txt(出自朱虎的博客整理),
+  librime 自己的发行包通常也带它,但**不能假定上游的再分发条款自动覆盖我们这份**。
+
+**在补上之前,应用内「开源许可」只署了 Rime 一侧**,这是已知缺口,不是有意省略。
+要彻底解决,要么拿到该文件的明确许可,要么换成许可清晰的同规模词频表。
 
 ## 应用内的对应位置
 
-MIT 要求上述版权与许可声明随副本一同分发，所以署名同时出现在：
+BSD-3-Clause 与 MIT 要求上述版权与许可声明随副本一同分发,所以署名同时出现在：
 
 - 应用内 `设置 → 许可 → 开源许可`（`res/values/strings.xml` 的 `licenses_body`）
-- 应用内 `设置 → 调试 → 关于` 的「词库来源：fxsjy/jieba (MIT)」
+- 应用内 `设置 → 调试 → 关于`（`res/values/strings.xml` 的 `about_body`）
+- 站点页脚 `docs/.vitepress/config.mts` 的 `footer.message`
