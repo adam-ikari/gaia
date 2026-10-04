@@ -65,6 +65,14 @@ actions:
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
+<h2>快慢调到你顺手。</h2>
+<p>上滑选字要滑多远、左右划要划多远，都有三档：轻划就翻，或者要划一半才翻。</p>
+<p>觉得划页的方向别扭，可以反过来。震动也能关掉。</p>
+</div>
+:::
+
+::: band
+<div class="gaia-band-inner gaia-band-narrow">
 <h2>只为 Titan 2 做的。</h2>
 <p>别的全键盘机型没测过，键位可能对不上。系统的输入法随时能切回来。</p>
 </div>
