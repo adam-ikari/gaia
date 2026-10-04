@@ -352,7 +352,10 @@ class ImeControllerTest {
     fun `就绪后照常一次查到候选`() {
         val r = rig(engineReady = true)
         r.type("ni")
-        assertEquals(listOf("ni"), r.method.queried)
+        // `type("ni")` 是**两次按键**,所以是两次查询(每次按键一次,不多不少)。
+        // 反过来这条也钉住了「没就绪时不查询」:那时 `queried` 会是空的,
+        // 不是「少查一次」。
+        assertEquals(listOf("n", "ni"), r.method.queried)
         assertEquals(listOf("你"), r.c.state.candidates.map { it.word })
     }
 
