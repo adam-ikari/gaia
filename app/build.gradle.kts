@@ -27,8 +27,13 @@ android {
         //   - 翻页提交弹性 ζ 0.72 → 0.9 → 0.95(1440px 行程上过冲 55.3px → 2.2px → 0.1px)
         //   - 死区拆成横滑 4dp / 上滑 8dp,翻页手指总行程 24px → 16px,上滑一字未动
         // 顺带修第三方署名(换内核后 jieba/pinyin-pro 早已不在包里,署名全是错的)。
-        versionCode = 23
-        versionName = "0.7.4"
+        // 0.7.5 = 修「小幅多次振盪」:松手时提交线读错量纲。
+        // pageDragEnd 先清 externalDrive 再分发,于是 endPageDrag 里读到的提交线
+        // 掉回「行宽 × 0.22」(Titan 2 上 302px)而不是键盘面档位的 8px。
+        // 后果:划过 8px 当帧翻页 → 松手又判成没过线 → 撤销 → 画面来回抽动;
+        // 附带「甩也甩不动」(byFling 要求惯性落点 ≥302px,快甩只有几十 px)。
+        versionCode = 24
+        versionName = "0.7.5"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
