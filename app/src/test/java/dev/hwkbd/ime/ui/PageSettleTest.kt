@@ -55,19 +55,28 @@ class PageSettleTest {
     }
 
     /**
-     * 档位被偏好改成 0/负数时夹到 1px —— 键盘面驱动下**不能**掉回行宽比例,
-     * 那会让「轻轻一划就翻页」变成「几乎翻不动」。
+     * 档位 ≤ 0(只可能是「注入没成功」)时**退回行宽比例**,不是夹到 1px。
+     *
+     * 这条第一版写反了 —— 我按注释里的意图断言「夹到 1px」,测试红了。
+     * 查清之后是**注释错、代码对**:两种退化方式里,退回行宽比例(仍能翻页)
+     * 比夹到 1px(极端灵敏)安全。理由写在 [externalCommitFromBase] 的注释里。
+     *
+     * 记这一条是因为它很容易被当成「代码有 bug」而「改代码去迁就注释」。
      */
     @Test
-    fun `档位为 0 时夹到 1px 且不退回行宽比例`() {
-        val zero = pageCommitLine(
-            externalDrive = true, externalPx = 0f, commitFrac = 0.22f, viewW = 1372f,
-        )
-        // externalPx=0 时按定义退回行宽比例;真正的 0 档是 externalPx 被夹到 1
-        assertEquals(1372f * 0.22f, zero, 0.01f)
+    fun `档位不大于 0 时退回行宽比例而不是极端灵敏`() {
+        for (px in floatArrayOf(0f, -5f)) {
+            assertEquals(
+                "externalPx=$px 应退回行宽比例",
+                1372f * 0.22f,
+                pageCommitLine(externalDrive = true, externalPx = px, commitFrac = 0.22f, viewW = 1372f),
+                0.01f,
+            )
+        }
+        // 正数才走夹值路径,且下界是 1px
         assertEquals(
             1f,
-            pageCommitLine(externalDrive = true, externalPx = -5f, commitFrac = 0.22f, viewW = 1372f),
+            pageCommitLine(externalDrive = true, externalPx = 0.4f, commitFrac = 0.22f, viewW = 1372f),
             0f,
         )
     }
