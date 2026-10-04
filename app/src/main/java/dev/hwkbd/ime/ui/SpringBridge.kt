@@ -48,8 +48,6 @@ internal class SpringChannel(
     /** 当前这一段在用的物理参数。会被 [settle] 的同名参数改写(见那里)。 */
     private var spec: SpringSpec = spec
 
-    /** 当前这一段的阻尼比 —— 给「振铃探测」之类的埋点读(见 `CandidateBarView.pageSpring`)。 */
-    val dampingRatio: Float get() = spec.dampingRatio
 
     private val holder = FloatValueHolder(from)
 

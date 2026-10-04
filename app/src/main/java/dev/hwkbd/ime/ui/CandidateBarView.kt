@@ -554,6 +554,11 @@ class CandidateBarView @JvmOverloads constructor(
     private var pageRingSide = 0
     /** 这一段动画里已经穿过目标几次。 */
     private var pageRingCount = 0
+    /**
+     * 这一段动画在用的物理参数 —— **不能读 `pageSpring.spec`**:
+     * 埋点在 `pageSpring` 自己的 `onFrame` 里,那是字段初始化期,自引用编译不过。
+     */
+    private var pageRingSpec: SpringSpec = SpringSpec.DEFAULT
 
     /**
      * 本次翻页拖动的提交线(px,**从基线量起**)。
@@ -740,11 +745,15 @@ class CandidateBarView @JvmOverloads constructor(
         // 每一段动画重新数振铃(埋点,见 onFrame 里的说明)
         pageRingSide = 0
         pageRingCount = 0
+        pageRingSpec = spec
+        // 入口速度:静止起步应是 0;**非零说明是被手指打断带进来的**
+        // (`animateToFinalPosition` 保留速度)。
+        val entryV = pageSpring.currentVelocity
         pageSpring.settle(from, target, spec)
         android.util.Log.i(
             TAG,
             "settle: from=${from.toInt()} target=${target.toInt()} ζ=${spec.dampingRatio} " +
-                "entryV=${pageSpring.currentVelocity.toInt()} thr=${pageCommitPx().toInt()}"
+                "entryV=${entryV.toInt()} thr=${pageCommitPx().toInt()}"
         )
     }
 
@@ -764,8 +773,12 @@ class CandidateBarView @JvmOverloads constructor(
     private val pageSpring: SpringChannel = SpringChannel(
         from = 0f,
         spec = SpringSpec.DEFAULT,
-        onFrame = { value, _ ->
+        onFrame = { value, velocity ->
             // ---- 振铃探测(2026-10-04 埋点,用户报「小幅多次振盪」)------------
+            //
+            // **不能在这里读 `pageSpring` 自己** —— 字段初始化时自引用,
+            // Kotlin 编译不过(`must be initialized`)。与 [pageSettleTarget] 同一个坑,
+            // 所以速度用回调给的第二参数,物理参数用 [pageRingSpec] 这个独立字段。
             //
             // **过冲每穿过目标一次,`(value - target)` 的符号就翻一次。**
             // 数符号翻转次数 = 振铃次数,而且**一次振铃必然一次翻转** ——
@@ -782,7 +795,7 @@ class CandidateBarView @JvmOverloads constructor(
                 android.util.Log.i(
                     TAG,
                     "ring: 第 $pageRingCount 次穿过目标 value=$value target=$pageSettleTarget " +
-                        "ζ=${pageSpring.dampingRatio} v=${pageSpring.currentVelocity.toInt()}"
+                        "ζ=${pageRingSpec.dampingRatio} v=${velocity.toInt()}"
                 )
             }
             if (side != 0) pageRingSide = side
