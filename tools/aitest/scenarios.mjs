@@ -14,13 +14,26 @@ const K = {
   space: 62, shift: 59, alt: 58, ctrl: 113, del: 67,
 }
 const last = (s) => (s ? s[s.length - 1] : '')
+/** 字母 → Android KEYCODE_*(A=29 起的连续段)。 */
+const kcOf = (ch) => K[ch.toLowerCase()]
 
 export const scenarios = [
   {
     // 2026-10-04 用户「自從換過輸入法一直是繁體中文,必須輸入簡體中文」。
     //
-    // 用 `zhongguo` 是因为它的简繁**字形不同**:中国 / 中國。
-    // 挑一个简繁一样的词(比如 nihao → 你好)断言等于没断言。
+    // ## 为什么不能用「中国 / 中國」这种词
+    //
+    // 首选候选由词典顺序 + 用户词频决定,不是我们能定的。
+    // 上一版用 `zhongguo`,实际首选是「中过」而不是「中国」——
+    // 断言挂在词的选择上,而不是挂在「有没有转简体」这件事实上。
+    //
+    // ## 这两个音节是决定性的
+    //
+    // 它们的**词典首条就是繁体**,所以转换关掉时输出必然是繁体:
+    //   diu  → 词典第 6877 行 丟,第 6880 行 丢(首条是繁体)
+    //   shei → 词典第 26317 行 誰(唯一的单字候选)
+    // 单音节没有短语候选来抢首位,所以「首选是谁」是确定的。
+    // 转换开着时 丟/誰 经 t2s 变成 丢/谁,uniquifier 再去重。
     //
     // 这条同时守住三件事:
     //   ① schema 里 `reset: 1` 让 zh_simp 默认开(缺了它滤镜全 off);
@@ -30,12 +43,14 @@ export const scenarios = [
     desc: '输出简体(不是繁体)',
     steps: [
       async (c) => {
-        c.device.key(K.z, K.h, K.o, K.n, K.g, K.u, K.o)
-        await sleep(1200)
-        c.device.key(K.space)
-        await sleep(900)
-        const t = c.device.editText()
-        c.expect(last(t) === '中国', `应上屏简体「中国」,实际 editText="${t}"(繁体会是「中國」)`)
+        for (const [letters, want, trad] of [['diu', '丢', '丟'], ['shei', '谁', '誰']]) {
+          for (const ch of letters) c.device.key(kcOf(ch))
+          await sleep(1200)
+          c.device.key(K.space)
+          await sleep(900)
+          const t = last(c.device.editText())
+          c.expect(t === want, `${letters} 应上屏简体「${want}」,实际="${t}」(${trad} 就是没转)`)
+        }
       },
     ],
   },
