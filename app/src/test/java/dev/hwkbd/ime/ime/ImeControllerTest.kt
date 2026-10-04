@@ -356,7 +356,10 @@ class ImeControllerTest {
         // 反过来这条也钉住了「没就绪时不查询」:那时 `queried` 会是空的,
         // 不是「少查一次」。
         assertEquals(listOf("n", "ni"), r.method.queried)
-        assertEquals(listOf("你"), r.c.state.candidates.map { it.word })
+        // **不钉死候选个数** —— 替身对 `ni` 还做前缀匹配(命中有 ni 前缀的其它键),
+        // 得到 [你, 你好, 年, 娘, 鸟, 捏]。这条验的是「查到了、且首选对」,
+        // 不是候选表的内容(那是 FakePinyinInputMethod 自己的测试范围)。
+        assertEquals("你", r.c.state.candidates.firstOrNull()?.word)
     }
 
     // ---------------- 拼音消费(2026-10-04 用户「按实际选词消费,不能一次清空」)
