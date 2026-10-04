@@ -511,12 +511,37 @@ class ImeController(
         val logical = state.currentPageLogical()
         val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
+
+        // **先问引擎:这个候选吃掉了多少**(2026-10-04 用户「拼音的消费也要根据实际选词消费,
+        // 不能一次清空」)。
+        //
+        // 旧路径无条件 `clearComposition()`,那等于**假设一个候选吃掉全部拼音**。
+        // 单音节下成立,多段输入下不成立:`ni'hao` 选「你」之后 `hao` 被一起清掉。
+        //
+        // 引擎不参与选词时(`selectAndRemain` 给 null)照旧全清 —— 行为不变。
+        val sel = inputMethod().selectAndRemain(li)
+        val remaining = sel?.second
+
         // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
         // 放在两个 `?: return` 之后 —— 选不中就不该有动画。
         onCandidateSelected?.invoke(displayIndex, c.word)
-        host.commitText(c.word)
-        inputMethod().onCommitted(c.word)
-        clearComposition()
+        // 上屏文本优先用引擎给的(它才是真正选中的那个);拿不到才退回候选表里的。
+        val word = sel?.first ?: c.word
+        host.commitText(word)
+        inputMethod().onCommitted(word)
+
+        if (remaining.isNullOrEmpty()) {
+            clearComposition()
+        } else {
+            // **只清吃掉的那部分**:剩下的拼音继续留在缓冲里,可接着打。
+            //
+            // 引擎给的剩余里**没有我们的 `'` 分节符**(喂进去之前就剥掉了,librime 不认识),
+            // 所以它就是一段新的拼音 —— 直接当新的 raw 用,下一轮 `query` 会重新分段。
+            state.raw = remaining
+            state.page = 0
+            state.highlight = -1
+            refreshQuery()
+        }
         host.render()
     }
 
@@ -616,6 +641,14 @@ class ImeController(
         host.render()
     }
 
+    /**
+     * 候选列表的写入计数(埋点,见 [refreshQuery])。
+     *
+     * 「候选行自己交替闪烁」意味着**两个来源在轮流写候选列表** —— 一次按键只应
+     * 写一次。数出来就知道是不是。
+     */
+    private var querySeq = 0
+
     /** 词库异步载入完成后主动刷新当前查询。 */
     fun refreshQuery() {
         if (state.raw.isNotEmpty()) {
@@ -628,6 +661,20 @@ class ImeController(
             state.highlight = -1
         }
         logCandidates("refresh")
+        // ---- 谁在写候选列表(埋点)------------------------------------
+        //
+        // 用户报「候选行自己交替闪烁」——「交替」意味着**两个来源在轮流写**。
+        // 一次按键只应写一次;这里把序号、调用者、raw、候选数一起打出来:
+        // 序号不连续或调用者成对出现,就是重复刷新。
+        querySeq++
+        val caller = Throwable().stackTrace
+            .firstOrNull { it.className.contains("hwkbd") && it.className != javaClass.name }
+            ?.let { "${it.className.substringAfterLast('.')}.${it.methodName}" } ?: "?"
+        android.util.Log.i(
+            "ImeService",
+            "query#$querySeq from=$caller raw=\"${state.raw}\" n=${state.candidates.size}"
+        )
+        // ----------------------------------------------------------------
         host.render()
     }
 

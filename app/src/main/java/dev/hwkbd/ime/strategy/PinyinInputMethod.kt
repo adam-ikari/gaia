@@ -32,6 +32,8 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
 
     override fun userCount(word: String): Int = engine.userCount(word)
 
+    override fun selectAndRemain(index: Int): Pair<String, String?>? = engine.select(index)
+
     companion object {
         /** 测试注入点:用任意 [InputMethod] 构造策略。生产代码不用这个。 */
         internal fun forTest(engine: InputMethod) = PinyinInputMethod(engine)

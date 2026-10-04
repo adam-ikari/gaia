@@ -116,6 +116,15 @@ object RimeNative {
     private external fun nativeCandidates(session: Long, limit: Int): Array<String>
     private external fun nativeSelectCandidate(session: Long, index: Int): Boolean
     private external fun nativeCommit(session: Long): String?
+
+    /**
+     * 选出候选之后**还没被吃掉的那部分拼音**;没有剩余时给 null。
+     *
+     * 用它实现「拼音消费按实际选词消费」(2026-10-04 用户)。
+     * 见 `rime_jni.cpp` 里同名函数的注释 —— 那里解释了为什么 C 层拿不到
+     * 「这个候选吃了几段」,只能选完之后反查剩下的 preedit。
+     */
+    private external fun nativeRemainingPinyin(session: Long): String?
     private external fun nativeHighlighted(session: Long): Int
     private external fun nativeProcessKey(session: Long, keycode: Int): Boolean
     private external fun nativeCompositionLength(session: Long): Int

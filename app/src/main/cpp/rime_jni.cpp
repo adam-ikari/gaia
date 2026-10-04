@@ -299,6 +299,40 @@ JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeSelectCandid
 }
 
 /**
+ * 选出候选之后**还没被吃掉的那部分拼音**(2026-10-04 用户「拼音的消费也要根据实际选词消费,
+ * 不能一次清空」)。
+ *
+ * ## 为什么需要它
+ *
+ * librime 是**分段**的:选一个候选只吃掉它覆盖的那几段,剩下的段仍留在 composition 里。
+ * 而 `RimeCandidate` 只有 `text`/`comment`,**不暴露覆盖范围** ——
+ * 所以「这个候选吃了几段」在 C 层拿不到。
+ *
+ * 但选完之后再读一次 `RimeContext` 就拿得到:`composition.preedit` 是**当前还没被选走的
+ * 预编辑串**,拼音方案下它就是剩下的拼音。
+ *
+ * ## 这是**加法式**的改动,不改变现有行为
+ *
+ * - librime 一次吃完整串时(单音节输入的常态)⇒ preedit 为空 ⇒ 返回 null
+ *   ⇒ 上层照旧清空整个 `state.raw`,行为与之前**完全一样**;
+ * - 只有它真的留下了一段时,上层才改成「只清吃掉的那部分」。
+ *
+ * 也就是说:**猜错了也不会更坏**,而猜对就修好了。
+ *
+ * @return 剩余拼音;没有剩余时返回 null(**不是空串** —— 空串与 null 在上层是两件事:
+ *   null = 「没查到、别改 raw」,空串 = 「确实吃完了,清空」)
+ */
+JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeRemainingPinyin(
+    JNIEnv* env, jobject, jlong session) {
+  RimeContext ctx;
+  if (!context_of(api(), static_cast<RimeSessionId>(session), &ctx)) return nullptr;
+  const char* preedit = ctx.composition.preedit;
+  // librime 用空串表示「没有 composition」,而我们要的是 null(见上面的 @return)
+  if (!preedit || preedit[0] == '\0') return nullptr;
+  return env->NewStringUTF(preedit);
+}
+
+/**
  * 选出后取 commit 文本。
  *
  * **必须区分「有 commit」与「没 commit」**:没 commit 时 `commit_text` 是 null 且

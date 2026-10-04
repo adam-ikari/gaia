@@ -142,15 +142,32 @@ class RimeEngine(private val context: Context) : InputMethod {
     }
 
     /**
-     * 选中第 [index] 个候选并返回上屏文本;无候选/未提交给 null。
+     * 选中第 [index] 个候选。
      *
-     * 选完 librime 的 composition 就空了 —— 上层这时也该清 `state.raw`,两边一致。
+     * @return 上屏文本 + **还没被吃掉的那部分拼音**;无候选/未提交给 null。
+     *
+     * ## 为什么返回「剩下多少」而不是只返回上屏文本
+     *
+     * 原实现只返回上屏文本,类注释写「选完 librime 的 composition 就空了 ——
+     * 上层这时也该清 `state.raw`」。**那个假设对单音节成立,对多段输入不成立**:
+     * librime 是分段的,选一个候选只吃掉它覆盖的那几段。
+     *
+     * 后果(2026-10-04 用户「拼音的消费也要根据实际选词消费,不能一次清空」):
+     * 输入 `ni'hao` 选「你」之后,`hao` 被一起清掉了 —— 用户已经打的那一段白打。
+     *
+     * 所以这里把**剩下的拼音**一并带回去,让上层只清吃掉的那部分。
+     * `remaining` 为 null 表示「librime 一次吃完整串」,上层照旧全清 ——
+     * 也就是说这条路径对现有行为是**加法式**的。
      */
-    fun select(index: Int): String? {
+    fun select(index: Int): Pair<String, String?>? {
         val s = synchronized(lock) { session }
         if (s == 0L) return null
         if (!RimeNative.selectCandidate(s, index)) return null
-        return RimeNative.commit(s)
+        val committed = RimeNative.commit(s) ?: return null
+        // **必须在 commit 之后读**:get_commit 会取走 commit 队列,
+        // 但不会动 composition —— 剩下的段还在 preedit 里。
+        val remaining = RimeNative.remainingPinyin(s)
+        return committed to remaining
     }
 
     /**
