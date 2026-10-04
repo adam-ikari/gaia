@@ -101,10 +101,15 @@ jobs:
       #
       # 清单不是写死的:从 `RimeNative.kt` 现场解析 `external fun`,
       # 再交叉核对 dex 方法名 / 类名 / .so 导出符号。
+      # 用块标量(`run: |`)而不是 `\` 续行 —— YAML 的**plain scalar 折叠**会把
+      # 换行变成空格,而 `\` 留在里面成了普通字符,于是 bash 收到的是**一个**参数:
+      #   "a.apk \ b.apk"  ⇒  脚本报「APK 不存在: a.apk \ b.apk」
+      # 第一次跑就踩了这个,表现是闸门红了但原因跟 R8 无关。
       - name: JNI 闸门(R8 有没有削掉入口名)
-        run: tools/release/check-jni-symbols.py \
-          app/build/outputs/apk/release/app-release.apk \
-          app/build/outputs/apk/debug/app-debug.apk
+        run: |
+          tools/release/check-jni-symbols.py \
+            app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/debug/app-debug.apk
 
       - name: Release
         uses: softprops/action-gh-release@v3

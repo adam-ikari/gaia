@@ -97,9 +97,19 @@ def main(argv: list[str]) -> int:
             failures.append(f"Kotlin 声明了 native{name},但 rime_jni.cpp 里没有 {JNI_PREFIX}{name} —— 调用必炸")
 
     for apk_path in argv[1:]:
+        # 参数里有空格/反斜杠 ⇒ **调用方把多个路径塞成了一个参数**。
+        # 第一次接进 CI 就踩了(YAML 的 plain scalar 折叠 + `\` 续行),
+        # 症状是「APK 不存在: a.apk \ b.apk」—— 看着像构建产物没生成,
+        # 实际是这个脚本被调用错了。单独报出来,别混进 R8 那一类原因里。
+        if any(c in apk_path for c in " \\") or not apk_path.endswith(".apk"):
+            failures.append(
+                f"参数被当成了一个路径: {apk_path!r}"
+                f" —— 多个 APK 之间请用换行 + `\\`(块标量 run: |),不要用 YAML plain scalar"
+            )
+            continue
         path = Path(apk_path)
         if not path.exists():
-            failures.append(f"APK 不存在: {apk_path}")
+            failures.append(f"APK 不存在: {apk_path}(构建真的没产出?看 Assemble 那一步)")
             continue
         with zipfile.ZipFile(path) as apk:
             names = apk.namelist()
