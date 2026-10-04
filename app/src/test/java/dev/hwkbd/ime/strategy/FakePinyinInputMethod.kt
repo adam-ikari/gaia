@@ -39,8 +39,23 @@ import dev.hwkbd.ime.engine.CandidateKind
 class FakePinyinInputMethod(
     override val id: String = "pinyin",
     /** 键是**带音节分隔符**的拼音(与真实词库同格式),值是该键下的候选词。 */
-    private val table: Map<String, List<String>> = emptyMap(),
+    internal val table: Map<String, List<String>> = emptyMap(),
+    /**
+     * [InputMethod.selectAndRemain] 该返回的「剩余拼音」(2026-10-04)。
+     *
+     * `null` = **不参与选词**(默认)⇒ 调用方走旧路径、全清。这保持了这个替身在
+     * 换引擎前后的行为一致,也让「引擎不支持」这条分支有测试可钉。
+     */
+    internal val remainAfterSelect: String? = null,
 ) : InputMethod {
+
+    /** 实现 [InputMethod.selectAndRemain]:按 [remainAfterSelect] 回答,不做真的选词。 */
+    override fun selectAndRemain(index: Int): Pair<String, String?>? {
+        remainAfterSelect ?: return null // 不参与 ⇒ 走旧路径
+        val raw = queried.lastOrNull() ?: return null
+        val word = candidatesOf(raw).getOrNull(index) ?: return null
+        return word to remainAfterSelect
+    }
 
     /** 被问过的所有 `raw`,便于断言「查询传进来的是什么」。 */
     val queried: MutableList<String> = mutableListOf()
@@ -180,6 +195,15 @@ class FakePinyinInputMethod(
          * 保留原有的**词频序**(`nian` 900 高于 `niao` 100),因为有几条测试
          * 断言的是「排序后的结果」而不是集合。
          */
+        /**
+         * 复制一份并设定 [remainAfterSelect](给「拼音消费」那几条测试用)。
+         *
+         * 之所以用「复制」而不是给 `common()` 加参数:`common()` 被大量测试共用,
+         * 往签名上加参数会让那些调用点全部变成具名参数 —— 平白噪音。
+         */
+        fun FakePinyinInputMethod.withRemainAfterSelect(v: String?): FakePinyinInputMethod =
+            FakePinyinInputMethod(id = id, table = table, remainAfterSelect = v)
+
         fun common(): FakePinyinInputMethod = FakePinyinInputMethod(
             table = mapOf(
                 // 多音节键带分节符,镜像真实词库格式(ni'hao ≠ nihao,分节位参与匹配)

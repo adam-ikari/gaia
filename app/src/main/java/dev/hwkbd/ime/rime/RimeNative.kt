@@ -95,6 +95,10 @@ object RimeNative {
     fun commit(session: Long): String? =
         if (loaded && session != 0L) nativeCommit(session) else null
 
+    /** 选中候选后还没被吃掉的拼音;没有剩余给 null(见 `nativeRemainingPinyin` 的注释)。 */
+    fun remainingPinyin(session: Long): String? =
+        if (loaded && session != 0L) nativeRemainingPinyin(session) else null
+
     fun highlighted(session: Long): Int =
         if (loaded && session != 0L) nativeHighlighted(session) else -1
 

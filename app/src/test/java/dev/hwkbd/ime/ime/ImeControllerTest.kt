@@ -66,14 +66,16 @@ class ImeControllerTest {
         Thread.sleep(ModifierGestures.DEFAULT_TAP_WINDOW_MS + 50)
     }
 
-    private fun rig(pageSize: Int = 5): Rig {
+    private fun rig(pageSize: Int = 5, remainAfterSelect: String? = null): Rig {
         // 用 [FakePinyinInputMethod] 而不是真引擎(2026-10-03 换 librime):
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
         // 注册表 = 出厂语言/表现 + 拼音输入法(加语言/输入法走注册,不改状态机)
         val registry = ImeRegistry.builtin()
-            .registerMethod(FakePinyinInputMethod.common())
+            .registerMethod(
+                FakePinyinInputMethod.common().withRemainAfterSelect(remainAfterSelect)
+            )
         val c = ImeController(h, KeyLayout.default(), registry)
         c.state.pageSize = pageSize
         return Rig(c, h)
@@ -216,7 +218,9 @@ class ImeControllerTest {
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
         val registry = ImeRegistry.builtin()
-            .registerMethod(FakePinyinInputMethod.common())
+            .registerMethod(
+                FakePinyinInputMethod.common().withRemainAfterSelect(remainAfterSelect)
+            )
         // 自定义布局:L1 q→"-."(L4 datetime 键的同文本)、e→"+"、v→"v"(拼音 mapText 改写成 `'`);
         // [L4 datetime] 段两把:`-.` 三层按得出(q 键)→ 不进 L4,`'` 按不出 → 进 L4
         val layout = KeyLayout.parseText("[L1]\nq=-.\ne=+\nv=v\n[L4 datetime]\n重复=-.\n分隔='").layout!!
@@ -292,6 +296,45 @@ class ImeControllerTest {
         assertEquals(listOf(null, null, "捏", null, null), slots.map { it?.word })
         r.c.selectCandidate(2) // 中间槽选字
         assertEquals(listOf("捏"), r.h.commits)
+    }
+
+    // ---------------- 拼音消费(2026-10-04 用户「按实际选词消费,不能一次清空」)
+
+    /**
+     * 引擎说「还剩 `hao`」时,**不能**把 `hao` 一起清掉。
+     *
+     * 旧实现无条件 `clearComposition()`,等于假设一个候选吃掉全部拼音 ——
+     * 单音节成立,`ni'hao` 选「你」之后 `hao` 被清掉,用户白打。
+     */
+    @Test
+    fun `只清候选实际吃掉的那部分 剩下的拼音留着`() {
+        val r = rig(remainAfterSelect = "hao")
+        r.type("ni")
+        r.c.selectCandidate(2)
+        assertEquals(listOf("你"), r.h.commits)
+        assertEquals("剩下的拼音应留在缓冲里", "hao", r.c.state.raw)
+        assertTrue("应重新查到候选", r.c.state.candidates.isNotEmpty())
+    }
+
+    /** 引擎说「全吃完了」时照旧清空 —— 单音节输入的常态,行为不能变。 */
+    @Test
+    fun `引擎说吃完时 照旧清空整个缓冲`() {
+        val r = rig(remainAfterSelect = null)
+        r.type("ni")
+        r.c.selectCandidate(2)
+        assertEquals(listOf("你"), r.h.commits)
+        assertEquals("", r.c.state.raw)
+        assertTrue(r.c.state.candidates.isEmpty())
+    }
+
+    /** 引擎不参与选词时(`selectAndRemain` 给 null)也走旧路径 —— 加法式接口的保证。 */
+    @Test
+    fun `引擎不参与选词时 行为与旧版一致`() {
+        val r = rig(remainAfterSelect = null)
+        r.type("ni")
+        r.c.selectCandidate(2)
+        assertEquals(listOf("你"), r.h.commits)
+        assertEquals("", r.c.state.raw)
     }
 
     // ---------------- 选字的表现回调(2026-10-02 用户「按键选词也需要飞字动画」)

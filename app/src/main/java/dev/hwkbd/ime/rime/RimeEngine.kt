@@ -142,7 +142,7 @@ class RimeEngine(private val context: Context) : InputMethod {
     }
 
     /**
-     * 选中第 [index] 个候选。
+     * [InputMethod.selectAndRemain] 的实现:选中第 [index] 个候选。
      *
      * @return 上屏文本 + **还没被吃掉的那部分拼音**;无候选/未提交给 null。
      *
@@ -159,7 +159,7 @@ class RimeEngine(private val context: Context) : InputMethod {
      * `remaining` 为 null 表示「librime 一次吃完整串」,上层照旧全清 ——
      * 也就是说这条路径对现有行为是**加法式**的。
      */
-    fun select(index: Int): Pair<String, String?>? {
+    override fun selectAndRemain(index: Int): Pair<String, String?>? {
         val s = synchronized(lock) { session }
         if (s == 0L) return null
         if (!RimeNative.selectCandidate(s, index)) return null
