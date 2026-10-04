@@ -196,8 +196,17 @@ class PageSettleTest {
     fun `提交用欠阻尼 收回用过阻尼`() {
         val (_, commitSpec) = pageSettleFor(committed = true, full = full)
         val (_, rollbackSpec) = pageSettleFor(committed = false, full = full)
-        assertEquals("提交应该是 [PAGE_COMMIT]", SpringSpec.PAGE_COMMIT, commitSpec)
-        assertEquals("收回应该是 [PAGE_ROLLBACK]", SpringSpec.PAGE_ROLLBACK, rollbackSpec)
+        // **只比阻尼比,不比整个 spec**:response 现在是按行程算出来的
+        // (`PageTiming.withResponse`),整个 spec 相等这个断言已经不成立。
+        // 方向语义由阻尼比承载,那才是这条要守的东西。
+        assertEquals(
+            "提交应该用 [PAGE_COMMIT] 的阻尼比",
+            SpringSpec.PAGE_COMMIT.dampingRatio, commitSpec.dampingRatio, 0f,
+        )
+        assertEquals(
+            "收回应该用 [PAGE_ROLLBACK] 的阻尼比",
+            SpringSpec.PAGE_ROLLBACK.dampingRatio, rollbackSpec.dampingRatio, 0f,
+        )
         assertTrue(
             "提交是确认动作 ⇒ 欠阻尼(ζ<1)才有到位感,实际 ${commitSpec.dampingRatio}",
             commitSpec.dampingRatio < 1f,
@@ -228,8 +237,8 @@ class PageSettleTest {
             if (z >= 1f) 0f
             else kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
 
-        val commit = overshootOf(SpringSpec.PAGE_COMMIT.dampingRatio)
-        val rollback = overshootOf(SpringSpec.PAGE_ROLLBACK.dampingRatio)
+        val commit = overshootOf(commitSpec.dampingRatio)
+        val rollback = overshootOf(rollbackSpec.dampingRatio)
         assertTrue("提交(ζ=${SpringSpec.PAGE_COMMIT.dampingRatio})应当有过冲,实际 $commit", commit > 0f)
         assertEquals("收回(ζ=${SpringSpec.PAGE_ROLLBACK.dampingRatio})必须零过冲", 0f, rollback, 0f)
     }

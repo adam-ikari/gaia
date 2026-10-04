@@ -1556,7 +1556,11 @@ internal fun pageDragSlide(
  */
 internal fun pageSettleFor(committed: Boolean, full: Float): Pair<Float, SpringSpec> {
     val base = if (committed) SpringSpec.PAGE_COMMIT else SpringSpec.PAGE_ROLLBACK
-    return full to PageTiming.withResponse(base, full)
+    // 目标与提交方向绑在一起,不能一律返回 `full` ——
+    // 收回的目标是 **0**。第一版这里写成了 `return full to …`,被单测当场抓到。
+    val target = if (committed) full else 0f
+    // 起点是 0(整段都还没走),所以 response 按整页算。
+    return target to PageTiming.withResponse(base, full)
 }
 
 /**
