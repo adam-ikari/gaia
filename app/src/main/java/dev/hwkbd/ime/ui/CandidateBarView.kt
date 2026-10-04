@@ -692,7 +692,7 @@ class CandidateBarView @JvmOverloads constructor(
             // **分工**:惯性只决定**翻不翻**([byFling]),落点由「走完 / 回原位」决定。
             // 这与 [SpringChannel.settle] 故意不给速度参数是同一个道理:
             // 同一个物理量只在一个地方计入。
-            val (t, sp) = pageSettleFor(committed = true, full = full)
+            val (t, sp) = pageSettleFor(committed = true, full = full, from = pageSlide)
             settlePage(t, sp)
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
@@ -704,7 +704,7 @@ class CandidateBarView @JvmOverloads constructor(
                     "page=$page/$totalPages"
             )
             // 同理:收回的落点是 **0**(回原页),不是 `pageSlide - 惯性`。
-            val (t, sp) = pageSettleFor(committed = false, full = full)
+            val (t, sp) = pageSettleFor(committed = false, full = full, from = pageSlide)
             settlePage(t, sp)
         }
         // 这条日志是**必需**的,不是调试残留(2026-10-03 E2E 才发现):
@@ -1554,8 +1554,20 @@ internal fun pageDragSlide(
  * 收回是**放弃**(滑回原页)⇒ 过阻尼,不该来回晃。
  * 与 `SpringSpec.FLY_BACK`(飞字放弃)/`RUBBER_BACK`(撞头)同一类语义。
  */
-internal fun pageSettleFor(committed: Boolean, full: Float): Pair<Float, SpringSpec> =
-    if (committed) full to SpringSpec.PAGE_COMMIT else 0f to SpringSpec.PAGE_ROLLBACK
+internal fun pageSettleFor(committed: Boolean, full: Float): Pair<Float, SpringSpec> {
+    val base = if (committed) SpringSpec.PAGE_COMMIT else SpringSpec.PAGE_ROLLBACK
+    return full to PageTiming.withResponse(base, full)
+}
+
+/**
+ * 同上,但行程已知(松手那一刻 `pageSlide` 就是起点)。时长按**剩余行程**算,
+ * 而不是按整页 —— 手指已经划了 585px 就只补剩下的 791px,不该再等一整页的时间。
+ */
+internal fun pageSettleFor(committed: Boolean, full: Float, from: Float): Pair<Float, SpringSpec> {
+    val base = if (committed) SpringSpec.PAGE_COMMIT else SpringSpec.PAGE_ROLLBACK
+    val target = if (committed) full else 0f
+    return target to PageTiming.withResponse(base, target - from)
+}
 
 /** 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。 */
 internal fun pageDragTravel(x: Float, baseX: Float, dir: Float): Float =

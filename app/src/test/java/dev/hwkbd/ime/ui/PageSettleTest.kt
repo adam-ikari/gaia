@@ -28,6 +28,71 @@ class PageSettleTest {
 
     // ------------------------------------------------------------ 落点
 
+    // ------------------------------------------------ 时长按行程给(2026-10-04 用户「一直都很快」)
+
+    /**
+     * 翻页的**平均速度**必须落在夹住的范围内,不能像修复前那样固定 0.26s。
+     *
+     * 根因不在「某个 response 调小了」,而在**位移最大的动画用了最短的时长**:
+     * 翻页最多 1440px 却只给 0.26s(≈5540 px/s),而飞字起飞 52px 给 0.22s(≈236 px/s)——
+     * **速度差 20 倍**。所以用户说「一直都很快」是准确的。
+     *
+     * 这条钉的是「速度有上限」而不是「某个秒数」:时长是**算出来的**,
+     * 钉一个具体秒数只会让人以为那是调出来的。
+     */
+    @Test
+    fun `翻页时长按行程给 速度被夹住`() {
+        // 行程落在中间 ⇒ 精确等于 目标速度
+        val mid = PageTiming.response(900f)
+        assertEquals(
+            "900px 应落在夹取区间内",
+            900f / PageTiming.PAGE_TARGET_SPEED, mid, 0.001f,
+        )
+        // 短行程 ⇒ 撞下限,时长不趋近 0(否则闪一下像跳变)
+        assertEquals(PageTiming.PAGE_MIN_RESPONSE, PageTiming.response(50f), 0f)
+        assertEquals(PageTiming.PAGE_MIN_RESPONSE, PageTiming.response(0f), 0f)
+        // 长行程 ⇒ 撞上限,不让用户等太久
+        assertEquals(PageTiming.PAGE_MAX_RESPONSE, PageTiming.response(4000f), 0f)
+    }
+
+    /** 实测里出现过的行程都不得快于修复前那个 3042 px/s。 */
+    @Test
+    fun `实测行程下不许再出现修复前那种速度`() {
+        // E2E 埋点里 real 出现过的 from 值(0 / 475 / 585 / 547)
+        for (remaining in intArrayOf(0, 100, 300, 475, 585, 791, 901, 1376)) {
+            val r = PageTiming.response(remaining.toFloat())
+            if (remaining == 0) continue
+            val speed = remaining / r
+            assertTrue(
+                "剩余 $remaining px 用 ${r}s ⇒ $speed px/s,不该快于修复前的 3042",
+                speed <= 3100f,
+            )
+        }
+    }
+
+    /** 提交与收回用**同一个** response 基准(用户 2026-10-04 定:「收回也一起慢」)。 */
+    @Test
+    fun `提交与收回的时长基准一致`() {
+        assertEquals(
+            SpringSpec.PAGE_COMMIT.response, SpringSpec.PAGE_ROLLBACK.response, 0f,
+        )
+        // 且两支都只差阻尼比 —— 方向语义不同,时长不该不同
+        assertEquals(
+            SpringSpec.PAGE_COMMIT.dampingRatio != SpringSpec.PAGE_ROLLBACK.dampingRatio, true,
+        )
+    }
+
+    /** 时长按**剩余行程**算,不是按整页 —— 手指已经划过的不该再等一次。 */
+    @Test
+    fun `时长用剩余行程而不是整页`() {
+        val (_, wholePageSpec) = pageSettleFor(committed = true, full = FULL_PAGE, from = 0f)
+        val (_, halfDoneSpec) = pageSettleFor(committed = true, full = FULL_PAGE, from = FULL_PAGE * 0.5f)
+        assertTrue(
+            "划了一半之后剩余行程更短,时长应更短(${halfDoneSpec.response} vs ${wholePageSpec.response})",
+            halfDoneSpec.response < wholePageSpec.response,
+        )
+    }
+
     // ------------------------------------------------ 提交线的量纲(2026-10-04 真机 bug)
 
     /**

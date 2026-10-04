@@ -70,7 +70,10 @@ internal data class SpringSpec(
         val DEFAULT = SpringSpec(response = 0.28f, dampingRatio = 0.72f)
 
         /**
-         * 翻页**提交**(滑到新页那一页走完):欠阻尼 0.95,响应 0.26s。
+         * 翻页**提交**(滑到新页那一页走完):欠阻尼 0.95。
+         *
+         * 时长**不写死** —— 见 [pageResponse]:翻页的剩余行程能从 100px 到 1440px,
+         * 固定时长必然要么「短行程黏住」要么「长行程飞过去」。
          *
          * ## 0.72 → 0.9 → 0.95 的三轮下调(2026-10-04 用户两次「降低翻頁動畫彈性」)
          *
@@ -105,7 +108,7 @@ internal data class SpringSpec(
          * 响应 0.26s 比 [DEFAULT] 略短:提交这一段常常是**长行程**
          * (松手时 `pageSlide` 可能才几十 px,要一次走完 1440px),短一点更利落。
          */
-        val PAGE_COMMIT = SpringSpec(response = 0.26f, dampingRatio = 0.95f)
+        val PAGE_COMMIT = SpringSpec(response = 0.45f, dampingRatio = 0.95f)
 
         /**
          * 翻页**收回**(滑回原页):过阻尼 1.9,响应 0.24s。
@@ -116,7 +119,7 @@ internal data class SpringSpec(
          * 比 [RUBBER_BACK](2.4)稍缓一点:橡皮筋是"撞墙",要硬;收回是"我自己滑回去",
          * 太硬会读成"被弹回来",像不是自己做的决定。
          */
-        val PAGE_ROLLBACK = SpringSpec(response = 0.24f, dampingRatio = 1.9f)
+        val PAGE_ROLLBACK = SpringSpec(response = 0.45f, dampingRatio = 1.9f)
 
         /**
          * 橡皮筋弹回:过阻尼([dampingRatio] 2.4)、0.22s。
@@ -161,6 +164,59 @@ internal data class SpringSpec(
          */
         val FLY_BACK = SpringSpec(response = 0.24f, dampingRatio = 1.8f)
     }
+}
+
+/**
+ * 翻页动画的**时长按行程给**,不写死(2026-10-04 用户「一直都很快」)。
+ *
+ * ## 为什么不能是固定时长
+ *
+ * 翻页的剩余行程从 ~100px 到 1440px(整页),差十几倍。固定时长必然二选一:
+ * 短行程黏住、长行程飞过去。而用户抱怨的是「快」—— 那是**速度**问题,
+ * 所以要对齐的是**速度**,不是时长。
+ *
+ * ## 量出来的对照(这才是根因)
+ *
+ * | 动画 | 位移 | 时长 | 平均速度 |
+ * |---|---|---|---|
+ * | 飞字起飞 | ~52px | 0.22s | ~236 px/s |
+ * | 键帽进退场 | 几十 px | 0.30s | ~150 px/s |
+ * | 翻页(修复前) | 最多 1440px | 0.26s | **~5540 px/s** |
+ *
+ * **翻页是全项目位移最大的动画,速度却是飞字的 20 倍。**
+ * 当初那个 0.26s 是按小动作的时长给的 —— 所以用户说「一直都很快」是准确的,
+ * 不是最近某次改坏的。
+ *
+ * ## 现在的做法
+ *
+ * `response = clamp(行程 / [PAGE_TARGET_SPEED], [PAGE_MIN_RESPONSE], [PAGE_MAX_RESPONSE])`
+ *
+ * 夹上下限的原因:行程很小时长会趋近 0(闪一下就没了,看着像跳变);
+ * 行程很大时长会无上限(用户等太久)。两端都在实测里出现过 ——
+ * 埋点见过 `from=1376` 之外的 `from=0`(整页)与 `from=585`。
+ */
+internal object PageTiming {
+    /**
+     * 目标平均速度(px/s)。1800 是从「飞字 ~236 px/s」与「键帽 ~150 px/s」往上找的
+     * 一个值:比小动作快(整页位移摆在那里,慢到 236 会像卡住),
+     * 但**远低于**修复前那 5540。
+     */
+    const val PAGE_TARGET_SPEED = 1800f
+
+    /** 时长下限:行程太小时防「闪一下」。 */
+    const val PAGE_MIN_RESPONSE = 0.28f
+
+    /** 时长上限:整页行程时防等太久。 */
+    const val PAGE_MAX_RESPONSE = 0.60f
+
+    /** 剩余行程(px)→ response(秒)。夹在 [PAGE_MIN_RESPONSE] 与 [PAGE_MAX_RESPONSE]。 */
+    fun response(remainingPx: Float): Float =
+        (kotlin.math.abs(remainingPx) / PAGE_TARGET_SPEED)
+            .coerceIn(PAGE_MIN_RESPONSE, PAGE_MAX_RESPONSE)
+
+    /** 拿一份 spec,把 response 换成按行程算出来的值(阻尼比等其余参数不动)。 */
+    fun withResponse(spec: SpringSpec, remainingPx: Float): SpringSpec =
+        spec.copy(response = response(remainingPx))
 }
 
 /**
