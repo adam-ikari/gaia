@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [策略, 注册表, L4, 扩展性]
 created: "2026-09-28T19:06:35"
-updated: "2026-09-30T17:18:27"
+updated: "2026-10-04T18:38:14"
 ---
 
 <!-- compiled_truth -->
@@ -288,3 +288,9 @@ updated: "2026-09-30T17:18:27"
   kind: decision
   summary: "补充各输入模式的常用词组(用户 2026-09-30「有些输入模式的L4L5中词组确实少 需要补充常用的」)。电话:国际区号 4 把 → 18 把,按从国内拨出的常用度排(港澳台 +852 +886 与新马泰 +65 +60 +82 +66 +63 +84 +62 排在欧美前面,含 +7 +49 +33 +61 +971)。日期时间:出厂从空 → "
   affects: [ime-strategy-registry]
+
+- time: 2026-10-04T18:38:14
+  kind: decision
+  summary: "给 InputMethod 加成员必须三处同改:接口默认值、装饰器 PinyinInputMethod 的转发、rig() 的组合方式;漏转发会让生产静默走默认值而单测全绿"
+  source: "2026-10-04 候选行闪烁:给接口加了 isReady 却没在 PinyinInputMethod 转发,生产注册的是装饰器所以就绪门一次都没触发,而单测注册的是裸替身因此全绿"
+  affects: [ime-strategy-registry, librime-android-build]
