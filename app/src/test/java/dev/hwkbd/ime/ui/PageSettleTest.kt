@@ -36,29 +36,35 @@ class PageSettleTest {
     }
 
     /**
-     * 这条是**本次事故的核心**。
+     * 这条是**本次事故的核心**:惯性投影**到不了**整页宽度。
      *
-     * 旧代码把 [Landing.project] 的结果当落点,而它在 `pageSlide` 只有十几 px 时
-     * 最多给出 ~166px(最猛的一甩)。也就是说旧落点离「走完」差了一整页 ——
-     * 整页行程从来没走完,画面是跳过去的。
+     * 旧代码把 [Landing.project] 的结果当落点。实测那个值离「走完」差多远
+     * (Titan 2 屏宽 1440px,提交线 8px ⇒ 刚过线时 `pageSlide` 只有十几 px):
      *
-     * 这里用真实量级把那个差距量化出来:即便手指已经划过了大半(只剩 200px 没走完)、
-     * 甩得再猛,旧落点也只到 `pageSlide + 166`,而正确落点是 `full`。
+     * | pageSlide | v=500 | v=2000 | v=4000 |
+     * |---|---|---|---|
+     * | 14px(刚过线) | 24 | 181 | 681 |
+     * | 200px | 210 | 367 | 867 |
+     * | 800px | 810 | 967 | **1440** |
+     *
+     * 只有「已经划过 800px」且「甩到 4000px/s」这种极端组合才刚好够走完 ——
+     * 而 4000px/s 是屏宽/秒多,人手达不到。**这解释了为什么用户会觉得
+     * 「时好时坏」**:绝大多数手势下整页行程根本没走完,画面是跳过去的。
+     *
+     * 断言用「所有现实速度下都到不了」,而不是拍一个百分比阈值 ——
+     * 后者只是把某个随手选的数钉住,换屏宽就失效。
      */
     @Test
-    fun `惯性投影远不足以走完这一页`() {
-        val pageSlide = 200f
-        val hardFling = 2000f // px/s,相当快的甩
-        val byInertia = Landing.project(pageSlide, full, hardFling)
-        assertTrue(
-            "惯性投影($byInertia)不该被当成完成落点",
-            byInertia < full,
-        )
-        // 即便如此,差距仍然是一整页的绝大部分 —— 所以旧实现等于没走完。
-        assertTrue(
-            "惯性投影与走完之间差了 ${full - byInertia}px,占整页 ${(full - byInertia) / full}",
-            (full - byInertia) / full > 0.8f,
-        )
+    fun `惯性投影到不了整页宽度`() {
+        for (pageSlide in floatArrayOf(14f, 60f, 200f, 400f, 800f)) {
+            for (v in floatArrayOf(300f, 800f, 1500f, 2500f)) {
+                val byInertia = Landing.project(pageSlide, full, v)
+                assertTrue(
+                    "pageSlide=$pageSlide v=$v → 惯性投影 $byInertia 竟然到了 $full",
+                    byInertia < full,
+                )
+            }
+        }
     }
 
     // ------------------------------------------------------------ 阻尼方向
@@ -80,19 +86,29 @@ class PageSettleTest {
     }
 
     /**
-     * 收回必须比提交**更不容易过冲**。
+     * 收回必须**零过冲**,提交必须有冲量。
      *
      * 方向反了的话「没翻成、滑回去」会带一次弹跳,读起来像不是自己做的决定 ——
      * 与 `SpringSpec.FLY_BACK`(飞字放弃)、`RUBBER_BACK`(撞头)同一类语义。
+     *
+     * ## 这里踩过一个坑:过冲公式只对欠阻尼成立
+     *
+     * 常用写法 `exp(-πζ/√(1-ζ²))` 是**从欠阻尼解推的**,分母里 `√(1-ζ²)` 要求 ζ<1。
+     * 拿它去算 ζ=1.9 会直接 domain error(第一版就是这么写的,单测红了一次)。
+     * 过阻尼根本没有过冲:解是纯指数衰减,峰值就是 1。
+     *
+     * 所以判据写成:**欠阻尼 ⇒ 过冲 > 0;过阻尼 ⇒ 过冲 == 0**。
      */
     @Test
-    fun `收回的过冲量必须小于提交`() {
-        fun overshootSpec(z: Float): Float =
-            kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
+    fun `收回零过冲 提交有过冲`() {
+        fun overshootOf(z: Float): Float =
+            if (z >= 1f) 0f
+            else kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
 
-        val commit = overshootSpec(SpringSpec.PAGE_COMMIT.dampingRatio)
-        val rollback = overshootSpec(SpringSpec.PAGE_ROLLBACK.dampingRatio)
-        assertTrue("收回过冲($rollback)应远小于提交过冲($commit)", rollback * 5f < commit)
+        val commit = overshootOf(SpringSpec.PAGE_COMMIT.dampingRatio)
+        val rollback = overshootOf(SpringSpec.PAGE_ROLLBACK.dampingRatio)
+        assertTrue("提交(ζ=${SpringSpec.PAGE_COMMIT.dampingRatio})应当有过冲,实际 $commit", commit > 0f)
+        assertEquals("收回(ζ=${SpringSpec.PAGE_ROLLBACK.dampingRatio})必须零过冲", 0f, rollback, 0f)
     }
 
     @Test
