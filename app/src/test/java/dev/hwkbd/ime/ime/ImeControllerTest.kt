@@ -14,12 +14,16 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import dev.hwkbd.ime.strategy.withRemainAfterSelect
+import dev.hwkbd.ime.strategy.withReady
 
 class ImeControllerTest {
 
     private class RecHost : ImeHost {
         val commits = mutableListOf<String>()
         val keys = mutableListOf<String>()
+
+        /** [ImeHost.render] 被调了几次(2026-10-04 加:验「没就绪时仍要渲染」)。 */
+        var renders = 0
 
         override fun commitText(text: String) {
             commits += text
@@ -29,11 +33,21 @@ class ImeControllerTest {
             keys += "$code/$ctrl/$shift"
         }
 
-        override fun render() {}
+        override fun render() { renders++ }
     }
 
 
-    private class Rig(val c: ImeController, val h: RecHost) {
+    private class Rig(
+        val c: ImeController,
+        val h: RecHost,
+        /**
+         * 底层引擎替身,给「引擎被问过没有 / 问进去的是什么」那几条断言用。
+         *
+         * 必须由调用方传进来 —— 不同测试要的是**同一个**注册进 controller 的实例,
+         * 自己 new 一个看着像但不是,断言会假过。
+         */
+        val method: FakePinyinInputMethod,
+    ) {
         fun type(s: String) {
             for (ch in s) c.onKeyDown(kc(ch), false, false)
         }
@@ -67,19 +81,23 @@ class ImeControllerTest {
         Thread.sleep(ModifierGestures.DEFAULT_TAP_WINDOW_MS + 50)
     }
 
-    private fun rig(pageSize: Int = 5, remainAfterSelect: String? = null): Rig {
+    private fun rig(
+        pageSize: Int = 5,
+        remainAfterSelect: String? = null,
+        engineReady: Boolean = true,
+    ): Rig {
         // 用 [FakePinyinInputMethod] 而不是真引擎(2026-10-03 换 librime):
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
         // 注册表 = 出厂语言/表现 + 拼音输入法(加语言/输入法走注册,不改状态机)
-        val registry = ImeRegistry.builtin()
-            .registerMethod(
-                FakePinyinInputMethod.common().withRemainAfterSelect(remainAfterSelect)
-            )
+        val method = FakePinyinInputMethod.common()
+            .withRemainAfterSelect(remainAfterSelect)
+            .withReady(engineReady)
+        val registry = ImeRegistry.builtin().registerMethod(method)
         val c = ImeController(h, KeyLayout.default(), registry)
         c.state.pageSize = pageSize
-        return Rig(c, h)
+        return Rig(c, h, method)
     }
 
     companion object {
@@ -218,13 +236,13 @@ class ImeControllerTest {
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
-        val registry = ImeRegistry.builtin()
-                .registerMethod(FakePinyinInputMethod.common())
+        val method = FakePinyinInputMethod.common()
+        val registry = ImeRegistry.builtin().registerMethod(method)
         // 自定义布局:L1 q→"-."(L4 datetime 键的同文本)、e→"+"、v→"v"(拼音 mapText 改写成 `'`);
         // [L4 datetime] 段两把:`-.` 三层按得出(q 键)→ 不进 L4,`'` 按不出 → 进 L4
         val layout = KeyLayout.parseText("[L1]\nq=-.\ne=+\nv=v\n[L4 datetime]\n重复=-.\n分隔='").layout!!
         val c = ImeController(h, layout, registry)
-        val r = Rig(c, h)
+        val r = Rig(c, h, method)
         c.state.fieldKind = FieldKind.DATETIME
         // 拼音态 L4 = 核心键(去掉 `$`) + l4Extras(`￥`)+ datetime 段,再过 producible 那把筛。
         // `' ` 按不出 → 留;`￥` 拼音态 L2/L3 都能敲出 → 被筛掉(否则屏上会出现两把同义的键)。
@@ -295,6 +313,47 @@ class ImeControllerTest {
         assertEquals(listOf(null, null, "捏", null, null), slots.map { it?.word })
         r.c.selectCandidate(2) // 中间槽选字
         assertEquals(listOf("捏"), r.h.commits)
+    }
+
+    // ---------------- 候选行闪烁(2026-10-04 用户「候选行自己交替闪烁」)
+
+    /**
+     * 引擎**没就绪**时不能去问它 —— 问了只会拿到空表,而空表会被当成
+     * 「这个拼音没有候选」把候选行清空。等就绪后回调再问一次,一次填上。
+     *
+     * 埋点实测的成因:
+     *     query#1 from=onKeyDown           raw="n" n=0
+     *     query#2 from=onCreate$1$1.invoke raw="n" n=45
+     */
+    @Test
+    fun `引擎未就绪时不去问它 候选行不会被清空`() {
+        val r = rig(engineReady = false)
+        r.type("ni")
+        assertEquals("没就绪就不该发起查询", 0, r.method.queried.size)
+        assertTrue("候选行不该被清空(不该闪一下)", r.c.state.candidates.isEmpty())
+    }
+
+    /**
+     * 没就绪时**渲染照旧** —— 组词缓冲必须看得见。
+     *
+     * 上一版在就绪门里直接 `return`,于是首次启动那几秒里用户打的拼音
+     * 一个字符都不显示:那比闪烁更糟,是整个输入法像死了。
+     */
+    @Test
+    fun `引擎未就绪时仍然渲染 组词缓冲要看得见`() {
+        val r = rig(engineReady = false)
+        r.type("ni")
+        assertEquals("缓冲里该留住已输入的拼音", "ni", r.c.state.raw)
+        assertTrue("组词期间输入法窗口该显示出来", r.h.renders > 0)
+    }
+
+    /** 就绪之后一次就填上 —— 一次跳变,而不是「清空↔填满」。 */
+    @Test
+    fun `就绪后照常一次查到候选`() {
+        val r = rig(engineReady = true)
+        r.type("ni")
+        assertEquals(listOf("ni"), r.method.queried)
+        assertEquals(listOf("你"), r.c.state.candidates.map { it.word })
     }
 
     // ---------------- 拼音消费(2026-10-04 用户「按实际选词消费,不能一次清空」)

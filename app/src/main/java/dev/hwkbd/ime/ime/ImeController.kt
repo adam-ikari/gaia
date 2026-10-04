@@ -651,6 +651,25 @@ class ImeController(
 
     /** 词库异步载入完成后主动刷新当前查询。 */
     fun refreshQuery() {
+        // **引擎没就绪时不去问它**(2026-10-04 用户报候选行自己交替闪烁)。
+        //
+        // 没就绪时 `query()` 只能给空表,而空表 = 「这个拼音没有候选」。
+        // 于是每按一次键候选行就被清空一次,等部署完成的回调到了再填满 ——
+        // 用户看到的就是「空 ↔ 有词」交替。埋点实测:
+        //     query#1 from=onKeyDown           raw="n" n=0
+        //     query#2 from=onCreate$1$1.invoke raw="n" n=45
+        //
+        // 这里**只跳过查询,渲染照旧**:候选不去动它(留着上一次的内容 = 不闪),
+        // 但组词缓冲必须画出来 —— 否则这几秒里用户打的拼音**一个字符都看不见**,
+        // 那是比闪烁更糟的退化。等部署完成的回调再问一次,那时一次就填上:
+        // **一次跳变代替「清空↔填满」的抖动**。
+        //
+        // 窗口只存在于首次启动那几秒;之后就绪了,走正常路径。
+        if (!inputMethod().isReady) {
+            android.util.Log.i("ImeService", "query: 引擎未就绪,不查询(raw=\"${state.raw}\")")
+            host.render()
+            return
+        }
         if (state.raw.isNotEmpty()) {
             state.candidates = inputMethod().query(state.raw, CANDIDATE_LIMIT)
             state.page = 0

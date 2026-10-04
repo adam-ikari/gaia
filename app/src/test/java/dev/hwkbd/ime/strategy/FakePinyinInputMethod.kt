@@ -47,7 +47,15 @@ class FakePinyinInputMethod(
      * 换引擎前后的行为一致,也让「引擎不支持」这条分支有测试可钉。
      */
     internal val remainAfterSelect: String? = null,
+    /**
+     * [InputMethod.isReady] 的取值(2026-10-04)。默认 true = 已就绪,
+     * 与换 librime 之前的行为一致。
+     */
+    internal val ready: Boolean = true,
 ) : InputMethod {
+
+    /** 实现 [InputMethod.isReady]。false 时 [query] 给空表,模拟「词库还在部署」。 */
+    override val isReady: Boolean get() = ready
 
     /** 实现 [InputMethod.selectAndRemain]:按 [remainAfterSelect] 回答,不做真的选词。 */
     override fun selectAndRemain(index: Int): Pair<String, String?>? {
@@ -68,6 +76,9 @@ class FakePinyinInputMethod(
 
     override fun query(raw: String, limit: Int): List<Candidate> {
         queried += raw
+        // 没就绪时给**空表**而不是「照表返回」—— 那正是真引擎在部署期间的行为,
+        // 也正是候选行闪烁的成因(空表会被上层当成「这个拼音没有候选」)。
+        if (!ready) return emptyList()
         return candidatesOf(raw).take(limit).mapIndexed { i, w ->
             // score 倒序:让「表里靠前的候选」在依赖 score 排序的地方也靠前
             Candidate(word = w, pinyin = raw, kind = CandidateKind.EXACT, score = -(i.toLong()))
@@ -229,3 +240,7 @@ class FakePinyinInputMethod(
  */
 fun FakePinyinInputMethod.withRemainAfterSelect(v: String?): FakePinyinInputMethod =
     FakePinyinInputMethod(id = id, table = table, remainAfterSelect = v)
+
+/** 复制一份并设定「是否就绪」(给候选行闪烁那几条测试用)。见 [withRemainAfterSelect] 的理由。 */
+fun FakePinyinInputMethod.withReady(v: Boolean): FakePinyinInputMethod =
+    FakePinyinInputMethod(id = id, table = table, remainAfterSelect = remainAfterSelect, ready = v)

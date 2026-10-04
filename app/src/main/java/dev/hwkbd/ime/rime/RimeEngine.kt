@@ -71,6 +71,15 @@ class RimeEngine(private val context: Context) : InputMethod {
     /** 部署是否完成。未完成时 [query] 一律返回空 —— 上层显示「无候选」而不是崩。 */
     @Volatile
     var ready: Boolean = false
+
+    /**
+     * [InputMethod.isReady]:词库部署完成、session 可用。
+     *
+     * 部署是异步的(首次约 3.6 秒),那之前 [query] 只能给空表 ——
+     * 而空表与「这个拼音没候选」在调用方看来一样,于是候选行会先清空再填满(闪烁)。
+     * 状态机靠这一项把两者分开。
+     */
+    override val isReady: Boolean get() = ready
         private set
 
     /**
