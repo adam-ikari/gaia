@@ -55,16 +55,40 @@ done
 
 # 幂等:同名 release 已存在就只覆盖资产,不重建(否则会把已有的说明文字冲掉)
 if gh release view "$TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
-  gh release upload "$TAG" "$WORK/app-release.apk" "$WORK/app-debug.apk" \
-    -R "$SITE_REPO" --clobber >/dev/null
-  echo "已覆盖 $SITE_REPO @ $TAG 的同名资产"
+  echo "已存在 $SITE_REPO @ $TAG,覆盖资产"
 else
+  # **先建空的 release,再逐个上传**。
+  #
+  # 原来是把两个附件挂在 `gh release create` 的命令行上。`app-debug.apk` 有 22MB,
+  # 走 S3 直传经常 `HTTP 408: Upload body timed out due to inactivity`,
+  # 而 create 是**全有或全无**的 —— 一个附件失败,整个 release 都不会被建出来。
+  # 症状是「同步脚本说上传超时」,而 `gh release list` 里**连这个 tag 都没有**,
+  # 于是站点停在旧版本,而发版流程看上去只是「网络抖动,重试一下」。
+  #
+  # 拆开之后:release 先存在(页面立刻是对的),附件失败只影响附件,
+  # 而且可以单独重试那一个。
   gh release create "$TAG" -R "$SITE_REPO" \
     --title "Gaia $TAG" \
-    --notes "盖亚输入法 $TAG。由 $APP_REPO 的发版流水线手动同步。" \
-    "$WORK/app-release.apk" "$WORK/app-debug.apk" >/dev/null
+    --notes "盖亚输入法 $TAG。由 $APP_REPO 的发版流水线手动同步。" >/dev/null
   echo "已在 $SITE_REPO 建 $TAG"
 fi
+
+# 逐个上传,每个最多 3 次(408 是网络/大小问题,重试通常就好)
+for f in app-release.apk app-debug.apk; do
+  ok=0
+  for attempt in 1 2 3; do
+    if gh release upload "$TAG" "$WORK/$f" -R "$SITE_REPO" --clobber >/dev/null 2>&1; then
+      ok=1; break
+    fi
+    echo "  $f 第 $attempt 次上传失败,重试"
+    sleep $((attempt * 5))
+  done
+  if [ "$ok" != "1" ]; then
+    echo "::error::$f 连续 3 次上传失败,站点上这个包还是旧的" >&2
+    exit 1
+  fi
+  echo "  ✓ $f"
+done
 
 # **验一次匿名可下**。这一步不是走过场:2026-10-02 之前站点一直指向 v0.4.1,
 # 而 CI 那个 job 是 skipped 状态、退出码 0 —— 流水线全绿,没人发现链接是旧的。

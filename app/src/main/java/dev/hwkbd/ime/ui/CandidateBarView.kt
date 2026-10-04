@@ -329,7 +329,7 @@ class CandidateBarView @JvmOverloads constructor(
             pageDir = dir
             pageSlide = 0f
             if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                settlePage(full)
+                settlePage(full, SpringSpec.PAGE_COMMIT)
             } else {
                 clearPageTurn()
             }
@@ -342,7 +342,7 @@ class CandidateBarView @JvmOverloads constructor(
             pageTo = f
             pageDir = -pageDir
             pageSlide = full - pageSlide
-            settlePage(full)
+            settlePage(full, SpringSpec.PAGE_COMMIT)
         } else {
             // 目标对不上:整页重切
             pageFrom = slots
@@ -356,7 +356,7 @@ class CandidateBarView @JvmOverloads constructor(
             } else {
                 pageSlide = 0f
                 if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                    settlePage(full)
+                    settlePage(full, SpringSpec.PAGE_COMMIT)
                 } else {
                     clearPageTurn()
                 }
@@ -520,7 +520,7 @@ class CandidateBarView @JvmOverloads constructor(
         pageDragging = false
         pageCommitted = false
         if (wasCommitted) onPage?.invoke(if (pageDir > 0f) -1 else 1)
-        settlePage(0f)
+        settlePage(0f, SpringSpec.PAGE_ROLLBACK)
     }
 
     /**
@@ -623,6 +623,7 @@ class CandidateBarView @JvmOverloads constructor(
         val threshold = pageCommitPx()
         // 速度取沿翻页方向的符号:往下一页(dir=+1)时手指向左,速度也要是"朝新页"才算甩
         val v = pageSpeed.velocity() * pageDir
+        // 惯性**只用来判「甩不甩得过去」**,不参与落点(见下面提交分支的注释)
         val landing = Landing.project(pageSlide, full, v)
         // 提交线:手指位移过线 **或** 惯性落点在过线一侧(甩过去)
         val byFinger = DragGesture.progress(pageDragTravel, threshold, pageDragDeadPx()) >= 1f
@@ -633,11 +634,29 @@ class CandidateBarView @JvmOverloads constructor(
                 haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义
             }
             pageCommitted = true
-            settlePage(landing.coerceAtLeast(pageSlide))
+            // **落到 `full`,不是落到 `landing`**(2026-10-04 修)。
+            //
+            // 原来这里落的是 `Landing.project(pageSlide, full, v)` —— 那个函数答的是
+            // 「如果任它惯性滑行,会停在哪」,不是「这一页还剩多少没走完」。
+            // 于是一次翻页的**整页行程(pageSlide: 0 → width = 1440px)从来没走完**:
+            // 过提交线那一帧 `pageSlide` 才十几 px,惯性最多再推 `v²/(2a)` ≈ 166px,
+            // 于是弹簧只从十几 px 走到一百多 px,然后 `onFinish` 直接 `clearPageTurn()`
+            // —— 画面是**跳**到新页的,不是滑过去的。
+            //
+            // 症状就是用户报的「松手时翻不过去」+「翻过去/收回的动画不对」,
+            // 以及「翻頁困難」:整页没走完 ⇒ 视觉上根本不像发生了一次翻页。
+            //
+            // **分工**:惯性只决定**翻不翻**([byFling]),落点由「走完 / 回原位」决定。
+            // 这与 [SpringChannel.settle] 故意不给速度参数是同一个道理:
+            // 同一个物理量只在一个地方计入。
+            val (t, sp) = pageSettleFor(committed = true, full = full)
+            settlePage(t, sp)
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
             pageCommitted = false
-            settlePage(Landing.project(pageSlide, 0f, v).coerceAtMost(pageSlide))
+            // 同理:收回的落点是 **0**(回原页),不是 `pageSlide - 惯性`。
+            val (t, sp) = pageSettleFor(committed = false, full = full)
+            settlePage(t, sp)
         }
         // 这条日志是**必需**的,不是调试残留(2026-10-03 E2E 才发现):
         //
@@ -679,7 +698,7 @@ class CandidateBarView @JvmOverloads constructor(
      * 3. **时长与行程脱钩**:旧代码时长 = `stopDurationMs(v0)`,与还剩多少距离无关 ——
      *    差 1px 和差半页用同一个时长。现在时长由弹簧按行程与初速自己算。
      */
-    private fun settlePage(target: Float) {
+    private fun settlePage(target: Float, spec: SpringSpec = SpringSpec.DEFAULT) {
         val from = pageSlide
         if (from == target || pageFrom.isEmpty() || pageTo.isEmpty()) {
             pageSpring.cancel()
@@ -689,7 +708,7 @@ class CandidateBarView @JvmOverloads constructor(
             return
         }
         pageSettleTarget = target
-        pageSpring.settle(from, target)
+        pageSpring.settle(from, target, spec)
     }
 
     /**
@@ -1428,6 +1447,28 @@ internal fun pageDragSlide(
     limit = viewW,
     dead = dead,
 )
+
+/**
+ * 翻页收尾的落点与物理参数(纯函数,便于单测)。
+ *
+ * ## 这里为什么**不能**用 [Landing.project]
+ *
+ * `Landing.project(from, target, v0)` 答的是「如果任它惯性滑行,会停在哪」——
+ * 它是**投影**,不是**完成**。用在翻页收尾上,后果是整页行程(`pageSlide: 0 → width`)
+ * 从来没走完:过提交线那一帧 `pageSlide` 才十几 px,惯性最多再推 `v²/(2a)` ≈ 166px,
+ * 于是弹簧只走一百多 px 就被 `clearPageTurn()` 截断,画面是**跳**过去的。
+ * (2026-10-04 修;用户报「松手时翻不过去」「翻过去/收回的动画不对」「翻頁困難」。)
+ *
+ * 所以分工是:**惯性只决定翻不翻,落点只由「走完 / 回原位」决定。**
+ *
+ * ## 两支弹簧而不是一支
+ *
+ * 提交是**确认**(翻到新页)⇒ 欠阻尼,要有到位感;
+ * 收回是**放弃**(滑回原页)⇒ 过阻尼,不该来回晃。
+ * 与 `SpringSpec.FLY_BACK`(飞字放弃)/`RUBBER_BACK`(撞头)同一类语义。
+ */
+internal fun pageSettleFor(committed: Boolean, full: Float): Pair<Float, SpringSpec> =
+    if (committed) full to SpringSpec.PAGE_COMMIT else 0f to SpringSpec.PAGE_ROLLBACK
 
 /** 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。 */
 internal fun pageDragTravel(x: Float, baseX: Float, dir: Float): Float =

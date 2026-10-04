@@ -35,7 +35,7 @@ import androidx.dynamicanimation.animation.SpringForce
  */
 internal class SpringChannel(
     from: Float,
-    private val spec: SpringSpec,
+    spec: SpringSpec,
     /** 每帧回调:`(当前值, 当前速度)`。 */
     private val onFrame: (Float, Float) -> Unit,
     /**
@@ -45,6 +45,9 @@ internal class SpringChannel(
      */
     private val onFinish: (cancelled: Boolean) -> Unit = {},
 ) {
+    /** 当前这一段在用的物理参数。会被 [settle] 的同名参数改写(见那里)。 */
+    private var spec: SpringSpec = spec
+
     private val holder = FloatValueHolder(from)
 
     /** 最近一帧的速度(px/s)。引擎不公开 getter,靠 update 回调存一份,见类注释。 */
@@ -80,8 +83,14 @@ internal class SpringChannel(
      * 松手时**一律从静止起步**:惯性已经在 [Landing] 的落点里算过了。
      * 这不是"不建议传",是**类型上不给传的机会** —— 见下面「惯性被算了两次」。
      */
-    fun settle(from: Float, target: Float) {
+    fun settle(from: Float, target: Float, spec: SpringSpec = this.spec) {
         this.target = target
+        // 换 spec 只在**调用方显式给了不同的**时候做 —— 同一个通道上「提交」与「收回」
+        // 走两支弹簧(2026-10-04 用户定),而打断时保留当前 spec 会更连贯,所以只在起跑时对齐。
+        if (spec != this.spec) {
+            animation.setSpring(spec.toOfficial())
+            this.spec = spec
+        }
         if (isRunning) {
             // **打断**:不断动画、不重设值与速度,只换目标 ⇒ 位置与速度都连续。
             // 这是速度**唯一该被保留**的场合:手指按住正在飞的页面时,画面此刻的物理速度

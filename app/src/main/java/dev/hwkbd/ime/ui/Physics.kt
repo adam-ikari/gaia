@@ -70,6 +70,30 @@ internal data class SpringSpec(
         val DEFAULT = SpringSpec(response = 0.28f, dampingRatio = 0.72f)
 
         /**
+         * 翻页**提交**(滑到新页那一页走完):欠阻尼 0.72,响应 0.26s。
+         *
+         * 数值与 [DEFAULT] 相同,但**单独一支**,因为翻页需要「提交」与「收回」两种手感
+         * (2026-10-04 用户定:「分开,提交欠阻尼、收回过阻尼」)。
+         * 之前两者共用 [DEFAULT],于是收回时也带一次过冲 —— 而"没翻成、滑回去"
+         * 在语义上接近**放弃**,不该有到位感、更不该来回晃(与 [FLY_BACK] 同理)。
+         *
+         * 响应比 [DEFAULT] 略短(0.26 vs 0.28):提交这一段现在常常是**长行程**
+         * (松手时 `pageSlide` 可能才几十 px,要一次走完 1440px),短一点更利落。
+         */
+        val PAGE_COMMIT = SpringSpec(response = 0.26f, dampingRatio = 0.72f)
+
+        /**
+         * 翻页**收回**(滑回原页):过阻尼 1.9,响应 0.24s。
+         *
+         * 与 [PAGE_COMMIT] 方向相反 —— 与 [FLY_BACK](放弃)/[RUBBER_BACK](撞头)
+         * 属于同一类语义:**没成功**。所以宁可靠近阻尼也别过冲。
+         *
+         * 比 [RUBBER_BACK](2.4)稍缓一点:橡皮筋是"撞墙",要硬;收回是"我自己滑回去",
+         * 太硬会读成"被弹回来",像不是自己做的决定。
+         */
+        val PAGE_ROLLBACK = SpringSpec(response = 0.24f, dampingRatio = 1.9f)
+
+        /**
          * 橡皮筋弹回:过阻尼([dampingRatio] 2.4)、0.22s。
          *
          * **这里与翻页相反,必须过阻尼**:越界回弹若欠阻尼会来回晃,而"撞到头"本来就该是
