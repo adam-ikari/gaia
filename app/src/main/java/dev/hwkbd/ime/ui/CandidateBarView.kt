@@ -765,9 +765,15 @@ class CandidateBarView @JvmOverloads constructor(
         // (`animateToFinalPosition` 保留速度)。
         val entryV = pageSpring.currentVelocity
         pageSpring.settle(from, target, spec)
+        // **必须打 response**:这一版的时长是**算出来的**(PageTiming.withResponse),
+        // 不打出来的话,用户再报「还是快」时只能靠猜 —— 而这一版的主题就是
+        // 「量,不要猜」。剩下的行程也一并打出来,那是 response 的输入。
+        val remaining = target - from
         android.util.Log.i(
             TAG,
             "settle: from=${from.toInt()} target=${target.toInt()} ζ=${spec.dampingRatio} " +
+                "response=${(spec.response * 1000).toInt()}ms rem=${remaining.toInt()} " +
+                "speed=${if (spec.response > 0f) (kotlin.math.abs(remaining) / spec.response).toInt() else 0}px/s " +
                 "entryV=${entryV.toInt()} thr=${pageCommitPx().toInt()}"
         )
     }
