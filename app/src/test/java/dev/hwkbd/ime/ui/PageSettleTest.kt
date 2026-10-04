@@ -237,8 +237,10 @@ class PageSettleTest {
             if (z >= 1f) 0f
             else kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
 
-        val commit = overshootOf(commitSpec.dampingRatio)
-        val rollback = overshootOf(rollbackSpec.dampingRatio)
+        // 从 pageSettleFor 现取,而不是复用另一个测试里的局部变量
+        // —— Kotlin 里方法之间的局部变量不可见(第一版这么写编译不过)。
+        val commit = overshootOf(pageSettleFor(true, FULL_PAGE).second.dampingRatio)
+        val rollback = overshootOf(pageSettleFor(false, FULL_PAGE).second.dampingRatio)
         assertTrue("提交(ζ=${SpringSpec.PAGE_COMMIT.dampingRatio})应当有过冲,实际 $commit", commit > 0f)
         assertEquals("收回(ζ=${SpringSpec.PAGE_ROLLBACK.dampingRatio})必须零过冲", 0f, rollback, 0f)
     }
