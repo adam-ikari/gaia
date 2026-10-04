@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [animation, physics, spring, damping]
 created: "2026-10-03T11:23:42"
-updated: "2026-10-04T06:15:36"
+updated: "2026-10-04T16:50:00"
 ---
 
 <!-- compiled_truth -->
@@ -103,4 +103,10 @@ updated: "2026-10-04T06:15:36"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-04 ζ 0.72→0.9:过冲比例 × 行程 = 隐性参数被行程放大"
+  affects: [spring-damping-direction]
+
+- time: 2026-10-04T16:50:00
+  kind: reversal
+  summary: "提交 ζ 0.72→0.9→0.95→1.0:用户明确「不要过衝也不要回彈」,多次回弹在数学上不可能来自欠阻尼"
+  source: "2026-10-04 用户「非線性動畫到翻頁到位不要过衝也不要回彈」"
   affects: [spring-damping-direction]

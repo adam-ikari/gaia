@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-03T14:00:16"
+updated: "2026-10-04T16:50:00"
 ---
 
 <!-- compiled_truth -->
@@ -161,3 +161,9 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-03 E2E 实测:page_size 默认 5 ⇒ 翻页结构性失效"
   affects: [librime-android-build]
+
+- time: 2026-10-04T16:50:00
+  kind: decision
+  summary: "拼音消费按实际选词消费:靠选完后反查 composition.preedit 拿剩余;librime 的 RimeCandidate 不暴露覆盖范围"
+  source: "2026-10-04 用户「拼音的消费也要根据实际选词消费,不能一次清空」"
+  affects: [librime-android-build, sensitivity-tiers]
