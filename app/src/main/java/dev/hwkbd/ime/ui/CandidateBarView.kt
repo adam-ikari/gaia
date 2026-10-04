@@ -103,12 +103,15 @@ class CandidateBarView @JvmOverloads constructor(
     var pageCommitFrac: Float = PAGE_COMMIT_FRAC
 
     /**
-     * 横滑的**固定死区**(px):[DragGesture.DEAD_DP] 换算,**不随 [pageCommitFrac] 变**。
+     * 横滑的**固定死区**(px):[DragGesture.DEAD_DP_SWIPE] 换算,**不随 [pageCommitFrac] 变**。
+     *
+     * 与上滑的 [flyDeadPx](用 [DragGesture.DEAD_DP])**是两个常量**:2026-10-04 用户要
+     * 「翻页更灵」但「不改上滑」,而此前两者共用一个常量、无法分开调。
      *
      * 2026-10-02 用户「死区大小不随着触发阈值变化」。此前取 `触发线 × 1/4`,
      * 标准档就是 59dp —— 手指先走 59dp 屏幕纹丝不动。
      */
-    private val pageDeadPx: Float get() = DragGesture.DEAD_DP * density
+    private val pageDeadPx: Float get() = DragGesture.DEAD_DP_SWIPE * density
 
     private val bgPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_bg) }
     private val pressedPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.candidate_pressed) }

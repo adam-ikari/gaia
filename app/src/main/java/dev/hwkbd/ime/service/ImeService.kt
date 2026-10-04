@@ -569,7 +569,20 @@ class ImeService : InputMethodService() {
          */
         var deadPx = 0f
 
+        /**
+         * **横滑**(翻页)的死区(px)。与 [deadPx](上滑)**分开**(2026-10-04)。
+         *
+         * 本类里横纵两向都要判死区,而用户要「翻页更灵」但「不改上滑」——
+         * 共用一个字段时这两条是冲突的,所以拆开注入。
+         * 键距在屏幕坐标里,本类拿不到 density,所以两个都由 service 注入。
+         */
+        var swipeDeadPx = 0f
+
+        /** 上滑(飞字)的死区(px)。 */
         private val deadZone: Float get() = deadPx
+
+        /** 横滑(翻页)的死区(px)。 */
+        private val swipeDeadZone: Float get() = swipeDeadPx
 
         /** 返回值:null=无手势,>=0 飞字区号,-1=上一页,-2=下一页。 */
         fun onMotion(action: Int, x: Float, y: Int, eventTime: Long = 0L): Int? {
@@ -596,7 +609,7 @@ class ImeService : InputMethodService() {
                     }
                     // 横向占优且过了死区 → 起手翻页拖动(与候选行同一个死区常量)。
                     // 必须在 MOVE 里接管:抬手才判的话整条拖动不画位移,跟手动画就没有。
-                    if (adx > deadZone && adx > dy) {
+                    if (adx > swipeDeadZone && adx > dy) {
                         val dir = if (dx < 0f) 1f else -1f
                         if (listener.onPageDragBegin(dir, x, eventTime)) {
                             paging = true
@@ -657,7 +670,7 @@ class ImeService : InputMethodService() {
                     // [pageThresholdPx] 是**死区之外**的提交距离,而这里的 adx 从 DOWN 算起,
                     // 死区那一截还在里面 —— 所以要先加上死区,两者才同一个口径
                     // (2026-10-02 改档位口径时就是漏了这一次,两处量纲对不上)。
-                    if (adx > deadZone + pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
+                    if (adx > swipeDeadZone + pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
                     // 纵向主位移(向上):兜底(拖动过程的 MOVE 丢失时仍能提交)
                     if (dy > threshold && dy > adx) return zoneOf(downX)
                 }
@@ -809,9 +822,11 @@ class ImeService : InputMethodService() {
         val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
             ?: FLY_THRESHOLD_DEFAULT.toFloat()
         flyDetector.threshold = flyThreshold
-        // 死区固定(density 相关,见 FlyDetector.deadPx),与横滑同一个常量
-        flyDetector.deadPx =
-            dev.hwkbd.ime.ui.DragGesture.DEAD_DP * resources.displayMetrics.density
+        // 死区固定(density 相关,见 FlyDetector.deadPx / swipeDeadPx)。
+        // **横滑与上滑是两个常量**(2026-10-04 用户:翻页要更灵、上滑不动)。
+        val density = resources.displayMetrics.density
+        flyDetector.deadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP * density
+        flyDetector.swipeDeadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SWIPE * density
         // 左右滑翻页的阈值:一个开关同时喂候选行、L5、键盘表面三处
         val (pageFrac, pagePx) = pageThreshold(p)
         candidateBar?.pageCommitFrac = pageFrac

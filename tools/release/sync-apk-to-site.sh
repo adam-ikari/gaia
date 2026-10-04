@@ -43,15 +43,31 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # 从私有仓库取包(这一步需要 gh 有该仓库的读权限 —— 有 token 或有账号权限都行)
-gh release download "$TAG" -R "$APP_REPO" \
-  -p "app-release.apk" -p "app-debug.apk" --clobber --dir "$WORK" >/dev/null
-
-for f in app-release.apk app-debug.apk; do
-  if [ ! -f "$WORK/$f" ]; then
-    echo "::error::$TAG 里没有 $f,发版是不是没跑完?" >&2
-    exit 1
+#
+# 下载同样要重试:两个包合计 ~29MB,而 `gh release download` 走的是 release-assets
+# 的直链,大文件会 `unexpected EOF`(实测连续两次)。
+# 与上传同理:**release 包取不到是致命的**,debug 包取不到就降级(见下面那个循环的注释)。
+dl_ok=0
+for attempt in 1 2 3 4 5; do
+  if gh release download "$TAG" -R "$APP_REPO" \
+       -p "app-release.apk" -p "app-debug.apk" --clobber --dir "$WORK" >/dev/null 2>&1; then
+    dl_ok=1; break
   fi
+  echo "  下载第 $attempt 次失败,重试"
+  sleep $((attempt * 5))
 done
+if [ "$dl_ok" != "1" ] && [ ! -f "$WORK/app-release.apk" ]; then
+  echo "::error::从 $APP_REPO 下载 $TAG 连续 5 次失败,且连 app-release.apk 都没有" >&2
+  exit 1
+fi
+
+if [ ! -f "$WORK/app-release.apk" ]; then
+  echo "::error::$TAG 里没有 app-release.apk,发版是不是没跑完?" >&2
+  exit 1
+fi
+if [ ! -f "$WORK/app-debug.apk" ]; then
+  echo "::warning::$TAG 里没取到 app-debug.apk,跳过它(站点不消费它)"
+fi
 
 # 幂等:同名 release 已存在就只覆盖资产,不重建(否则会把已有的说明文字冲掉)
 if gh release view "$TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
@@ -73,21 +89,41 @@ else
   echo "已在 $SITE_REPO 建 $TAG"
 fi
 
-# 逐个上传,每个最多 3 次(408 是网络/大小问题,重试通常就好)
+# 逐个上传,每个最多 5 次(408 是网络/大小问题,重试通常就好)
+#
+# ## 两个包的**严重程度不同**(2026-10-04)
+#
+# 站点的 `deploy.yml` 只取 **app-release.apk** 放进 `docs/public/media/gaia.apk`,
+# `Downloads.vue` 里也写明「只提供正式版」。**app-debug.apk 在站点上没有任何消费者**,
+# 它只是与 app 仓库 release 的**附件对等**。
+#
+# 而 debug 包 22MB、release 包 6.9MB —— 差的三倍多,于是大文件那条路
+# `HTTP 408: Upload body timed out due to inactivity` / `unexpected EOF`
+# 反复出现(实测连续 4 次失败,而 6.9MB 的一次就过)。
+#
+# 所以:**release 包失败 = 致命**(站点会停在旧版本);**debug 包失败 = 警告后继续**。
+# 让一个没人消费的 22MB 附带文件阻塞同步、连带 Pages 不重新部署,是不成比例的失败 ——
+# 但静默跳过同样坏(下次就没人知道它没了),所以打 `::warning::`。
 for f in app-release.apk app-debug.apk; do
+  # 没下到的就不去上传它(否则 gh 会报一个和真实原因无关的错)
+  [ -f "$WORK/$f" ] || continue
   ok=0
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5; do
     if gh release upload "$TAG" "$WORK/$f" -R "$SITE_REPO" --clobber >/dev/null 2>&1; then
       ok=1; break
     fi
     echo "  $f 第 $attempt 次上传失败,重试"
     sleep $((attempt * 5))
   done
-  if [ "$ok" != "1" ]; then
-    echo "::error::$f 连续 3 次上传失败,站点上这个包还是旧的" >&2
+  if [ "$ok" = "1" ]; then
+    echo "  ✓ $f"
+  elif [ "$f" = "app-release.apk" ]; then
+    echo "::error::app-release.apk 连续 5 次上传失败,站点会停在旧版本 —— 不许继续" >&2
     exit 1
+  else
+    echo "::warning::app-debug.apk 连续 5 次上传失败(22MB 大文件)。站点不消费它(deploy.yml 只取 app-release.apk),继续。"
+    echo "::warning::要对齐附件可事后补: gh release upload $TAG <apk> -R $SITE_REPO --clobber"
   fi
-  echo "  ✓ $f"
 done
 
 # **验一次匿名可下**。这一步不是走过场:2026-10-02 之前站点一直指向 v0.4.1,

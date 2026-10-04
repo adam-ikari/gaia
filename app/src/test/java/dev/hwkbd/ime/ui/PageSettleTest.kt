@@ -21,6 +21,11 @@ class PageSettleTest {
 
     private val full = 1440f // Titan 2 屏宽:候选行宽度就是屏宽
 
+    companion object {
+        /** 一次翻页的完整行程 = 屏宽。用它把「过冲比例」换算成「过冲多少像素」。 */
+        const val FULL_PAGE = 1440f
+    }
+
     // ------------------------------------------------------------ 落点
 
     @Test
@@ -109,6 +114,49 @@ class PageSettleTest {
         val rollback = overshootOf(SpringSpec.PAGE_ROLLBACK.dampingRatio)
         assertTrue("提交(ζ=${SpringSpec.PAGE_COMMIT.dampingRatio})应当有过冲,实际 $commit", commit > 0f)
         assertEquals("收回(ζ=${SpringSpec.PAGE_ROLLBACK.dampingRatio})必须零过冲", 0f, rollback, 0f)
+    }
+
+    /**
+     * 提交弹簧的**过冲必须小到看不见**(2026-10-04 用户「降低翻頁動畫彈性」)。
+     *
+     * 钉的是**过冲的绝对像素**,不是阻尼比本身 —— 因为过冲比与行程无关,
+     * 真正决定「弹不弹」的是 `比例 × 行程`。1440px 是 Titan 2 的屏宽,
+     * 也是一次翻页的完整行程。
+     *
+     * 原来 ζ=0.72 时这个值是 **55px**(3.84%),肉眼是明显的回弹;
+     * 而它在落点 bug 修好之前是无害的 —— 那时行程只有一百多 px,过冲只有 3.8px。
+     * ⇒ 「弹性变强」不是有人调了参数,是**行程变长把一个隐性比例放大了**。
+     *
+     * 上界取 4px:约 3px 是「看得见一点但不晃」的分界,留一点余量。
+     */
+    @Test
+    fun `提交的过冲在小到看不见的量级`() {
+        val z = SpringSpec.PAGE_COMMIT.dampingRatio
+        val overshoot = if (z >= 1f) 0f
+            else kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
+        val px = overshoot * FULL_PAGE
+        assertTrue(
+            "1440px 行程上的过冲是 ${px}px(ζ=$z),超过 4px 就看得见了",
+            px < 4f,
+        )
+    }
+
+    /**
+     * 横滑与上滑的死区**必须是两个不同的常量**(2026-10-04 用户选择拆开)。
+     *
+     * 这条不是「记一个数」,是防**合并回去**:2026-10-02 用户要求两者统一,
+     * 而 10-04 又要求「翻页更灵 + 上滑不动」—— 在共用一个常量时这两条是冲突的,
+     * 所以拆开。谁哪天觉得「统一更简洁」把它合回去,横滑就会跟着变慢/变钝。
+     *
+     * 另外守住方向:横滑必须**更小**(翻页要更灵),不是更大。
+     */
+    @Test
+    fun `横滑死区比上滑小且两者不相等`() {
+        assertTrue(
+            "横滑死区 ${DragGesture.DEAD_DP_SWIPE}dp 应小于上滑 ${DragGesture.DEAD_DP}dp",
+            DragGesture.DEAD_DP_SWIPE < DragGesture.DEAD_DP,
+        )
+        assertTrue("两个常量不许相等,否则等于没拆", DragGesture.DEAD_DP_SWIPE != DragGesture.DEAD_DP)
     }
 
     @Test

@@ -630,12 +630,15 @@ class L4PanelView @JvmOverloads constructor(
         (measuredWidth - paddingLeft - paddingRight) * swipeCommitFrac
 
     /**
-     * 横滑的**固定死区**(px):[DragGesture.DEAD_DP] 换算,**不随 [swipeCommitFrac] 变**。
+     * 横滑的**固定死区**(px):[DragGesture.DEAD_DP_SWIPE] 换算,**不随 [swipeCommitFrac] 变**。
+     *
+     * L5 是横滑,所以跟翻页走同一个常量([DragGesture.DEAD_DP_SWIPE]),
+     * 而不是上滑那个 [DragGesture.DEAD_DP]。
      *
      * 2026-10-02 用户「死区大小不随着触发阈值变化」「左右滑动和上下滑动的死区都是固定大小」。
      * 与候选行的 [CandidateBarView.pageDeadPx] 同一个常量,两处手感才对得上。
      */
-    private val swipeDeadPx: Float get() = DragGesture.DEAD_DP * resources.displayMetrics.density
+    private val swipeDeadPx: Float get() = DragGesture.DEAD_DP_SWIPE * resources.displayMetrics.density
 
     /**
      * 本次横滑的位移上限(px):一整页的宽度 —— 也就是"滑到底"要走全的距离。
