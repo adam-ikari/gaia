@@ -43,6 +43,46 @@ export const scenarios = [
   },
 
   {
+    // 反复打断翻页动画 —— 2026-10-04 用户报「小幅多次振盪」时加的复现场景。
+    //
+    // 为什么单独做一个场景:现有的 page-flip 是「划一次 → 抬手 → 断言」,
+    // 抓不到打断路径。而 `settle` 走 `animateToFinalPosition` **保留速度**,
+    // 手指在动画播着时再次按下就会带着速度进下一段 —— 这是「振铃」的头号嫌疑,
+    // 但它在现有场景里永远不会发生。
+    //
+    // 断言只看一件事:**穿過目標的次數**。判据来自振铃探测埋点:
+    //   0/1 次 ⇒ 正常(单调逼近 / 单次过冲)
+    //   ≥3 次 ⇒ 真在振荡,而 ζ<1 的欠阻尼解不可能这样 ⇒ 不是弹簧在振
+    name: 'page-interrupt',
+    desc: '翻页动画播着时再次按下(反复打断),看位移会不会来回振荡',
+    steps: [
+      async (c) => {
+        c.device.key(K.n, K.i)
+        await sleep(900)
+        c.device.shell('logcat -c')
+        // 划到刚过线就松手(动画开始播),立刻再按下并往回拖 —— 打断提交动画。
+        c.device.swipe(1100, 1100, 500, 1100, 120)
+        c.device.swipe(500, 1100, 1100, 1100, 120)
+        c.device.swipe(1100, 1100, 500, 1100, 120)
+        await sleep(1500)
+        const log = c.device.takeLog('ring:|settle:|end:|commit:')
+        // 每次 settle 打印一行,数它就知道有几段动画;每段各自报自己的振铃次数。
+        const rings = log.split('\n').filter((l) => l.includes('ring: 第'))
+        const worst = rings.reduce((m, l) => {
+          const n = Number(/第 (\d+) 次/.exec(l)?.[1] ?? 0)
+          return Math.max(m, n)
+        }, 0)
+        c.expect(
+          rings.length === 0 || worst <= 1,
+          `每段动画最多穿过目标 1 次,实测最多次数=${worst}(共 ${rings.length} 次记录)`,
+        )
+        c.device.key(K.del, K.del)
+        await sleep(300)
+      },
+    ],
+  },
+
+  {
     name: 'five-key-slots',
     desc: '五键选字:Shift/Alt/Ctrl 各选左右候选(相对断言,词随词频漂移)',
     steps: [

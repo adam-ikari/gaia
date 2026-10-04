@@ -456,6 +456,14 @@ class CandidateBarView @JvmOverloads constructor(
         if (!pageCommitted &&
             DragGesture.progress(travel, pageCommitPx(), pageDragDeadPx()) >= 1f
         ) {
+            // 埋点:提交是**当帧**发生的,而 `pageCommitted` 要等 render 回调
+            // ([onPageIndexChanged]) 才置位。这中间如果手指在阈值附近抖动,
+            // 就会重复触发 —— 那是「小幅多次振盪」的另一个候选机制。
+            android.util.Log.i(
+                TAG,
+                "commit: 过线当帧翻 travel=${travel.toInt()} thr=${pageCommitPx().toInt()} " +
+                    "dir=$pageDir slide=${pageSlide.toInt()}"
+            )
             onPage?.invoke(if (pageDir > 0f) 1 else -1)
             haptics?.confirm()
         }
@@ -540,6 +548,12 @@ class CandidateBarView @JvmOverloads constructor(
 
     /** 本次拖动是不是键盘表面驱动进来的(见 [pageDragBegin])。决定 [pageCommitPx] 走哪条量纲。 */
     private var externalDrive = false
+
+    // ---- 振铃探测的状态(埋点,见 pageSpring 的 onFrame)---------------------
+    /** 上一次采样时 `value` 在目标的哪一侧:-1 / 0 / +1。 */
+    private var pageRingSide = 0
+    /** 这一段动画里已经穿过目标几次。 */
+    private var pageRingCount = 0
 
     /**
      * 本次翻页拖动的提交线(px,**从基线量起**)。
@@ -637,6 +651,12 @@ class CandidateBarView @JvmOverloads constructor(
                 haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义
             }
             pageCommitted = true
+            android.util.Log.i(
+                TAG,
+                "end: 提交 byFinger=$byFinger byFling=$byFling v=${v.toInt()} " +
+                    "slide=${pageSlide.toInt()} thr=${threshold.toInt()} " +
+                    "page=$page/$totalPages"
+            )
             // **落到 `full`,不是落到 `landing`**(2026-10-04 修)。
             //
             // 原来这里落的是 `Landing.project(pageSlide, full, v)` —— 那个函数答的是
@@ -657,6 +677,12 @@ class CandidateBarView @JvmOverloads constructor(
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
             pageCommitted = false
+            android.util.Log.i(
+                TAG,
+                "end: 收回 byFinger=$byFinger byFling=$byFling v=${v.toInt()} " +
+                    "slide=${pageSlide.toInt()} thr=${threshold.toInt()} " +
+                    "page=$page/$totalPages"
+            )
             // 同理:收回的落点是 **0**(回原页),不是 `pageSlide - 惯性`。
             val (t, sp) = pageSettleFor(committed = false, full = full)
             settlePage(t, sp)
@@ -711,7 +737,15 @@ class CandidateBarView @JvmOverloads constructor(
             return
         }
         pageSettleTarget = target
+        // 每一段动画重新数振铃(埋点,见 onFrame 里的说明)
+        pageRingSide = 0
+        pageRingCount = 0
         pageSpring.settle(from, target, spec)
+        android.util.Log.i(
+            TAG,
+            "settle: from=${from.toInt()} target=${target.toInt()} ζ=${spec.dampingRatio} " +
+                "entryV=${pageSpring.currentVelocity.toInt()} thr=${pageCommitPx().toInt()}"
+        )
     }
 
     /**
@@ -731,6 +765,28 @@ class CandidateBarView @JvmOverloads constructor(
         from = 0f,
         spec = SpringSpec.DEFAULT,
         onFrame = { value, _ ->
+            // ---- 振铃探测(2026-10-04 埋点,用户报「小幅多次振盪」)------------
+            //
+            // **过冲每穿过目标一次,`(value - target)` 的符号就翻一次。**
+            // 数符号翻转次数 = 振铃次数,而且**一次振铃必然一次翻转** ——
+            // 这让它成为无歧义的判据:
+            //   0 次 ⇒ 从没穿过目标(单调逼近)
+            //   1 次 ⇒ 单次过冲(ζ<1 的正常表现)
+            //   ≥3 次 ⇒ 真在振荡。而 ζ=0.72/0.95 的欠阻尼解**不可能**这样
+            //          ⇒ 说明不是弹簧本身在振,是别的东西在动
+            //
+            // 只在翻转时打一行,所以日志量与振铃次数成正比(而不是每帧)。
+            val side = if (value < pageSettleTarget) -1 else if (value > pageSettleTarget) 1 else 0
+            if (side != 0 && pageRingSide != 0 && side != pageRingSide) {
+                pageRingCount++
+                android.util.Log.i(
+                    TAG,
+                    "ring: 第 $pageRingCount 次穿过目标 value=$value target=$pageSettleTarget " +
+                        "ζ=${pageSpring.dampingRatio} v=${pageSpring.currentVelocity.toInt()}"
+                )
+            }
+            if (side != 0) pageRingSide = side
+            // --------------------------------------------------------------
             pageSlide = value
             invalidate()
         },
