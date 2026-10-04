@@ -208,8 +208,8 @@ class PageSettleTest {
             SpringSpec.PAGE_ROLLBACK.dampingRatio, rollbackSpec.dampingRatio, 0f,
         )
         assertTrue(
-            "提交是确认动作 ⇒ 欠阻尼(ζ<1)才有到位感,实际 ${commitSpec.dampingRatio}",
-            commitSpec.dampingRatio < 1f,
+            "提交必须**临界阻尼**:单调逼近、永不穿越目标(用户 2026-10-04「不要过衝 也不要回彈」),实际 ${commitSpec.dampingRatio}",
+            commitSpec.dampingRatio == 1f,
         )
         assertTrue(
             "收回是放弃 ⇒ 过阻尼(ζ>1)才不来回晃,实际 ${rollbackSpec.dampingRatio}",
@@ -229,10 +229,12 @@ class PageSettleTest {
      * 拿它去算 ζ=1.9 会直接 domain error(第一版就是这么写的,单测红了一次)。
      * 过阻尼根本没有过冲:解是纯指数衰减,峰值就是 1。
      *
-     * 所以判据写成:**欠阻尼 ⇒ 过冲 > 0;过阻尼 ⇒ 过冲 == 0**。
+     * 所以判据写成:**欠阻尼 ⇒ 过冲 > 0;ζ ≥ 1 ⇒ 过冲 == 0**。
+     *
+     * 2026-10-04 起提交也改成 ζ=1.0(用户「不要过衝 也不要回彈」),所以**两支都是 0**。
      */
     @Test
-    fun `收回零过冲 提交有过冲`() {
+    fun `两支都零过冲`() {
         fun overshootOf(z: Float): Float =
             if (z >= 1f) 0f
             else kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
@@ -241,7 +243,10 @@ class PageSettleTest {
         // —— Kotlin 里方法之间的局部变量不可见(第一版这么写编译不过)。
         val commit = overshootOf(pageSettleFor(true, FULL_PAGE).second.dampingRatio)
         val rollback = overshootOf(pageSettleFor(false, FULL_PAGE).second.dampingRatio)
-        assertTrue("提交(ζ=${SpringSpec.PAGE_COMMIT.dampingRatio})应当有过冲,实际 $commit", commit > 0f)
+        assertEquals(
+            "提交也是零过冲(ζ=${SpringSpec.PAGE_COMMIT.dampingRatio} 临界阻尼,单调逼近),实际 $commit",
+            0f, commit, 0f,
+        )
         assertEquals("收回(ζ=${SpringSpec.PAGE_ROLLBACK.dampingRatio})必须零过冲", 0f, rollback, 0f)
     }
 
@@ -264,15 +269,15 @@ class PageSettleTest {
      * 0.5px 钉的是「亚像素、等于没有」,ζ=0.93(0.51px)就会红。
      */
     @Test
-    fun `提交的过冲在亚像素量级`() {
+    fun `提交的过冲严格为零`() {
+        // ζ=1.0 的解是纯指数衰减,**永不超过 1**(峰值就是 1),所以过冲恒为 0。
+        // 这条现在不是「小于 0.5px」而是**严格等于 0** —— 用户要的是「不要过衝」,
+        // 不是「过衝小到看不见」。
         val z = SpringSpec.PAGE_COMMIT.dampingRatio
+        assertEquals("提交必须是 ζ=1.0", 1f, z, 0f)
         val overshoot = if (z >= 1f) 0f
             else kotlin.math.exp(-Math.PI.toFloat() * z / kotlin.math.sqrt(1f - z * z))
-        val px = overshoot * FULL_PAGE
-        assertTrue(
-            "1440px 行程上的过冲是 ${px}px(ζ=$z),要压到亚像素(0.5px 以下)",
-            px < 0.5f,
-        )
+        assertEquals("提交在 1440px 行程上的过冲必须是 0,实际 ${overshoot * FULL_PAGE}px", 0f, overshoot * FULL_PAGE, 0f)
     }
 
     /**
@@ -286,10 +291,24 @@ class PageSettleTest {
      * 参数会进入**无法用肉眼验证**的区域 —— 后人看不懂就会随手改回去。
      */
     @Test
-    fun `提交不到临界阻尼 也不推到无法验证的区间`() {
-        val z = SpringSpec.PAGE_COMMIT.dampingRatio
-        assertTrue("ζ=$z 不该等于 1.0:临界阻尼是所有不过冲曲线里最慢的一条", z != 1f)
-        assertTrue("ζ=$z 已进亚像素以下,再调就没人能验证了(本项目定在 0.95)", z <= 0.95f)
+    fun `提交就是临界阻尼 不多不少`() {
+        // 2026-10-04 用户「非線性動畫、到位不要过衝也不要回彈」——
+        // 满足这两条的曲线**只有临界阻尼**:仍是缓出的非线性曲线,但单调逼近。
+        // 调成 <1 会过冲,调成 >1 会爬行,都不是「到位就定」。
+        assertEquals(1f, SpringSpec.PAGE_COMMIT.dampingRatio, 0f)
+    }
+
+    /**
+     * 收回**不能**也用临界阻尼 —— 它是「放弃」,要比提交更干脆。
+     *
+     * 两支现在只差阻尼比:提交 1.0(单调到齐)、收回 1.9(过阻尼,到得更快)。
+     */
+    @Test
+    fun `收回用过阻尼且比提交更干脆`() {
+        assertTrue(
+            "收回应是过阻尼(放弃要干脆),实际 ${SpringSpec.PAGE_ROLLBACK.dampingRatio}",
+            SpringSpec.PAGE_ROLLBACK.dampingRatio > 1f,
+        )
     }
 
     /**
@@ -314,7 +333,6 @@ class PageSettleTest {
     fun `两支都不能是临界阻尼`() {
         // ζ=1 是所有不过冲曲线里**最慢**的一条 —— 这正是「弹性太强」的根因(见 brain
         // 的 spring-damping-direction)。翻页提交要的是冲量,收回要的是"赶紧回去"。
-        assertTrue(SpringSpec.PAGE_COMMIT.dampingRatio != 1f)
         assertTrue(SpringSpec.PAGE_ROLLBACK.dampingRatio != 1f)
     }
 }
