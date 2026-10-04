@@ -19,8 +19,12 @@ android {
         // 真机上拼音引擎整个不可用(见 docs/rime.md 与 app/proguard-rules.pro 第 2 节)。
         // E2E 跑 debug 包(不过 R8),所以这个问题在 CI 上结构性看不到 ——
         // 0.7.2 起 release.yml 在发布之前跑 tools/release/check-jni-symbols.py。
-        versionCode = 21
-        versionName = "0.7.2"
+        // 0.7.3 = 修翻页:松手时落点用错了函数(`Landing.project` 是**惯性投影**,
+        // 不是「走完」),于是 1440px 的整页行程从来没走完,画面是跳过去的。
+        // 用户报「松手时翻不过去」「翻过去/收回的动画不对」「之前翻頁困難」。
+        // 顺带:提交与收回分成两支弹簧(欠阻尼 / 过阻尼)。
+        versionCode = 22
+        versionName = "0.7.3"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
