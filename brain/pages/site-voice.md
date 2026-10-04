@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [naming, voice, content]
 created: "2026-09-30T12:15:33"
-updated: "2026-09-30T12:16:16"
+updated: "2026-10-04T07:14:30"
 ---
 
 <!-- compiled_truth -->
@@ -41,3 +41,9 @@ updated: "2026-09-30T12:16:16"
   summary: "对外一律写「盖亚输入法」;不说 Gaia、不说闭源、不说包名、不说反馈渠道、不提模仿对象"
   source: "2026-09-30 用户逐条纠正"
   affects: [site-voice]
+
+- time: 2026-10-04T07:14:30
+  kind: note
+  summary: "第三方署名要跟着换内核一起改:引擎换了、组件删了,页脚与设置页的署名不会自动跟着变,必须手动核"
+  source: "2026-10-04 同上"
+  affects: [site-voice, site-copy]

@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [copy, voice, titan2]
 created: "2026-09-30T12:56:04"
-updated: "2026-10-01T13:00:10"
+updated: "2026-10-04T07:14:30"
 ---
 
 <!-- compiled_truth -->
@@ -80,3 +80,9 @@ updated: "2026-10-01T13:00:10"
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
   affects: [site-copy]
+
+- time: 2026-10-04T07:14:30
+  kind: decision
+  summary: "首页加两屏(物理动画 / Rime);页脚与设置页署名从 jieba/pinyin-pro 改成 Rime —— 那两个换内核时已删除,留着是错的署名"
+  source: "2026-10-04 用户要求说明使用 rime 与基于物理的动画"
+  affects: [site-copy, site-voice]
