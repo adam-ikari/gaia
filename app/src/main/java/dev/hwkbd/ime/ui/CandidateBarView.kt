@@ -574,12 +574,12 @@ class CandidateBarView @JvmOverloads constructor(
      * 自己的翻页也改成键盘面的阈值(轻轻一划就翻页)。所以用 [externalDrive] 这个
      * 每次起手重新标的状态来判。
      */
-    private fun pageCommitPx(): Float =
-        if (externalDrive && externalCommitPx > 0f) {
-            externalCommitFromBase(externalCommitPx)
-        } else {
-            width * pageCommitFrac
-        }
+    private fun pageCommitPx(): Float = pageCommitLine(
+        externalDrive = externalDrive,
+        externalPx = externalCommitPx,
+        commitFrac = pageCommitFrac,
+        viewW = width.toFloat(),
+    )
 
     /**
      * 本次拖动的**死区**(px):键盘表面驱动时是 **0**。
@@ -611,7 +611,19 @@ class CandidateBarView @JvmOverloads constructor(
 
     /** 键盘表面横滑翻页:**收尾**。跟手拖动走翻页判定,橡皮筋走弹回。 */
     fun pageDragEnd(x: Float) {
-        externalDrive = false
+        // **`externalDrive` 必须在分发之后才清**(2026-10-04 修,真机报「小幅多次振盪」)。
+        //
+        // 原来它在前面就被清成 false,而 [endPageDrag] 里面才调 [pageCommitPx] ——
+        // 于是**松手时的提交线用错了量纲**:键盘表面驱动时读成
+        // `行宽 × pageCommitFrac`(Titan 2 上 302px),而不是档位的「死区外提交距离」(8px)。
+        //
+        // 症状(埋点实测,commit 时 thr=8 而 end/settle 时 thr=302):
+        //   1. 手指划过 8px 就**当帧提交**翻页(拖动中的判定是对的);
+        //   2. 划到 30~300px 松手,松手时用 302px 判 → `byFinger` 为**假** → **撤销提交**;
+        //   3. 于是「翻过去又翻回来」,画面来回抽动 —— 这就是那个振铃。
+        // 而且 `byFling` 要求惯性落点 ≥ 302px,快甩的落点只有几十 px ⇒ **甩也甩不动**。
+        //
+        // 这与 [externalCommitPx] 注释里记的那条是同一类错:**发起方必须在读提交线的时刻还在位**。
         when {
             rubberDrag.active -> {
                 setRubber(x)
@@ -619,13 +631,16 @@ class CandidateBarView @JvmOverloads constructor(
             }
             pageDragging -> endPageDrag(x)
         }
+        externalDrive = false
     }
 
     /** 键盘表面横滑翻页:**被打断**(事件取消)——当作松手,别把候选行卡在拖动态。 */
     fun pageDragCancel() {
-        externalDrive = false
+        // 同 [pageDragEnd]:分发之后再清标志([reversePageTurn] 走的是收回,
+        // 但保持一致,免得下次有人加一条读提交线的分支又踩到)
         if (rubberDrag.active) cancelRubber()
         if (pageDragging) reversePageTurn()
+        externalDrive = false
     }
 
     /**
@@ -1571,4 +1586,30 @@ internal fun pageDragTravel(x: Float, baseX: Float, dir: Float): Float =
  * @return 夹过下界的提交距离(px)
  */
 internal fun externalCommitFromBase(px: Float): Float = px.coerceAtLeast(1f)
+
+/**
+ * 本次翻页拖动的提交线(px,从基线量起)—— [CandidateBarView.pageCommitPx] 的纯函数版。
+ *
+ * ## 两条量纲,取决于**发起方**
+ *
+ * - 键盘表面划([externalPx] > 0):档位本身**就是死区之外的提交距离**,
+ *   基线定在「死区被跨过的那一帧」,死区已走完 ⇒ 直接用,只夹下界。
+ * - 候选行自己划:行宽 × [commitFrac]。
+ *
+ * ## 为什么必须是纯函数、而且要有单测(2026-10-04)
+ *
+ * 这个判断的输入里有一个**状态**(`externalDrive`),而它会被 [CandidateBarView.pageDragEnd]
+ * 清掉。曾经因为「先清标志再分发」,导致**松手时读到了另一条量纲**:
+ * 拖动中 thr=8(对),松手时 thr=302(错,行宽 × 0.22)。
+ * 后果是「划过去又翻回来」的振铃 + 快甩失效。
+ *
+ * 抽成纯函数 + 单测钉住两种发起方各自的量纲,是为了让**这类错无法再溜过去**:
+ * 状态时序错了,纯函数不会错。
+ */
+internal fun pageCommitLine(
+    externalDrive: Boolean,
+    externalPx: Float,
+    commitFrac: Float,
+    viewW: Float,
+): Float = if (externalDrive && externalPx > 0f) externalCommitFromBase(externalPx) else viewW * commitFrac
 

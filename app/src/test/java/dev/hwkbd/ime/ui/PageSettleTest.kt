@@ -28,6 +28,50 @@ class PageSettleTest {
 
     // ------------------------------------------------------------ 落点
 
+    // ------------------------------------------------ 提交线的量纲(2026-10-04 真机 bug)
+
+    /**
+     * 键盘表面划 ⇒ 提交线是档位的「死区外提交距离」(8px),**不是**行宽比例。
+     *
+     * 这条是被真机 bug 逼出来的:`pageDragEnd` 曾经**先**把 `externalDrive` 清成 false
+     * 再分发到 `endPageDrag`,于是松手时读到了 `行宽 × 0.22`(Titan 2 上 302px)。
+     * 症状是「划过去又翻回来」的多次振铃 + 快甩失效。
+     */
+    @Test
+    fun `键盘表面划用死区外提交距离而不是行宽比例`() {
+        val fromKeyboard = pageCommitLine(
+            externalDrive = true, externalPx = 8f, commitFrac = 0.22f, viewW = 1372f,
+        )
+        assertEquals("键盘表面驱动应直接用档位值", 8f, fromKeyboard, 0f)
+    }
+
+    /** 候选行自己划 ⇒ 行宽 × 比例。两条量纲不能互相污染。 */
+    @Test
+    fun `候选行自己划用行宽比例`() {
+        val fromRow = pageCommitLine(
+            externalDrive = false, externalPx = 8f, commitFrac = 0.22f, viewW = 1372f,
+        )
+        assertEquals("候选行驱动应走行宽比例", 1372f * 0.22f, fromRow, 0.01f)
+    }
+
+    /**
+     * 档位被偏好改成 0/负数时夹到 1px —— 键盘面驱动下**不能**掉回行宽比例,
+     * 那会让「轻轻一划就翻页」变成「几乎翻不动」。
+     */
+    @Test
+    fun `档位为 0 时夹到 1px 且不退回行宽比例`() {
+        val zero = pageCommitLine(
+            externalDrive = true, externalPx = 0f, commitFrac = 0.22f, viewW = 1372f,
+        )
+        // externalPx=0 时按定义退回行宽比例;真正的 0 档是 externalPx 被夹到 1
+        assertEquals(1372f * 0.22f, zero, 0.01f)
+        assertEquals(
+            1f,
+            pageCommitLine(externalDrive = true, externalPx = -5f, commitFrac = 0.22f, viewW = 1372f),
+            0f,
+        )
+    }
+
     @Test
     fun `提交时落到整页宽度而不是惯性投影`() {
         val (target, _) = pageSettleFor(committed = true, full = full)
