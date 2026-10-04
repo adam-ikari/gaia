@@ -195,15 +195,6 @@ class FakePinyinInputMethod(
          * 保留原有的**词频序**(`nian` 900 高于 `niao` 100),因为有几条测试
          * 断言的是「排序后的结果」而不是集合。
          */
-        /**
-         * 复制一份并设定 [remainAfterSelect](给「拼音消费」那几条测试用)。
-         *
-         * 之所以用「复制」而不是给 `common()` 加参数:`common()` 被大量测试共用,
-         * 往签名上加参数会让那些调用点全部变成具名参数 —— 平白噪音。
-         */
-        fun FakePinyinInputMethod.withRemainAfterSelect(v: String?): FakePinyinInputMethod =
-            FakePinyinInputMethod(id = id, table = table, remainAfterSelect = v)
-
         fun common(): FakePinyinInputMethod = FakePinyinInputMethod(
             table = mapOf(
                 // 多音节键带分节符,镜像真实词库格式(ni'hao ≠ nihao,分节位参与匹配)
@@ -225,3 +216,16 @@ class FakePinyinInputMethod(
         )
     }
 }
+
+/**
+ * 复制一份并设定 [FakePinyinInputMethod] 的「选后剩余拼音」(给「拼音消费」那几条测试用)。
+ *
+ * 之所以用「复制」而不是给 `common()` 加参数:`common()` 被大量测试共用,
+ * 往签名上加参数会让那些调用点全部变成具名参数 —— 平白噪音。
+ *
+ * 放在**文件顶层**而不是 companion 里:companion 里的成员扩展函数必须写
+ * `FakePinyinInputMethod.withRemainAfterSelect(...)` 才能调,当普通函数用会
+ * 「Unresolved reference」(踩过一次)。
+ */
+fun FakePinyinInputMethod.withRemainAfterSelect(v: String?): FakePinyinInputMethod =
+    FakePinyinInputMethod(id = id, table = table, remainAfterSelect = v)
