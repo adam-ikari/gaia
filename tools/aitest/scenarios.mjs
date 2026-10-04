@@ -6,10 +6,40 @@
  */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const K = { n: 42, i: 37, space: 62, shift: 59, alt: 58, ctrl: 113, del: 67 }
+// Android KEYCODE_*:字母是 29..54 的连续段(A=29),i=37/n=42 可反推校验。
+const K = {
+  a: 29, b: 30, c: 31, d: 32, e: 33, f: 34, g: 35, h: 36, i: 37, j: 38,
+  k: 39, l: 40, m: 41, n: 42, o: 43, p: 44, q: 45, r: 46, s: 47, t: 48,
+  u: 49, v: 50, w: 51, x: 52, y: 53, z: 54,
+  space: 62, shift: 59, alt: 58, ctrl: 113, del: 67,
+}
 const last = (s) => (s ? s[s.length - 1] : '')
 
 export const scenarios = [
+  {
+    // 2026-10-04 用户「自從換過輸入法一直是繁體中文,必須輸入簡體中文」。
+    //
+    // 用 `zhongguo` 是因为它的简繁**字形不同**:中国 / 中國。
+    // 挑一个简繁一样的词(比如 nihao → 你好)断言等于没断言。
+    //
+    // 这条同时守住三件事:
+    //   ① schema 里 `reset: 1` 让 zh_simp 默认开(缺了它滤镜全 off);
+    //   ② assets 里的 opencc/t2s.json + 两张 .txt 表能被找到(缺了滤镜创建失败);
+    //   ③ `install()` 真的把新 schema 覆盖到设备上(缺了跑的还是旧的那份)。
+    name: 'simplified',
+    desc: '输出简体(不是繁体)',
+    steps: [
+      async (c) => {
+        c.device.key(K.z, K.h, K.o, K.n, K.g, K.u, K.o)
+        await sleep(1200)
+        c.device.key(K.space)
+        await sleep(900)
+        const t = c.device.editText()
+        c.expect(last(t) === '中国', `应上屏简体「中国」,实际 editText="${t}"(繁体会是「中國」)`)
+      },
+    ],
+  },
+
   {
     name: 'compose-space',
     desc: '拼音组词 + 空格上屏首选',

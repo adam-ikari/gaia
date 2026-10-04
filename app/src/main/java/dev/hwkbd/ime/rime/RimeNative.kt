@@ -159,10 +159,22 @@ object RimeData {
     const val ASSET_DIR = "rime"
 
     /**
-     * 释放 assets 到 shared 目录。**幂等**:已存在且大小一致就跳过。
+     * 释放 assets 到 shared 目录。**幂等**:已释放且内容一致就跳过。
      *
      * 幂等很重要:每次启动都重写会让 librime 认为数据变了从而**重新部署**,
      * 那要好几秒,等于每次开输入法都卡一下。
+     *
+     * ## 之前只判「存在且非空」—— 那是会静默吞掉改动的(2026-10-04 修)
+     *
+     * 旧代码是 `if (out.exists() && out.length() > 0) continue`,注释写的是
+     * 「大小一致就跳过」,但**代码从没比对过大小**,只要文件在就永远不覆盖。
+     *
+     * 后果:改了 `assets/rime/*.yaml` 打成新 APK,老用户设备上那份**永远不更新**。
+     * 2026-10-04 加简体输出时就撞上这个 —— schema 改了 `reset: 1`,
+     * 但真机跑的仍是三个月前释放的那份,所以「改了没生效」,
+     * 而本地看代码一切正常。
+     *
+     * 现在:**小文件逐字节比对**(见 [VERIFY_LIMIT]),大文件才退回长度判断。
      */
     fun install(context: Context, sharedDir: File) {
         if (!sharedDir.exists()) sharedDir.mkdirs()
@@ -177,7 +189,7 @@ object RimeData {
             }
             for (path in files) {
                 val out = File(sharedDir, path.substringAfter("$ASSET_DIR/", ""))
-                if (out.exists() && out.length() > 0) continue
+                if (!needsInstall(context, path, out)) continue
                 out.parentFile?.mkdirs()
                 // 直接按字节复制:词典是几 MB 的 YAML,过 String 会白占一份堆内存。
                 // 也不能包 OutputStreamWriter —— `copyTo` 要的是 OutputStream,包了就编译不过。
@@ -189,6 +201,40 @@ object RimeData {
             // 词典装不上不该让输入法起不来:上层会回退到自研引擎。
             Log.w(TAG, "释放词典失败: ${t.message}")
         }
+    }
+
+    /**
+     * 逐字节比对的上限(bytes)。**小于等于**它的文件走全量比对。
+     *
+     * ## 为什么设上限
+     *
+     * 比对要先读一遍 asset,而 `essay.txt` 3.8MB、`luna_pinyin.dict.yaml` 890KB ——
+     * 每次启动都读完这两个只为比对,不值得。
+     *
+     * ## 为什么这个上限不构成隐患
+     *
+     * 会被人手改的是**配置**(`*.schema.yaml` / `default.yaml` / `opencc/*.json` /
+     * `opencc/*.txt`),它们最大 34KB,全在限内 ⇒ 逐字节比对。
+     * 超限的两个是**纯数据**,改它们本来就要跟词典版本一起重编,
+     * 而且改内容通常也改长度,长度判断照样能抓到;
+     * 万一内容变了而长度没变,重装一次 APK 即可(删 shared 目录)。
+     */
+    private const val VERIFY_LIMIT = 256L * 1024
+
+    /** 该文件是否需要(重新)释放。判据见 [install] 与 [VERIFY_LIMIT]。 */
+    private fun needsInstall(context: Context, assetPath: String, out: File): Boolean {
+        if (!out.exists() || out.length() == 0L) return true
+        if (out.length() > VERIFY_LIMIT) return false // 超限:只看存在(见 VERIFY_LIMIT)
+        // 限内:逐字节比。asset 侧不依赖 `available()` —— APK 里的 asset 可能是
+        // 压缩的,那个方法的返回值不可靠,直接读满更稳。
+        val same = try {
+            context.assets.open(assetPath).use { input ->
+                input.readBytes().contentEquals(out.readBytes())
+            }
+        } catch (t: Throwable) {
+            false // 读不了就当要重装,宁可多拷一次
+        }
+        return !same
     }
 
     /** 递归列出 assets 下的文件路径。不引入 asset 遍历库,自己走一遍足够。 */

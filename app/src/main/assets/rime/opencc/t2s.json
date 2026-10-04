@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "繁→简转换表配置(本项目自带)。",
+    "",
+    "为什么不用 librime 自带的 opencc/data/config/t2s.json:那份配置引用的是",
+    "**已编译**的 TSPhrases.ocd2 / TSCharacters.ocd2,而 .ocd2 要用 opencc 的",
+    "DictConverter 工具编出来,那要多加一道构建步骤。",
+    "OpenCC 的 text 类型能直接读 .txt 源表并在内存里转成 Marisa,所以这里用",
+    "\"type\": \"text\" + 同名 .txt,省掉编译那一步。",
+    "转换结果与 .ocd2 版本一致 —— 同一份源表,只是加载路径不同。",
+    "",
+    "文件名必须与本目录下的 .txt 对应;OpenCC 会在**本文件所在目录**里找它们",
+    "(见 opencc/src/Config.cpp 的 LoadDictWithPaths:paths 含 config 的父目录)。"
+  ],
+  "name": "Traditional Chinese to Simplified Chinese",
+  "segmentation": {
+    "type": "mmseg",
+    "dict": {
+      "type": "text",
+      "file": "TSPhrases.txt"
+    }
+  },
+  "conversion_chain": [
+    {
+      "dict": {
+        "type": "group",
+        "dicts": [
+          {
+            "type": "text",
+            "file": "TSPhrases.txt"
+          },
+          {
+            "type": "text",
+            "file": "TSCharacters.txt"
+          }
+        ]
+      }
+    }
+  ]
+}

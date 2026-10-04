@@ -7,7 +7,8 @@
 #
 # 这个 schema 本身来自 librime 的 data/minimal/,改动**不要在上游更新时直接覆盖**:
 # 上游若改了拼音部分,合并这一段即可;若上游不再需要 cangjie,反过来删掉这段注释。
-# 另:schema_id 是 `luna_pinyin`(不是 `_simp`),它本身即输出简体,符合只做简体。
+# 另:schema_id 是 `luna_pinyin`(不是 `_simp`)。**它默认输出繁体** —— 下面
+# `switches` 那段加了 `reset: 1` 才变成简体,原因写在那段注释里。
 #
 # `menu.page_size` 见文件末尾那一段 —— 它是**翻页能不能用的关键**,不是调优项,
 # 上游更新时别顺手删掉。原因见那段注释。
@@ -40,13 +41,30 @@ switches:
 #  - name: simplification
 #    states: [ 傳統漢字, 简化字 ]
 #    abbrev: [ 繁, 简 ]
-  - options: [ zh_trad, zh_simp, zh_hk, zh_tw ]
+  # ── 默认简体(2026-10-04 用户「自從換過輸入法一直是繁體中文,必須輸入簡體中文」)──
+  #
+  # `reset: 1` 是**必需**的,不是可选:上游这一段**没有** reset,
+  # 而 librime 的 `InitializeOptions`(src/rime/engine.cc)只在
+  # `option.reset_value >= 0` 时才 set_option。缺 reset ⇒ 值是 -1 ⇒
+  # **上游那四个开关全保持 false** ⇒ `simplifier@zh_simp` 因 `get_option("zh_simp")`
+  # 为假而直接原样放行(simplifier.cc:225)⇒ 输出词典原样 = 繁体。
+  #
+  # 词典本身就是繁体:实测 `luna_pinyin.dict.yaml` 含 1563 个繁体字、
+  # 只有 48 个简体字,所以「不过滤」等于「输出繁体」。
+  #
+  # 只调 options 的顺序**没用** —— 没有 reset 时顺序根本不参与决定。
+  #
+  # 删掉 zh_hk / zh_tw:它们要 TWPhrases / TWVariants 等表,
+  # 本项目没打进 assets,留着只会在每次启动时刷一条
+  # `Error initializing opencc`。本应用也没有切换开关的入口
+  # (RimeNative 没有任何 switch 相关的 native 方法),
+  # 所以这两个状态实际上不可达。
+  - options: [ zh_trad, zh_simp ]
+    reset: 1
     states:
       - 傳統漢字
-      - 简化字
-      - 香港字形
-      - 臺灣字形
-    abbrev: [ 繁, 简, 港, 臺 ]
+      - 简体字
+    abbrev: [ 繁, 简 ]
   - name: ascii_punct
     states: [ 中文標點, 西文標點 ]
     abbrev: [ '。', '．' ]
@@ -75,8 +93,10 @@ engine:
     - script_translator
     - script_translator@pinyin
   filters:
+    # 只有 zh_simp:zh_tw 要的 t2tw.json 没打进 assets(见上面开关组的说明)。
+    # 滤镜受自己的 option_name 门控(simplifier.cc:225),
+    # 所以 zh_trad 选中时这个滤镜自动不做任何转换 = 输出词典原样。
     - simplifier@zh_simp
-    - simplifier@zh_tw
     - uniquifier
 
 speller:
@@ -126,9 +146,6 @@ zh_simp:
   option_name: zh_simp
   tips: all
 
-zh_tw:
-  option_name: zh_tw
-  opencc_config: t2tw.json
 
 punctuator:
   import_preset: default
