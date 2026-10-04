@@ -75,6 +75,42 @@ Android 交叉编译比原生编译多三道坎,都在 `app/src/main/cpp/CMakeLi
 
 依赖只有 `libdl` / `libm` / `libc`,无 ICU 无 glog。
 
+### R8 会削掉 JNI 入口名 —— release 包的引擎在真机上整个不可用
+
+**2026-10-04 在已发布的 v0.7.1 上实测到。**
+
+`RimeNative` 的 14 个 `private external fun` 里,release 包只有 **7 个**保留了原名,
+另外 7 个被 R8 改名成了 `c` / `b` / `j`。
+
+**症状极具欺骗性**:`FindClass` 成功、`System.loadLibrary` 成功、
+`RimeNative.available` 是 true —— 看起来一切正常,直到第一次调
+`commit` / `highlighted` / `compositionLength` 才抛:
+
+```
+java.lang.UnsatisfiedLinkError: no native method
+  …nativeCommit in class dev.hwkbd.ime.rime.RimeNative
+```
+
+根因:R8 只看得到**显式引用**。JNI 的方法名是 native 侧按**字符串**解析的
+(`Java_<类>_<方法>`),Kotlin 那边没有任何编译期联系 ⇒ 改名对 R8 毫无代价。
+类名被 `-keepclasseswithmembernames` 保住了,**方法名没有**。
+
+**为什么 CI 上看不到**:`release.yml` 的 `publish-site` 之后的构建产物只在
+release 包里,而 **E2E 跑的是 debug 包(不过 R8)** ⇒ 这类问题在 E2E 上
+**结构性不可见**。debug 包 14/14 全在,正是这个对照让人一眼看出是 R8 干的。
+
+现在有三道防线:
+
+1. `app/proguard-rules.pro` 显式 `-keep class dev.hwkbd.ime.rime.RimeNative { *; }`
+   —— 不再赌 R8 对「私有 + 可内联」方法的处理路径。
+2. `tools/release/check-jni-symbols.py`:清单**从 `RimeNative.kt` 现场解析**
+   `external fun`,交叉核对 dex 方法名 / 类名 / `.so` 导出符号。
+   写死清单是没用的 —— 以后新增 native 方法忘了加 keep,闸门会一直是绿的。
+3. 上面那个脚本接在 `release.yml` 的 **上传与发布之前**,不过就不许发。
+
+`tools/release/check-jni-symbols.py` 对着已发布的坏包跑会红、对着 debug 包跑会绿,
+这是它有效性的证据。
+
 ### 不需要 boost(2026-10-03 核实)
 
 那份 fork 把 boost 依赖清干净了,所以**本机不用装 boost,CI 也不用装**:

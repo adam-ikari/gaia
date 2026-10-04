@@ -69,14 +69,21 @@ bool context_of(const RimeApi* a, RimeSessionId sid, RimeContext* ctx) {
 
 extern "C" {
 
-JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeVersion(JNIEnv* env, jclass) {
+// 每个入口的第二个参数写成 `jobject` 而不是 `jclass`,是**照实**而不是讲究:
+// Kotlin `object` 里的 `private external fun` 编出来是**实例方法**,而 JNI 对
+// 实例方法传的是 `jobject`(静态方法才传 `jclass`)。
+// 两种情况下它都只是「那个类的引用」,而下面这些函数**从不解引用它**
+// —— librime 的句柄全在第一个参数 `jlong session` 里。
+// 所以这个名字对行为没有任何影响,写对了是为了下一个读它的人不误判。
+
+JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeVersion(JNIEnv* env, jobject) {
   const RimeApi* a = api();
   if (!a || !a->get_version) return env->NewStringUTF("(no rime api)");
   const char* v = a->get_version();
   return env->NewStringUTF(v ? v : "(null)");
 }
 
-JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeApiProbe(JNIEnv* env, jclass) {
+JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeApiProbe(JNIEnv* env, jobject) {
   const RimeApi* a = api();
   if (!a) return env->NewStringUTF("api=NULL");
   int present = 0, total = 0;
@@ -102,7 +109,7 @@ JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeApiProbe(JNIE
  * @return 0 = 成功,非 0 = 失败(错误码见 nativeLastError)
  */
 JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeInit(
-    JNIEnv* env, jclass, jstring userDir, jstring sharedDir, jstring appDataDir,
+    JNIEnv* env, jobject, jstring userDir, jstring sharedDir, jstring appDataDir,
     jstring schemaId, jstring appId) {
   const RimeApi* a = api();
   if (!a || !a->setup || !a->initialize || !a->start_maintenance) return -1;
@@ -151,22 +158,15 @@ JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeInit(
   return 0;
 }
 
-/** 部署是否已完成。maintenance 模式里为 true。 */
-JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeDeploying(JNIEnv*, jclass) {
-  const RimeApi* a = api();
-  if (!a || !a->is_maintenance_mode) return JNI_FALSE;
-  return a->is_maintenance_mode() ? JNI_TRUE : JNI_FALSE;
-}
-
 /** 等部署线程结束。第一次部署慢,这里会阻塞,所以只在后台线程调。 */
-JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeJoinMaintenance(JNIEnv*, jclass) {
+JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeJoinMaintenance(JNIEnv*, jobject) {
   const RimeApi* a = api();
   if (a && a->join_maintenance_thread) a->join_maintenance_thread();
   g_engine.deployed = true;
 }
 
 /** 打开一个 session。候选、commit 都挂在 session 上,所以要先有它。 */
-JNIEXPORT jlong JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCreateSession(JNIEnv*, jclass) {
+JNIEXPORT jlong JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCreateSession(JNIEnv*, jobject) {
   const RimeApi* a = api();
   if (!a || !a->create_session) return 0;
   RimeSessionId id = a->create_session();
@@ -175,12 +175,12 @@ JNIEXPORT jlong JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCreateSession(J
 }
 
 JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeDestroySession(
-    JNIEnv*, jclass, jlong session) {
+    JNIEnv*, jobject, jlong session) {
   const RimeApi* a = api();
   if (a && a->destroy_session && session) a->destroy_session(static_cast<RimeSessionId>(session));
 }
 
-JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeDestroy(JNIEnv*, jclass) {
+JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeDestroy(JNIEnv*, jobject) {
   const RimeApi* a = api();
   if (g_engine.initialized && a && a->finalize) a->finalize();
   g_engine = Engine{};
@@ -192,7 +192,7 @@ JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeDestroy(JNIEnv*,
  * **不能靠发退格**:librime 的退格要经 `process_key` 走完整状态机,而我们要的
  * 是「一次性把 composition 清掉」。`get_context` 的 `clear()` 是对的做法。
  */
-JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeReset(JNIEnv*, jclass, jlong session) {
+JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeReset(JNIEnv*, jobject, jlong session) {
   const RimeApi* a = api();
   if (!a || !a->clear_composition || !session) return;
   a->clear_composition(static_cast<RimeSessionId>(session));
@@ -232,7 +232,7 @@ JNIEXPORT void JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeReset(JNIEnv*, j
  * @return 候选词数组;空数组表示没候选(不是 null)
  */
 JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidates(
-    JNIEnv* env, jclass, jlong session, jint limit) {
+    JNIEnv* env, jobject, jlong session, jint limit) {
   const RimeApi* a = api();
   jclass str_cls = env->FindClass("java/lang/String");
   RimeContext ctx;
@@ -282,7 +282,7 @@ JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidat
  * 由 Kotlin 侧判断。
  */
 JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCompositionLength(
-    JNIEnv*, jclass, jlong session) {
+    JNIEnv*, jobject, jlong session) {
   RimeContext ctx;
   if (!context_of(api(), static_cast<RimeSessionId>(session), &ctx)) return 0;
   return ctx.composition.length;
@@ -290,7 +290,7 @@ JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCompositionLengt
 
 /** 上屏指定序号的候选(按 0 起算,对应 `nativeCandidates` 的下标)。 */
 JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeSelectCandidate(
-    JNIEnv*, jclass, jlong session, jint index) {
+    JNIEnv*, jobject, jlong session, jint index) {
   const RimeApi* a = api();
   if (!a || !a->select_candidate || !session || index < 0) return JNI_FALSE;
   return a->select_candidate(static_cast<RimeSessionId>(session), static_cast<size_t>(index))
@@ -306,7 +306,7 @@ JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeSelectCandid
  * 用长度判断会把后者丢掉。
  */
 JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCommit(
-    JNIEnv* env, jclass, jlong session) {
+    JNIEnv* env, jobject, jlong session) {
   const RimeApi* a = api();
   if (!a || !a->get_commit || !session) return nullptr;
   RimeCommit c;
@@ -320,7 +320,7 @@ JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCommit(
 
 /** 候选栏高亮到第几项(-1 = 无高亮)。UI 要用它给选中项加背景。 */
 JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeHighlighted(
-    JNIEnv*, jclass, jlong session) {
+    JNIEnv*, jobject, jlong session) {
   RimeContext ctx;
   if (!context_of(api(), static_cast<RimeSessionId>(session), &ctx)) return -1;
   return ctx.menu.highlighted_candidate_index;
@@ -344,7 +344,7 @@ JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeHighlighted(
  * @return librime 是否消费了这个键
  */
 JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeProcessKey(
-    JNIEnv*, jclass, jlong session, jint keycode) {
+    JNIEnv*, jobject, jlong session, jint keycode) {
   const RimeApi* a = api();
   if (!a || !a->process_key || !session) return JNI_FALSE;
   return a->process_key(static_cast<RimeSessionId>(session), static_cast<int>(keycode), 0)

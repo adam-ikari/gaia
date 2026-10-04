@@ -88,6 +88,24 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug
 
+      # ---- JNI 闸门:必须在**上传与发布之前** -----------------------------
+      #
+      # R8 只看得到显式引用,而 JNI 的方法名是 native 侧按**字符串**解析的
+      # (`Java_<类>_<方法>`),Kotlin 那边没有任何编译期联系 ⇒ R8 改名毫无代价。
+      # 症状是运行期 `UnsatisfiedLinkError`,而且 `System.loadLibrary` 成功、
+      # `available` 是 true,**看起来一切正常**。
+      #
+      # 这个闸门在 2026-10-04 抓到了一个真的事故:已发布的 v0.7.1 里
+      # 14 个 JNI 入口有 7 个被改名 ⇒ 真机上拼音引擎整个不可用。
+      # 而 E2E 跑的是 debug 包(不过 R8)⇒ **CI 上结构性看不到**。
+      #
+      # 清单不是写死的:从 `RimeNative.kt` 现场解析 `external fun`,
+      # 再交叉核对 dex 方法名 / 类名 / .so 导出符号。
+      - name: JNI 闸门(R8 有没有削掉入口名)
+        run: tools/release/check-jni-symbols.py \
+          app/build/outputs/apk/release/app-release.apk \
+          app/build/outputs/apk/debug/app-debug.apk
+
       - name: Release
         uses: softprops/action-gh-release@v3
         with:

@@ -27,13 +27,40 @@
 # 2. JNI(native librime)
 # -----------------------------------------------------------------------------
 # `external fun nativeXxx` 的**方法名**被 JNI 按名字解析,改名就 `UnsatisfiedLinkError`。
+#
+# ## 这里曾经漏掉过,后果是 v0.7.1 的引擎在真机上整个不可用(2026-10-04)
+#
+# 原来只有下面那条通用规则:
+#     -keepclasseswithmembernames,includedescriptorclasses class * { native <methods>; }
+# 它**保住了类名**(`dev/hwkbd/ime/rime/RimeNative` 在 dex 里原样存在),
+# 但**没有保住方法名** —— 实测 14 个入口里 7 个被改名成了 `c` / `b` / `j`。
+#
+# 后果特别有欺骗性:`FindClass` 成功、`System.loadLibrary` 成功、
+# `available` 是 true,于是**看起来一切正常**;直到第一次调
+# `commit` / `highlighted` / `compositionLength` 才抛
+# `UnsatisfiedLinkError: no native method …nativeCommit in class …RimeNative`。
+# 而 E2E 跑的是 debug 包(不过 R8)⇒ **CI 上结构性看不到这个问题**。
+#
+# 原因(为什么不靠那条通用规则):Kotlin `object` 里的 `private external fun`
+# 编出来是**私有实例方法**,而 R8 对「私有 + 可被内联」的方法有独立的处理路径;
+# `-keepclasseswithmembernames` 保住了名字但拦不住后续的处理。
+# 与其赌 R8 内部怎么走,**不如把这件事显式钉死**。
+-keep class dev.hwkbd.ime.rime.RimeNative {
+    *;
+}
+# 兜底:其它任何带 native 方法的类(将来加了新的 JNI 类时自动覆盖)。
 -keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
 # RimeNative 只被 Kotlin 侧调用,类名本身不需要留(反而该混淆)
 -keepclassmembers class dev.hwkbd.ime.rime.** {
-    private static native <methods>;
+    native <methods>;
 }
+
+# **这个清单不能靠人记**:`tools/release/check-jni-symbols.py` 从
+# `RimeNative.kt` 现场解析 `external fun`,并交叉核对 dex 方法名与 .so 导出符号,
+# 在 release.yml 里对着构建产物跑。新增 native 方法忘了加 keep,它立刻红。
+# 2026-10-04 就是它(的等价手工检查)抓到了上面那个 bug。
 
 # -----------------------------------------------------------------------------
 # 3. 枚举的 valueOf / values
