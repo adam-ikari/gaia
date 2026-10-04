@@ -219,9 +219,7 @@ class ImeControllerTest {
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
         val registry = ImeRegistry.builtin()
-            .registerMethod(
-                FakePinyinInputMethod.common().withRemainAfterSelect(remainAfterSelect)
-            )
+                .registerMethod(FakePinyinInputMethod.common())
         // 自定义布局:L1 q→"-."(L4 datetime 键的同文本)、e→"+"、v→"v"(拼音 mapText 改写成 `'`);
         // [L4 datetime] 段两把:`-.` 三层按得出(q 键)→ 不进 L4,`'` 按不出 → 进 L4
         val layout = KeyLayout.parseText("[L1]\nq=-.\ne=+\nv=v\n[L4 datetime]\n重复=-.\n分隔='").layout!!
