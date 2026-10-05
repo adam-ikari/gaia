@@ -518,26 +518,24 @@ class ImeController(
         // 旧路径无条件 `clearComposition()`,那等于**假设一个候选吃掉全部拼音**。
         // 单音节下成立,多段输入下不成立:`ni'hao` 选「你」之后 `hao` 被一起清掉。
         //
-        // 引擎不参与选词时(`selectAndRemain` 给 null)照旧全清 —— 行为不变。
-        val sel = inputMethod().selectAndRemain(li)
-        val remaining = sel?.second
+        // 引擎不参与选词 / 剥不出来时(`selectAndRemain` 给 null)照旧全清 —— 行为不变。
+        val sel = inputMethod().selectAndRemain(li, c.word)
 
         // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
         // 放在两个 `?: return` 之后 —— 选不中就不该有动画。
         onCandidateSelected?.invoke(displayIndex, c.word)
-        // 上屏文本优先用引擎给的(它才是真正选中的那个);拿不到才退回候选表里的。
-        val word = sel?.first ?: c.word
-        host.commitText(word)
-        inputMethod().onCommitted(word)
+        host.commitText(c.word)
+        inputMethod().onCommitted(c.word)
 
+        val remaining = sel?.unconsumed
         if (remaining.isNullOrEmpty()) {
             clearComposition()
         } else {
             // **只清吃掉的那部分**:剩下的拼音继续留在缓冲里,可接着打。
             //
-            // 引擎给的剩余里**没有我们的 `'` 分节符**(喂进去之前就剥掉了,librime 不认识),
-            // 所以它就是一段新的拼音 —— 直接当新的 raw 用,下一轮 `query` 会重新分段。
-            state.raw = remaining
+            // 引擎给的长度是**引擎坐标**(喂进去之前 `'` 被剥掉了),
+            // 所以要经 [rawPrefixOf] 映回带分节符的 raw。
+            state.raw = dev.hwkbd.ime.rime.rawPrefixOf(state.raw, remaining.length)
             state.page = 0
             state.highlight = -1
             refreshQuery(from = "选词后剩余")

@@ -1,5 +1,7 @@
 package dev.hwkbd.ime.strategy
 
+import dev.hwkbd.ime.rime.PinyinConsumption
+import dev.hwkbd.ime.rime.unconsumedFromPreview
 import dev.hwkbd.ime.engine.Candidate
 import dev.hwkbd.ime.engine.CandidateKind
 
@@ -57,12 +59,16 @@ class FakePinyinInputMethod(
     /** 实现 [InputMethod.isReady]。false 时 [query] 给空表,模拟「词库还在部署」。 */
     override val isReady: Boolean get() = ready
 
-    /** 实现 [InputMethod.selectAndRemain]:按 [remainAfterSelect] 回答,不做真的选词。 */
-    override fun selectAndRemain(index: Int): Pair<String, String?>? {
+    /** 实现 [InputMethod.selectAndRemain]:按 [previewTemplate] 回答,不做真的选词。 */
+    override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
         remainAfterSelect ?: return null // 不参与 ⇒ 走旧路径
         val raw = queried.lastOrNull() ?: return null
         val word = candidatesOf(raw).getOrNull(index) ?: return null
-        return word to remainAfterSelect
+        // 真引擎那边 preview = 未消费的原始输入 + 刚选中的词(见 unconsumedFromPreview),
+        // 这里照同样的形状拼,好让上层的剥取逻辑被真的跑到。
+        val preview = remainAfterSelect + word
+        val unconsumed = unconsumedFromPreview(preview, selectedWord) ?: return null
+        return PinyinConsumption(preview = preview, unconsumed = unconsumed)
     }
 
     /** 被问过的所有 `raw`,便于断言「查询传进来的是什么」。 */

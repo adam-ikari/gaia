@@ -1,5 +1,6 @@
 package dev.hwkbd.ime.strategy
 
+import dev.hwkbd.ime.rime.PinyinConsumption
 import dev.hwkbd.ime.engine.Candidate
 
 /**
@@ -32,7 +33,8 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
 
     override fun userCount(word: String): Int = engine.userCount(word)
 
-    override fun selectAndRemain(index: Int): Pair<String, String?>? = engine.selectAndRemain(index)
+    override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? =
+        engine.selectAndRemain(index, selectedWord)
 
     /**
      * 转发,别用接口默认值。

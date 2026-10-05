@@ -1,5 +1,6 @@
 package dev.hwkbd.ime.strategy
 
+import dev.hwkbd.ime.rime.PinyinConsumption
 import dev.hwkbd.ime.engine.Candidate
 
 /**
@@ -67,8 +68,7 @@ interface InputMethod {
     val isReady: Boolean get() = true
 
     /**
-     * 选中第 [index] 个候选(与 [query] 返回的顺序一致),返回
-     * **「上屏文本」+「还没被吃掉的那部分输入」**。
+     * 选中第 [index] 个候选(与 [query] 返回的顺序一致),返回**消费结果**。
      *
      * ## 为什么需要它(2026-10-04 用户「拼音的消费也要根据实际选词消费,不能一次清空」)
      *
@@ -88,8 +88,10 @@ interface InputMethod {
      * 也就是说这是个**加法式**接口:猜错了也不会更坏。
      *
      * @param index 逻辑候选下标(**不是显示位** —— 显示位要自己经 [dev.hwkbd.ime.ime.ImeState.displayOrder] 换算)
-     * @return (上屏文本, 剩余输入);`remaining` 为 null = 全部吃掉;
-     *   整体返回 null = 本引擎不参与,调用方走旧路径
+     * @param selectedWord 上层**已经决定上屏**的那个词。
+     *   引擎要用它把 `commit_text_preview` 里「已被吃掉的那段」剥掉 ——
+     *   C 层给不出「这个候选吃了几段」,只能拿已知的词去减。
+     * @return 消费结果;`null` = 本引擎不参与或剥不出来,调用方**走旧路径**(清空整个缓冲)
      */
-    fun selectAndRemain(index: Int): Pair<String, String?>? = null
+    fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? = null
 }

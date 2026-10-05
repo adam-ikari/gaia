@@ -85,6 +85,8 @@ class PinyinInputMethodTest {
         // 替身的 `selectAndRemain` 靠 `queried` 里最后一次查询来定位候选,
         // 所以得先真查一次(这是替身的实现约定,不是被测行为)。
         assertTrue("前置条件:引擎真的查得到候选", engine.query("ni", 5).isNotEmpty())
-        assertEquals("你" to "hao", PinyinInputMethod.forTest(engine).selectAndRemain(0))
+        val r = PinyinInputMethod.forTest(engine).selectAndRemain(0, "你")
+        assertEquals("预览串应是「未消费 + 已选词」", "hao你", r?.preview)
+        assertEquals("剥掉已选词后剩下", "hao", r?.unconsumed)
     }
 }

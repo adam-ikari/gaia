@@ -299,37 +299,41 @@ JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeSelectCandid
 }
 
 /**
- * 选出候选之后**还没被吃掉的那部分拼音**(2026-10-04 用户「拼音的消费也要根据实际选词消费,
- * 不能一次清空」)。
+ * 选出候选之后的 **`commit_text_preview`**(2026-10-04 修:上一版取错了字段)。
  *
- * ## 为什么需要它
+ * ## 上一版为什么一次都没生效
  *
- * librime 是**分段**的:选一个候选只吃掉它覆盖的那几段,剩下的段仍留在 composition 里。
- * 而 `RimeCandidate` 只有 `text`/`comment`,**不暴露覆盖范围** ——
- * 所以「这个候选吃了几段」在 C 层拿不到。
+ * 上一版读的是 `composition.preedit`,**那个字段也给不出「剩下的拼音」**:
+ * librime 的 `OnSelect`(src/rime/engine.cc)在段尾时走的是
+ * `composition().Forward()` 而不是 `Commit()`,所以 commit 队列里什么都没有 ——
+ * 于是 `RimeNative.commit()` 恒为 null,整条「按段消费」路径**一次都没走到**。
+ * 用户看到的仍然是「一次清空」。
  *
- * 但选完之后再读一次 `RimeContext` 就拿得到:`composition.preedit` 是**当前还没被选走的
- * 预编辑串**,拼音方案下它就是剩下的拼音。
+ * 而且即便 commit 队列有东西,`preedit` 也不是答案:它是
+ * `Composition::GetPreedit()`,对**已确认**的段会填**候选文字**。
+ * `nihao` 选「好」之后 preedit 是 `"ni好"` —— 里面已经混进了被吃掉的那段。
  *
- * ## 这是**加法式**的改动,不改变现有行为
+ * ## 正确的来源是 `commit_text_preview`
  *
- * - librime 一次吃完整串时(单音节输入的常态)⇒ preedit 为空 ⇒ 返回 null
- *   ⇒ 上层照旧清空整个 `state.raw`,行为与之前**完全一样**;
- * - 只有它真的留下了一段时,上层才改成「只清吃掉的那部分」。
+ * `Composition::GetCommitText()` 逐段走:已选中的段填**候选文字**,
+ * 没选中的段填**原始输入**。所以 `nihao` 选「好」之后它是 `"ni好"` ——
+ * **末尾那个词就是刚被吃掉的,其余就是没被吃掉的**。
+ * 上层拿已知的候选词把那段剥掉即可(见 `unconsumedFromPreview`)。
  *
- * 也就是说:**猜错了也不会更坏**,而猜对就修好了。
+ * ## 为什么这个字段一定被填上
  *
- * @return 剩余拼音;没有剩余时返回 null(**不是空串** —— 空串与 null 在上层是两件事:
- *   null = 「没查到、别改 raw」,空串 = 「确实吃完了,清空」)
+ * `RimeGetContext` 只在 `ctx->IsComposing()` 时填它。而选中之后
+ * `composition_.Forward()` 只是**追加**一个空段,composition 仍非空 ⇒ 一定填。
+ *
+ * @return `commit_text_preview`;拿不到时返回 null(**空串是合法值**,别混)
  */
-JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeRemainingPinyin(
+JNIEXPORT jstring JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCommitTextPreview(
     JNIEnv* env, jobject, jlong session) {
   RimeContext ctx;
   if (!context_of(api(), static_cast<RimeSessionId>(session), &ctx)) return nullptr;
-  const char* preedit = ctx.composition.preedit;
-  // librime 用空串表示「没有 composition」,而我们要的是 null(见上面的 @return)
-  if (!preedit || preedit[0] == '\0') return nullptr;
-  return env->NewStringUTF(preedit);
+  const char* p = ctx.commit_text_preview;
+  if (!p) return nullptr;   // 空串在这里表示「确实什么都没有」,要如实返回
+  return env->NewStringUTF(p);
 }
 
 /**

@@ -156,30 +156,29 @@ class RimeEngine(private val context: Context) : InputMethod {
     /**
      * [InputMethod.selectAndRemain] 的实现:选中第 [index] 个候选。
      *
-     * @return 上屏文本 + **还没被吃掉的那部分拼音**;无候选/未提交给 null。
+     * @param selectedWord 上层**已经决定上屏**的那个词 —— 用来从预览串里剥掉它。
+     * @return `commit_text_preview` 与「剥掉之后剩下的那部分」。
+     *   预览为 null(没查到)⇒ 返回 null,调用方走旧路径。
      *
-     * ## 为什么返回「剩下多少」而不是只返回上屏文本
+     * ## 为什么必须由调用方把词传进来
      *
-     * 原实现只返回上屏文本,类注释写「选完 librime 的 composition 就空了 ——
-     * 上层这时也该清 `state.raw`」。**那个假设对单音节成立,对多段输入不成立**:
-     * librime 是分段的,选一个候选只吃掉它覆盖的那几段。
+     * 因为 C 层给不出「这个候选吃了几段」:`RimeCandidate` 只有 `text`/`comment`。
+     * 而 `commit_text_preview` 是**整串**的,里面既有被吃掉的(候选文字)
+     * 也有没被吃掉的(原始输入),只有拿已知的候选词去剥才能分开。
      *
-     * 后果(2026-10-04 用户「拼音的消费也要根据实际选词消费,不能一次清空」):
-     * 输入 `ni'hao` 选「你」之后,`hao` 被一起清掉了 —— 用户已经打的那一段白打。
+     * ## 剥不掉就返回 null,绝不猜
      *
-     * 所以这里把**剩下的拼音**一并带回去,让上层只清吃掉的那部分。
-     * `remaining` 为 null 表示「librime 一次吃完整串」,上层照旧全清 ——
-     * 也就是说这条路径对现有行为是**加法式**的。
+     * `unconsumedFromPreview` 找不到那个词时给 null —— 上层据此走**旧路径**
+     * (清空整个缓冲)。宁可少一个功能,也不能把错的拼音留在缓冲里。
      */
-    override fun selectAndRemain(index: Int): Pair<String, String?>? {
+    override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
         val s = synchronized(lock) { session }
         if (s == 0L) return null
         if (!RimeNative.selectCandidate(s, index)) return null
-        val committed = RimeNative.commit(s) ?: return null
-        // **必须在 commit 之后读**:get_commit 会取走 commit 队列,
-        // 但不会动 composition —— 剩下的段还在 preedit 里。
-        val remaining = RimeNative.remainingPinyin(s)
-        return committed to remaining
+        val preview = RimeNative.commitTextPreview(s) ?: return null
+        android.util.Log.i(TAG, "consume: preview=\"$preview\" word=\"$selectedWord\"")
+        val unconsumed = unconsumedFromPreview(preview, selectedWord) ?: return null
+        return PinyinConsumption(preview = preview, unconsumed = unconsumed)
     }
 
     /**
@@ -244,4 +243,64 @@ class RimeEngine(private val context: Context) : InputMethod {
          */
         const val APP_NAME = "rime.hwkbd"
     }
+}
+
+/**
+ * 一次选词的「消费」结果。
+ *
+ * @param preview librime 的 `commit_text_preview` 整串(埋点用)
+ * @param unconsumed 剥掉已选词之后、**还没被吃掉**的那部分(引擎坐标:已剥掉 `'`)
+ */
+internal data class PinyinConsumption(
+    val preview: String,
+    val unconsumed: String,
+)
+
+/**
+ * 从 `commit_text_preview` 里剥掉刚被选中的那个词,得到**还没被吃掉**的部分。
+ *
+ * ## 为什么能这么剥(纯函数,可单测)
+ *
+ * librime 的菜单挂在 `composition().back()` 上,而 `script_translator` 产出的
+ * 候选**从该段起点一直到输入末尾**(`ScriptTranslation::MakeSentences` 用的是
+ * `syllable_graph.interpreted_length`)。所以选中之后:
+ *
+ *     preview = 「没被选走的那几段的原始输入」 + 「刚选中的候选文字」
+ *
+ * `nihao` 选「好」⇒ preview = `"ni好"` ⇒ 剥掉末尾的「好」⇒ 剩下 `"ni"`。
+ * 单音节 `ni` 选「你」⇒ preview = `"你"` ⇒ 剥完剩 `""` ⇒ 上层照旧清空。
+ *
+ * ## 剥不掉就返回 null
+ *
+ * 找不到那个词(候选被 formatter 改写过、或换了别的转换链)时**不猜** ——
+ * 返回 null 让上层走旧路径(清空整个缓冲)。
+ * 留错拼音在缓冲里比清空更糟:用户会以为按键没生效。
+ */
+internal fun unconsumedFromPreview(preview: String, selectedWord: String): String? {
+    if (selectedWord.isEmpty()) return null
+    // 用 **lastIndexOf**:未消费的那部分里若也含同名词,末尾那个才是刚选中的。
+    val at = preview.lastIndexOf(selectedWord)
+    if (at < 0) return null
+    return preview.substring(0, at) + preview.substring(at + selectedWord.length)
+}
+
+/**
+ * 把**引擎坐标**(已剥掉 `'` 的串)的前 [n] 个字符,映回带 `'` 的 [raw]。
+ *
+ * 喂给 librime 之前分节符被剥掉了(`RimeEngine.query`),所以引擎报的长度
+ * 与 `state.raw` 的下标对不上 —— 这一步就是那座桥。
+ *
+ * 末尾若正好停在分节符上,把它一并去掉:它标记的是「刚被吃掉的那一段的边界」,
+ * 留着会让下一轮 `query` 拿到以分节符开头的串。
+ */
+internal fun rawPrefixOf(raw: String, n: Int): String {
+    if (n <= 0) return ""
+    var seen = 0
+    var i = 0
+    while (i < raw.length && seen < n) {
+        if (raw[i] != '\'') seen++
+        i++
+    }
+    while (i < raw.length && raw[i] == '\'') i++
+    return raw.substring(0, i)
 }

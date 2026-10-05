@@ -95,9 +95,12 @@ object RimeNative {
     fun commit(session: Long): String? =
         if (loaded && session != 0L) nativeCommit(session) else null
 
-    /** 选中候选后还没被吃掉的拼音;没有剩余给 null(见 `nativeRemainingPinyin` 的注释)。 */
-    fun remainingPinyin(session: Long): String? =
-        if (loaded && session != 0L) nativeRemainingPinyin(session) else null
+    /**
+     * 选中候选之后的 `commit_text_preview`。**空串是合法值**(表示全被吃掉了),
+     * 与 null(没查到)在上层是两件事。
+     */
+    fun commitTextPreview(session: Long): String? =
+        if (loaded && session != 0L) nativeCommitTextPreview(session) else null
 
     fun highlighted(session: Long): Int =
         if (loaded && session != 0L) nativeHighlighted(session) else -1
@@ -122,13 +125,13 @@ object RimeNative {
     private external fun nativeCommit(session: Long): String?
 
     /**
-     * 选出候选之后**还没被吃掉的那部分拼音**;没有剩余时给 null。
+    /**
+     * 选出候选之后的 `commit_text_preview`(见 `rime_jni.cpp` 里同名函数的注释 ——
+     * 那里解释了为什么 `get_commit` 与 `composition.preedit` 都给不出「剩下的拼音」)。
      *
-     * 用它实现「拼音消费按实际选词消费」(2026-10-04 用户)。
-     * 见 `rime_jni.cpp` 里同名函数的注释 —— 那里解释了为什么 C 层拿不到
-     * 「这个候选吃了几段」,只能选完之后反查剩下的 preedit。
+     * 返回的是**整串**预览,上层要自己把已选中的那个词剥掉。
      */
-    private external fun nativeRemainingPinyin(session: Long): String?
+    private external fun nativeCommitTextPreview(session: Long): String?
     private external fun nativeHighlighted(session: Long): Int
     private external fun nativeProcessKey(session: Long, keycode: Int): Boolean
     private external fun nativeCompositionLength(session: Long): Int
