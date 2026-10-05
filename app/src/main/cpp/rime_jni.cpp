@@ -334,10 +334,43 @@ JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCompositionLengt
  * `Composition::GetCurrentStartPosition()`(就是 `back().start`)就是被吃掉的输入长度:
  *
  * - 选「你」(覆盖 "ni")⇒ 当前段从下标 2 起 ⇒ 返回 2 ⇒ 剩 "hao"
- * - 选「你好」(覆盖全部)⇒ 空段起点 5 ⇒ 返回 5 ⇒ 剩 ""
+ * - 选「你好」(覆盖全部)⇒ 返回 0,见下
  *
- * 全吃干净时若 `_auto_commit` 打开,composition 会被清空,此时起点是 0 ——
- * 上层把「<= 0」一律当「说不清,照旧全清」,结果与旧行为一致。
+ * ## **全部吃掉时返回 0,不是长度** —— 原因在 `Forward()` 的 early return
+ *
+ * `ConcreteEngine::OnSelect`(src/rime/engine.cc)在 `seg.end == input.length()`
+ * 时走 `composition().Forward()`。而 `Segmentation::Forward()`
+ * (src/rime/segmentation.cc)的头一句是:
+ *
+ * ```cpp
+ * if (empty() || back().start == back().end) return false;   // ← 早退
+ * push_back(Segment(back().end, back().end));
+ * ```
+ *
+ * 单音节输入时 `back()` 就是**那个已确认段本身**(它的 start≠end,本该 push),
+ * 但注意 `OnSelect` 之前 `seg.Close()` 已把段收到 `cand->end()`;
+ * 对 `ni` 选「妳」而言 `Close()` 之后 start=0/end=2 —— 仍不相等,于是 push 出
+ * `Segment(2,2)`,`GetCurrentStartPosition()` 应当是 **2**。
+ *
+ * **实测却是 0**,而 `commit_text_preview` 同时是 **null**(真机 logcat,2026-10-05):
+ *
+ * ```
+ * consume: index=0 word="妳" consumed=0 preview="null"
+ * ```
+ *
+ * `preview == null` 是关键证据:`RimeGetContext` 只在 `ctx->IsComposing()` 时填它
+ * (rime_api_impl.h:220),而 `IsComposing()` 是 `!input_.empty() || !composition_.empty()`。
+ * 两者皆空 ⇒ **整个 composition 被清掉了**,不只是「只剩一个空段」——
+ * 也就是这一步之后走的是 `Context::Commit()`/`Clear()` 那条路,
+ * 而本项目并没有配置 `_auto_commit`(见 `RimeNative.initialize` 传的 schema),
+ * 具体由哪个 processor 触发未逐行追到底。
+ *
+ * **结论不变**:全吃掉 ⇒ 返回 0 ⇒ 上层当「说不清,照旧全清」——
+ * 而「全清」正是全吃掉时的正确答案,所以这条路径的行为是对的。
+ * 只是**别把 0 读成「什么都没吃掉」**。
+ *
+ * ⇒ 上层因此把 **`consumed <= 0` 一律当「说不清」**(见 RimeEngine.selectAndRemain),
+ * 不去区分 0 与 -1:前者是「全清」,后者是「没选成」,两者上层动作相同。
  *
  * @return 被吃掉的输入字符数(>= 0);**-1 = 没选成**(index 越界 / 没 session)
  */

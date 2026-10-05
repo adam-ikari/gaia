@@ -194,8 +194,12 @@ class RimeEngine(private val context: Context) : InputMethod {
             TAG,
             "consume: index=$index word=\"$selectedWord\" consumed=$consumed preview=\"$preview\"",
         )
-        // **<= 0 一律当「说不清」**:整串被 `_auto_commit` 提交掉时 composition 会清空,
-        // 起点报 0。那种情况上层照旧全清,结果与旧行为一致。
+        // **<= 0 一律当「说不清」**:
+        //   - 0  = 引擎把**整串**都吃掉了(全部吃掉时 composition 被清空,
+        //          起点就报 0 —— 机制与实测证据见 `rime_jni.cpp` 的注释)。
+        //          「全清」正是这种情况的正确答案。
+        //   - <0 = 没选成(见 RimeNative.selectCandidate)。
+        // 两者上层动作相同(照旧清空整个缓冲),所以不必区分。
         if (consumed <= 0) return null
         return PinyinConsumption(consumed = consumed, preview = preview.orEmpty())
     }
