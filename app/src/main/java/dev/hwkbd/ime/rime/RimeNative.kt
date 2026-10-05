@@ -89,8 +89,16 @@ object RimeNative {
     fun candidates(session: Long, limit: Int): Array<String> =
         if (loaded && session != 0L) nativeCandidates(session, limit) else emptyArray()
 
-    fun selectCandidate(session: Long, index: Int): Boolean =
-        loaded && session != 0L && nativeSelectCandidate(session, index)
+    /**
+     * 选中菜单里第 [index] 个候选(**全局下标**,不是页内下标)。
+     *
+     * @return 这次选词**吃掉了几个输入字符**(>= 0)。**-1 = 没选成**。
+     *   上层拿它把 `state.raw` 截到「还没被吃掉的那段」——
+     *   **不要**改回从 [commitTextPreview] 反推,那条路是错的
+     *   (见 `rime_jni.cpp` 里 `nativeSelectCandidate` 的注释与真机日志)。
+     */
+    fun selectCandidate(session: Long, index: Int): Int =
+        if (loaded && session != 0L) nativeSelectCandidate(session, index) else -1
 
     fun commit(session: Long): String? =
         if (loaded && session != 0L) nativeCommit(session) else null
@@ -98,6 +106,10 @@ object RimeNative {
     /**
      * 选中候选之后的 `commit_text_preview`。**空串是合法值**(表示全被吃掉了),
      * 与 null(没查到)在上层是两件事。
+     *
+     * **只是埋点,不能拿来算「还剩多少拼音」** —— 它是「按回车会提交什么」的预览,
+     * 每段都填候选文字。没被选中的段填的也是它当前高亮的候选(汉字),不是原始输入。
+     * 怎么用它把「缓冲区截错了」当场看出来,见 [selectCandidate]。
      */
     fun commitTextPreview(session: Long): String? =
         if (loaded && session != 0L) nativeCommitTextPreview(session) else null
@@ -121,14 +133,16 @@ object RimeNative {
     private external fun nativeDestroy()
     private external fun nativeReset(session: Long)
     private external fun nativeCandidates(session: Long, limit: Int): Array<String>
-    private external fun nativeSelectCandidate(session: Long, index: Int): Boolean
+
+    /** @return 被吃掉的输入字符数(>= 0);-1 = 没选成。见 [selectCandidate]。 */
+    private external fun nativeSelectCandidate(session: Long, index: Int): Int
     private external fun nativeCommit(session: Long): String?
 
     /**
      * 选出候选之后的 `commit_text_preview`(见 `rime_jni.cpp` 里同名函数的注释 ——
-     * 那里解释了为什么 `get_commit` 与 `composition.preedit` 都给不出「剩下的拼音」)。
+     * 那里说明了它为什么**不能**用来算「还剩多少拼音」,以及那次真机日志)。
      *
-     * 返回的是**整串**预览,上层要自己把已选中的那个词剥掉。
+     * 返回的是**整串**预览,**只作埋点用**。
      */
     private external fun nativeCommitTextPreview(session: Long): String?
     private external fun nativeHighlighted(session: Long): Int

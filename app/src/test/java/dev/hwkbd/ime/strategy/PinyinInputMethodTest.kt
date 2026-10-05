@@ -78,15 +78,35 @@ class PinyinInputMethodTest {
         assertTrue(PinyinInputMethod.forTest(FakePinyinInputMethod.common().withReady(true)).isReady)
     }
 
-    /** 选后剩余拼音也要转发(拼音消费按段那条依赖它)。 */
+    /**
+     * 「这个候选吃掉了几个字符」也要转发 —— 拼音消费那条全靠它。
+     *
+     * 漏转发时接口默认返回 `null`,状态机就照旧**全清缓冲**,
+     * 而这条路径在单音节下与「全清」结果完全一样 ⇒ 测试与真机都不会露馅。
+     * 所以这里必须单独钉住转发本身。
+     */
     @Test
-    fun `选后剩余拼音经装饰器转发`() {
-        val engine = FakePinyinInputMethod.common().withRemainAfterSelect("hao")
+    fun `选词消费量经装饰器转发`() {
+        val engine = FakePinyinInputMethod.common().withConsumed(2)
         // 替身的 `selectAndRemain` 靠 `queried` 里最后一次查询来定位候选,
         // 所以得先真查一次(这是替身的实现约定,不是被测行为)。
-        assertTrue("前置条件:引擎真的查得到候选", engine.query("ni", 5).isNotEmpty())
+        assertTrue("前置条件:引擎真的查得到候选", engine.query("nihao", 5).isNotEmpty())
         val r = PinyinInputMethod.forTest(engine).selectAndRemain(0, "你")
-        assertEquals("预览串应是「未消费 + 已选词」", "hao你", r?.preview)
-        assertEquals("剥掉已选词后剩下", "hao", r?.unconsumed)
+        assertEquals("吃掉的字符数应原样透传", 2, r?.consumed)
+    }
+
+    /**
+     * 下标必须**原样**透传,装饰器不许自己换算(2026-10-05 加)。
+     *
+     * 显示位 ↔ 全局下标的换算是**状态机**的事(它知道页号与页宽);
+     * 装饰器若在这里"顺手"处理一遍,两处各算一次就会错开 ——
+     * 而症状是「翻页后缓冲被截错」,极难自查。
+     */
+    @Test
+    fun `选词下标经装饰器原样透传`() {
+        val engine = FakePinyinInputMethod.common().withConsumed(2)
+        assertTrue(engine.query("nihao", 45).isNotEmpty())
+        PinyinInputMethod.forTest(engine).selectAndRemain(13, "词")
+        assertEquals("装饰器不该改下标", listOf(13), engine.selectedIndexes)
     }
 }

@@ -156,29 +156,48 @@ class RimeEngine(private val context: Context) : InputMethod {
     /**
      * [InputMethod.selectAndRemain] 的实现:选中第 [index] 个候选。
      *
-     * @param selectedWord 上层**已经决定上屏**的那个词 —— 用来从预览串里剥掉它。
-     * @return `commit_text_preview` 与「剥掉之后剩下的那部分」。
-     *   预览为 null(没查到)⇒ 返回 null,调用方走旧路径。
+     * @return 这个候选**吃掉了几个输入字符**,以及 librime 对整串的预览(埋点用)。
+     *   选不中 / 说不出吃掉了多少 ⇒ `null`,调用方走旧路径。
      *
-     * ## 为什么必须由调用方把词传进来
+     * ## 「吃掉几个字符」必须由引擎给,不能自己算
      *
-     * 因为 C 层给不出「这个候选吃了几段」:`RimeCandidate` 只有 `text`/`comment`。
-     * 而 `commit_text_preview` 是**整串**的,里面既有被吃掉的(候选文字)
-     * 也有没被吃掉的(原始输入),只有拿已知的候选词去剥才能分开。
+     * 上一版是「拿 `commit_text_preview` 减去刚选中的那个词,剩下的当剩余拼音」。
+     * **那个模型是错的**,而且错得没有征兆 —— 2026-10-05 真机日志实测:
      *
-     * ## 剥不掉就返回 null,绝不猜
+     * ```
+     * raw="nihao"  选第 4 个候选「你」(它只覆盖 "ni")
+     * consume: preview="你好" word="你"
+     * ⇒ 剥掉「你」剩下「好」,把「好」的长度 1 当拼音长度
+     * ⇒ 缓冲从 "nihao" 变成 "n"(应该是 "hao")
+     * ```
      *
-     * `unconsumedFromPreview` 找不到那个词时给 null —— 上层据此走**旧路径**
-     * (清空整个缓冲)。宁可少一个功能,也不能把错的拼音留在缓冲里。
+     * 错在 `Composition::GetCommitText()`:**每个段都填候选文字**,连没被选中的段
+     * 也是(它填的是那段当前高亮的候选)。所以 preview 里「没被吃掉的那部分」
+     * 是**汉字**,不是拼音 —— 拿它的长度当拼音长度,截出来的缓冲当然是错的。
+     * 单音节时答案恰好是对的,所以一路全绿。
+     *
+     * 现在直接问引擎要长度(`GetCurrentStartPosition()`,见 `rime_jni.cpp`),
+     * 那是 composition 里「还没被吃掉的那段」的起点,天然是**输入**坐标。
+     *
+     * ## [selectedWord] 现在只用于埋点
+     *
+     * 它不再参与任何判定 —— 消费长度不再靠减法猜。
      */
     override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
         val s = synchronized(lock) { session }
         if (s == 0L) return null
-        if (!RimeNative.selectCandidate(s, index)) return null
-        val preview = RimeNative.commitTextPreview(s) ?: return null
-        android.util.Log.i(TAG, "consume: preview=\"$preview\" word=\"$selectedWord\"")
-        val unconsumed = unconsumedFromPreview(preview, selectedWord) ?: return null
-        return PinyinConsumption(preview = preview, unconsumed = unconsumed)
+        val consumed = RimeNative.selectCandidate(s, index)
+        if (consumed < 0) return null
+        // 预览**只作埋点**:它就是「按回车会提交什么」,拿来对照能一眼看出缓冲被截错了。
+        val preview = RimeNative.commitTextPreview(s)
+        android.util.Log.i(
+            TAG,
+            "consume: index=$index word=\"$selectedWord\" consumed=$consumed preview=\"$preview\"",
+        )
+        // **<= 0 一律当「说不清」**:整串被 `_auto_commit` 提交掉时 composition 会清空,
+        // 起点报 0。那种情况上层照旧全清,结果与旧行为一致。
+        if (consumed <= 0) return null
+        return PinyinConsumption(consumed = consumed, preview = preview.orEmpty())
     }
 
     /**
@@ -248,74 +267,54 @@ class RimeEngine(private val context: Context) : InputMethod {
 /**
  * 一次选词的「消费」结果。
  *
- * @param preview librime 的 `commit_text_preview` 整串(埋点用)
- * @param unconsumed 剥掉已选词之后、**还没被吃掉**的那部分(引擎坐标:已剥掉 `'`)
- *
- * ## 为什么是 public 而不是 internal
- *
- * 它是 `InputMethod.selectAndRemain` 的返回类型,而那个接口方法是 public ——
- * Kotlin 不允许 public 函数暴露 internal 类型(编译报 "exposes its internal return type")。
- * 同理两个纯函数保持 internal:它们只在模块内被调用。
+ * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:不含 `'`)。
+ *   上层拿它把 `state.raw` 截断 —— 截的是**前缀**,因为 librime 的候选
+ *   永远从当前段起点开始吃(见 [rawAfterConsuming])。
+ * @param preview librime 的 `commit_text_preview` 整串。**只作埋点**:
+ *   它是「按回车会提交什么」的预览,不是「哪些输入被吃掉了」的记录
+ *   (它每段都填候选文字,包括没被选中的那段)—— 拿来算消费会算错。
  */
 data class PinyinConsumption(
+    val consumed: Int,
     val preview: String,
-    val unconsumed: String,
 )
 
 /**
- * 从 `commit_text_preview` 里剥掉刚被选中的那个词,得到**还没被吃掉**的部分。
+ * 丢掉 raw 开头**已经吃掉的那 [consumed] 个字符**,返回剩下的。
  *
- * ## 为什么能这么剥(纯函数,可单测)
+ * ## 为什么截的是前缀而不是后缀
  *
- * librime 的菜单挂在 `composition().back()` 上,而 `script_translator` 产出的
- * 候选**从该段起点一直到输入末尾**(`ScriptTranslation::MakeSentences` 用的是
- * `syllable_graph.interpreted_length`)。所以选中之后:
+ * librime 的候选**永远从当前段起点开始吃**:`Context::Select` 选的是
+ * `composition().back()` 那一段的菜单,那一段的起点就是还没被吃掉的输入的开头。
+ * 选「你」(覆盖 `nihao` 里的 "ni")之后,剩下的是 `"hao"` —— **尾巴**,不是头。
  *
- *     preview = 「没被选走的那几段的原始输入」 + 「刚选中的候选文字」
+ * 上一版(2026-10-05 之前)用的是 `rawPrefixOf`,截的是**前缀**,方向正好反了:
+ * 它只在「被吃掉的正好是最后一段」时才碰巧对。而首选候选覆盖的通常是**开头**
+ * 那一段(`nihao` 的首选是「你好」,但列表里也有只覆盖 "ni" 的「你」),
+ * 所以那条错路在真机上天天走。
  *
- * `nihao` 选「好」⇒ preview = `"ni好"` ⇒ 剥掉末尾的「好」⇒ 剩下 `"ni"`。
- * 单音节 `ni` 选「你」⇒ preview = `"你"` ⇒ 剥完剩 `""` ⇒ 上层照旧清空。
+ * ## 分节符:切点之后的那个要跟着一起丢
  *
- * ## 剥不掉就返回 null
+ * [consumed] 是**引擎坐标**(喂进去之前 `'` 被剥掉了),所以要先数够
+ * [consumed] 个非分节符字符,再把紧跟其后的分节符也吃掉 ——
+ * 它标的是「上一个音节到此为止」,属于**被吃掉的那一段**。
  *
- * 找不到那个词(候选被 formatter 改写过、或换了别的转换链)时**不猜** ——
- * 返回 null 让上层走旧路径(清空整个缓冲)。
- * 留错拼音在缓冲里比清空更糟:用户会以为按键没生效。
+ * ```
+ * "nihao"  吃 2 个 ⇒ "hao"    "ni'hao" 吃 2 个 ⇒ "hao"
+ * "ni'hao" 吃 4 个 ⇒ "o"      "hao"    吃 99 个 ⇒ ""   (宁可全清,不留半个词)
+ * ```
+ *
+ * 中间的分节符要**保留**:它标着「这里是两段」,下一轮 query 靠它定界。
  */
-internal fun unconsumedFromPreview(preview: String, selectedWord: String): String? {
-    if (selectedWord.isEmpty()) return null
-    // 用 **lastIndexOf**:未消费的那部分里若也含同名词,末尾那个才是刚选中的。
-    val at = preview.lastIndexOf(selectedWord)
-    if (at < 0) return null
-    return preview.substring(0, at) + preview.substring(at + selectedWord.length)
-}
-
-/**
- * 把**引擎坐标**(已剥掉 `'` 的串)的前 [n] 个字符,映回带 `'` 的 [raw]。
- *
- * 喂给 librime 之前分节符被剥掉了(`RimeEngine.query`),所以引擎报的长度
- * 与 `state.raw` 的下标对不上 —— 这一步就是那座桥。
- *
- * ## 为什么切在「计数停下的那个下标」而不是「跳过尾部分节符之后」
- *
- * 第一版在后面加了一句「末尾若正好停在分节符上就跳过它」,结果把分节符
- * **包进了返回值**:`rawPrefixOf("ni'hao", 2)` 给出 `"ni'"` 而不是 `"ni"` ——
- * 因为跳过之后 `substring(0, 3)` 又把下标 2 那个分节符包含了回去。
- *
- * 正确做法就是**不做任何额外处理**:数满 n 个非分节符字符时那个下标天然
- * 就落在分节符**之前**,切在那里即可。
- *   n=2 → i=2 → `"ni"`(分节符自然被排除)
- *   n=4 → i=5 → `"ni'ha"`(分节符在中间,该保留)
- *   raw 以分节符结尾时同理:`"ni'"` n=2 → `"ni"`。
- */
-internal fun rawPrefixOf(raw: String, n: Int): String {
-    if (n <= 0) return ""
+internal fun rawAfterConsuming(raw: String, consumed: Int): String {
+    if (consumed <= 0) return raw
     var seen = 0
     var i = 0
-    while (i < raw.length && seen < n) {
+    while (i < raw.length && seen < consumed) {
         if (raw[i] != '\'') seen++
         i++
     }
-    // seen 没数够就说明 raw 本身不够长,此时 i == raw.length,整段保留。
-    return raw.substring(0, i)
+    // 切点正好落在分节符上时,那个分节符是**被吃掉那段**的边界 —— 一起丢。
+    while (i < raw.length && raw[i] == '\'') i++
+    return raw.substring(i)
 }

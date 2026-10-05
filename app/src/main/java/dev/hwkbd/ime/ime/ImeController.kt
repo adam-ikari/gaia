@@ -512,28 +512,41 @@ class ImeController(
         val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
         val c = logical.getOrNull(li) ?: return
 
-        // **先问引擎:这个候选吃掉了多少**(2026-10-04 用户「拼音的消费也要根据实际选词消费,
-        // 不能一次清空」)。
+        // **先问引擎:这个候选吃掉了多少输入字符**(2026-10-04 用户「拼音的消费也要
+        // 根据实际选词消费,不能一次清空」;2026-10-05 修「给引擎的是页内下标」)。
         //
         // 旧路径无条件 `clearComposition()`,那等于**假设一个候选吃掉全部拼音**。
         // 单音节下成立,多段输入下不成立:`ni'hao` 选「你」之后 `hao` 被一起清掉。
         //
-        // 引擎不参与选词 / 剥不出来时(`selectAndRemain` 给 null)照旧全清 —— 行为不变。
-        val sel = inputMethod().selectAndRemain(li, c.word)
+        // ## 下标必须是**全局**的,不是页内的
+        //
+        // [li] 是**当前页内**的下标(0..4),而 librime 的 `Select(index)` 索引的是
+        // **整份菜单**(0..44)。两者只在第 0 页相等 —— 翻到第 2 页按 Shift,
+        // 界面上是 `candidates[13]`,而引擎选的是 `candidates[3]`。
+        //
+        // 症状不是「上屏错字」(上屏用的是我们自己的 [c],永远是对的),而是
+        // **缓冲被截到别的地方**:引擎报的是另一个词吃掉的长度,剩下的拼音就此错位。
+        // 这也解释了为什么第 0 页一切正常、翻页后开始出错。
+        val globalIndex = state.page * state.pageSize + li
+        val sel = inputMethod().selectAndRemain(globalIndex, c.word)
 
-        // 埋点:「选的候选与上屏不一致」时,这一行就是判据(2026-10-05 用户报)。
+        // 埋点:「选的候选与上屏不一致 / 选完缓冲不对」时,这一行就是判据
+        // (2026-10-05 用户报「出现选的候选词和实际上屏不同」时加的)。
         //
         // 上屏与飞字动画用的是**同一个** `c.word`,所以两者不可能互相不同。
-        // 若用户看到「槽里是 A、进去的是 B」,分歧只可能在**更早**:我们这个 `c`
-        // 本身就与 librime 菜单的第 li 项不是同一个词 —— 也就是 `state.candidates`
-        // 与引擎当前 session 不同步。把整条链打出来才能定位是哪一环。
+        // 真正的故障在**更早**:引擎选中的是不是同一个候选(`globalIndex` 那一环),
+        // 以及它吃掉的长度对不对(下一行的 `consumed`)。
+        //
+        // `global` 与 `li` 并排打出来:两者相等就是**在第 0 页**。
+        // 真实故障下会看到 `li=3 global=3`(第 0 页,正常)与 `li=0 global=10`
+        // (翻过页)并存 —— 只看 `li` 永远看不出错。
         android.util.Log.i(
             "ImeService",
-            "select: zone=$displayIndex → li=$li word=\"${c.word}\" " +
+            "select: zone=$displayIndex li=$li global=$globalIndex word=\"${c.word}\" " +
                 "page=${state.page}/${state.totalPages} raw=\"${state.raw}\" " +
                 "order=${state.displayOrder(logical.size).joinToString()} " +
                 "pageWords=${logical.joinToString("|") { it.word }} " +
-                "consumed=${sel?.preview}"
+                "consumed=${sel?.consumed}"
         )
 
         // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
@@ -542,15 +555,16 @@ class ImeController(
         host.commitText(c.word)
         inputMethod().onCommitted(c.word)
 
-        val remaining = sel?.unconsumed
-        if (remaining.isNullOrEmpty()) {
+        val consumed = sel?.consumed
+        if (consumed == null || consumed <= 0) {
             clearComposition()
         } else {
             // **只清吃掉的那部分**:剩下的拼音继续留在缓冲里,可接着打。
             //
-            // 引擎给的长度是**引擎坐标**(喂进去之前 `'` 被剥掉了),
-            // 所以要经 [rawPrefixOf] 映回带分节符的 raw。
-            state.raw = dev.hwkbd.ime.rime.rawPrefixOf(state.raw, remaining.length)
+            // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),
+            // 所以留的是**尾巴**。引擎给的长度是**引擎坐标**(喂进去之前 `'`
+            // 被剥掉了),由 [dev.hwkbd.ime.rime.rawAfterConsuming] 映回带分节符的 raw。
+            state.raw = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
             state.page = 0
             state.highlight = -1
             refreshQuery(from = "选词后剩余")

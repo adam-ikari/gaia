@@ -1,7 +1,6 @@
 package dev.hwkbd.ime.strategy
 
 import dev.hwkbd.ime.rime.PinyinConsumption
-import dev.hwkbd.ime.rime.unconsumedFromPreview
 import dev.hwkbd.ime.engine.Candidate
 import dev.hwkbd.ime.engine.CandidateKind
 
@@ -43,12 +42,19 @@ class FakePinyinInputMethod(
     /** 键是**带音节分隔符**的拼音(与真实词库同格式),值是该键下的候选词。 */
     internal val table: Map<String, List<String>> = emptyMap(),
     /**
-     * [InputMethod.selectAndRemain] 该返回的「剩余拼音」(2026-10-04)。
+     * [InputMethod.selectAndRemain] 该报出的「这个候选吃掉了几个输入字符」。
      *
      * `null` = **不参与选词**(默认)⇒ 调用方走旧路径、全清。这保持了这个替身在
      * 换引擎前后的行为一致,也让「引擎不支持」这条分支有测试可钉。
+     *
+     * ## 为什么是**个数**而不是「剩下的拼音」
+     *
+     * 真引擎给的就是个数(librime 的 `Composition::GetCurrentStartPosition()`),
+     * 而且它数的是**从开头吃掉的**那几个 —— 被吃掉的永远是当前段,也就是输入的**前缀**。
+     * 上一版这个参数写成「还剩什么」,于是「剩 `ni`」被当成了「剩 `hao`」的反面,
+     * 测试验的是一个方向相反的量,绿灯什么也没钉住。
      */
-    internal val remainAfterSelect: String? = null,
+    internal val consumedChars: Int? = null,
     /**
      * [InputMethod.isReady] 的取值(2026-10-04)。默认 true = 已就绪,
      * 与换 librime 之前的行为一致。
@@ -59,20 +65,22 @@ class FakePinyinInputMethod(
     /** 实现 [InputMethod.isReady]。false 时 [query] 给空表,模拟「词库还在部署」。 */
     override val isReady: Boolean get() = ready
 
-    /** 实现 [InputMethod.selectAndRemain]:按 [previewTemplate] 回答,不做真的选词。 */
+    /** 实现 [InputMethod.selectAndRemain]:按 [consumedChars] 回答,不做真的选词。 */
     override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
-        remainAfterSelect ?: return null // 不参与 ⇒ 走旧路径
+        selectedIndexes += index // 断「上层给的是不是全局下标」的那条测试要用
+        val consumed = consumedChars ?: return null // 不参与 ⇒ 走旧路径
+        if (consumed <= 0) return null // 引擎说不清 ⇒ 走旧路径(全清)
         val raw = queried.lastOrNull() ?: return null
         val word = candidatesOf(raw).getOrNull(index) ?: return null
-        // 真引擎那边 preview = 未消费的原始输入 + 刚选中的词(见 unconsumedFromPreview),
-        // 这里照同样的形状拼,好让上层的剥取逻辑被真的跑到。
-        val preview = remainAfterSelect + word
-        val unconsumed = unconsumedFromPreview(preview, selectedWord) ?: return null
-        return PinyinConsumption(preview = preview, unconsumed = unconsumed)
+        // 预览**只作埋点**,不参与判定(真引擎那份也是「按回车会提交什么」)。
+        return PinyinConsumption(consumed = consumed, preview = word)
     }
 
     /** 被问过的所有 `raw`,便于断言「查询传进来的是什么」。 */
     val queried: MutableList<String> = mutableListOf()
+
+    /** 被要求选中的所有**全局**下标(顺序 = 调用顺序),见 [selectAndRemain]。 */
+    val selectedIndexes: MutableList<Int> = mutableListOf()
 
     /** 记录上屏过的词,便于断言 `onCommitted` 的调用。 */
     val committed: MutableList<String> = mutableListOf()
@@ -235,18 +243,18 @@ class FakePinyinInputMethod(
 }
 
 /**
- * 复制一份并设定 [FakePinyinInputMethod] 的「选后剩余拼音」(给「拼音消费」那几条测试用)。
+ * 复制一份并设定 [InputMethod.selectAndRemain] 报出的「吃掉了几个输入字符」。
  *
  * 之所以用「复制」而不是给 `common()` 加参数:`common()` 被大量测试共用,
  * 往签名上加参数会让那些调用点全部变成具名参数 —— 平白噪音。
  *
  * 放在**文件顶层**而不是 companion 里:companion 里的成员扩展函数必须写
- * `FakePinyinInputMethod.withRemainAfterSelect(...)` 才能调,当普通函数用会
+ * `FakePinyinInputMethod.withConsumed(...)` 才能调,当普通函数用会
  * 「Unresolved reference」(踩过一次)。
  */
-fun FakePinyinInputMethod.withRemainAfterSelect(v: String?): FakePinyinInputMethod =
-    FakePinyinInputMethod(id = id, table = table, remainAfterSelect = v)
+fun FakePinyinInputMethod.withConsumed(v: Int?): FakePinyinInputMethod =
+    FakePinyinInputMethod(id = id, table = table, consumedChars = v)
 
-/** 复制一份并设定「是否就绪」(给候选行闪烁那几条测试用)。见 [withRemainAfterSelect] 的理由。 */
+/** 复制一份并设定「是否就绪」(给候选行闪烁那几条测试用)。见 [withConsumed] 的理由。 */
 fun FakePinyinInputMethod.withReady(v: Boolean): FakePinyinInputMethod =
-    FakePinyinInputMethod(id = id, table = table, remainAfterSelect = remainAfterSelect, ready = v)
+    FakePinyinInputMethod(id = id, table = table, consumedChars = consumedChars, ready = v)

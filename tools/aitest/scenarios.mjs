@@ -56,20 +56,33 @@ export const scenarios = [
   },
 
   {
-    // 「拼音消费按实际选词消费」的真引擎验证(2026-10-04)。
+    // 「拼音消费按实际选词消费」的真引擎验证。
     //
-    // 之前两版都没能证明它生效:v0.7.7 读 `get_commit`(恒 null,整条路径是死代码),
-    // 而单测用的替身压根不走引擎 ⇒ 全绿。
+    // ## 这个场景是 2026-10-05 那个真机 bug 的判据
     //
-    // ## 可观测的差别
+    // 上一版只断言「窗口还在」—— 那条在 bug 存在时**照样是绿的**:
+    // 缓冲被截成 `n` 之后组词仍在进行,窗口当然还在。
+    // 「还在」只区分了「全清」与「没全清」,**分不出「截对了」与「截错了」**。
     //
-    // 输入 `nihao` 选中一个候选之后:
-    //   - 消费生效 ⇒ `state.raw` 变成 `ni`,**组词缓冲还在**、输入法窗口还在;
-    //   - 没生效   ⇒ `state.raw` 清空,组词结束。
-    // 飞字动画期间窗口也在,所以断言前要等它飞完(与其它场景同样 900ms)。
+    // 真机日志实测(修之前):
+    //     consume: preview="你好" word="你"
+    //     query#18 from=选词后剩余 raw="n"      ← 应该是 "hao"
+    // `nihao` 选「你」(只覆盖 `ni`)⇒ 吃掉 2 个字符 ⇒ 剩 `hao`。
+    // `n` 是把 preview 里那个**汉字**的长度当成了拼音长度。
     //
-    // 顺带把 `consume:` 那行日志抓出来 —— 它打的是 librime 真实返回的
-    // `commit_text_preview`,能直接看出「未消费 + 已选词」这个形状成立与否。
+    // ## 断言写成关系式,不钉死某个词
+    //
+    // 剩下的是「原 raw 去掉开头 consumed 个字母」—— 这条对**任何**部分消费都成立。
+    // 「槽 0 恰好是那个只覆盖 ni 的词」依赖词库与用户词频、会漂,钉死 `hao`
+    // 就会变成一条**测词库**的断言:词频一变它就红,而功能其实没坏。
+    // 关系式则三种坏法各被抓一处(全清 / 拿汉字长度当拼音长度 / 截错方向),
+    // 且与具体是哪个词无关。
+    //
+    // 触发方式用 Shift(显示槽 0)。注意槽 0 在页内是第 4 个逻辑候选,
+    // 而「你」恰好只覆盖 `ni` —— 所以这个组合稳定地产生「部分消费」,
+    // 也就是 bug 唯一会露头的那条路。
+    //
+    // 飞字动画期间窗口也在,断言前等它飞完(与其它场景同样 900ms)。
     name: 'consume-partial',
     desc: '选完候选后剩下的拼音留在缓冲里',
     steps: [
@@ -79,19 +92,96 @@ export const scenarios = [
         await sleep(1200)
         c.shot('composing-nihao')
         c.expect(c.device.imeShown(), '组词中输入法窗口显示')
-        // 选第 0 槽(Shift = 选首位)
-        c.device.key(K.shift)
+        c.device.key(K.shift) // 显示槽 0
         await sleep(900)
-        const log = c.device.takeLog('consume: .*')
+        const log = c.device.takeLog('(consume|select|选词后剩余): .*')
         c.shot('after-select')
+        // ① 引擎报出「吃掉了几个**输入**字符」。
         c.expect(
-          /consume: preview="[^"]+"/.test(log),
-          `应打出 commit_text_preview(实际日志: ${JSON.stringify(log.slice(0, 200))})`,
+          /consume: .*consumed=[1-9]/.test(log),
+          `应打出非零的 consumed(实际日志: ${JSON.stringify(log.slice(0, 300))})`,
         )
-        c.expect(
-          c.device.imeShown(),
-          '选完仍有组词缓冲 ⇒ 输入法窗口应还在(若消失说明消费把拼音全清了)',
-        )
+        // ② 决定性的那条:**剩下的 raw 必须正好是「原 raw 去掉开头 consumed 个字母」**。
+        //
+        //   写成关系式而不是钉死 "hao",是因为「槽 0 恰好是那个只覆盖 ni 的词」
+        //   依赖词库与用户词频、会漂。关系式对**任何**部分消费都成立,
+        //   而三种坏法各被抓一处:
+        //     · 全清(旧行为)        → raw_after 为空,而 consumed < len ⇒ 红
+        //     · 把汉字长度当拼音长度  → raw_after 对不上 tail      ⇒ 红
+        //     · 截错方向(留前缀)    → raw_after 对不上 tail      ⇒ 红
+        const sel = /select: zone=\d+ li=\d+ global=\d+ word="[^"]*" page=\d+\/\d+ raw="([^"]*)"/.exec(log)
+        const consumed = Number(/consume: .*consumed=(-?\d+)/.exec(log)?.[1] ?? -1)
+        const after = /选词后剩余 raw="([^"]*)"/.exec(log)?.[1]
+        c.expect(!!sel, `应打出 select 埋点(含 raw)(实际: ${JSON.stringify(log.slice(0, 300))})`)
+        c.expect(after !== undefined, `应打出「选词后剩余」那行(实际: ${JSON.stringify(log.slice(0, 300))})`)
+        if (sel && after !== undefined && consumed > 0) {
+          const before = sel[1]
+          c.expect(
+            consumed < before.length,
+            `本用例要求**部分**消费(consumed=${consumed} 应小于 raw 长度 ${before.length};相等就说明整串被吃掉了)`,
+          )
+          c.expect(
+            after === before.slice(consumed),
+            `剩下的拼音应是「原 raw 去掉开头 ${consumed} 个字母」= ${JSON.stringify(before.slice(consumed))},实际 ${JSON.stringify(after)}`,
+          )
+        }
+        // ③ 组词缓冲还在 ⇒ 输入法窗口也还在。
+        c.expect(c.device.imeShown(), '选完仍有组词缓冲 ⇒ 输入法窗口应还在')
+      },
+    ],
+  },
+
+  {
+    // 「翻页后选的候选与上屏的不一致」—— 2026-10-05 用户报障的那个 bug。
+    //
+    // ## 为什么第 0 页永远验不出来
+    //
+    // 上屏用的是我们自己的候选表(`state.candidates`),界面显示的也是它 ——
+    // 所以**上屏的字从来不会错**。错的是给引擎的**下标**:
+    // 状态机传的是**页内**下标(0..4),而 librime 的 `Select(index)` 索引的是
+    // **整份菜单**(0..44)。两者只在第 0 页相等。
+    //
+    // 症状因此是「翻过页之后**选完缓冲不对**」,而不是「上错字」——
+    // 引擎报回的是**另一个词**吃掉的长度,剩下的拼音从此错位。
+    //
+    // ## 判据是 `global=` 那一段
+    //
+    // `select: … li=N global=M`,`M` 必须等于 `N + page * 5`。
+    // 修之前打的是 `li=N`(压根没有 global 这个字段),所以这条必红。
+    // 纯文本断言,不依赖任何截图。
+    name: 'select-global-index',
+    desc: '翻页后给引擎的仍是全局下标',
+    steps: [
+      async (c) => {
+        // `ni` 前缀命中 6 个候选 ⇒ 2 页,够翻。第 1 页(第二页)只剩 1 个。
+        c.device.key(K.n, K.i)
+        await sleep(900)
+        c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
+        c.device.shell('logcat -c')
+        // 右箭头翻到第 2 页。两次都按是为了确认**到头会停住**(不循环),
+        // 那条夹取逻辑也是这条路径的一部分。
+        c.device.key(22) // KEYCODE_DPAD_RIGHT
+        await sleep(500)
+        c.device.key(22)
+        await sleep(500)
+        c.expectLog(c.device.takeLog('page |updateSelection'), 'updateSelection')
+        c.device.shell('logcat -c')
+        c.device.key(K.space) // 显示槽 2 = 那一页的首选
+        await sleep(900)
+        const log = c.device.takeLog('select: zone=.*')
+        c.shot('after-paged-select')
+        const m = /select: zone=(\d+) li=(\d+) global=(\d+) .*?page=(\d+)\//.exec(log)
+        c.expect(m, `应打出 select 埋点(含 li/global/page)(实际: ${JSON.stringify(log.slice(0, 300))})`)
+        if (m) {
+          const [, , li, global, page] = m
+          const p = Number(page)
+          // 页内下标 li 加上页偏移,才是引擎菜单里的下标。
+          const want = Number(li) + p * 5
+          c.expect(Number(global) === want, `global 应等于 li + 页号×页宽 = ${want},实际 ${global}(page=${p})`)
+          c.expect(p > 0, `本用例需要翻过页才验得出(实际 page=${p})`)
+        }
+        c.device.key(K.del, K.del) // 清掉选词留下的字
+        await sleep(300)
       },
     ],
   },

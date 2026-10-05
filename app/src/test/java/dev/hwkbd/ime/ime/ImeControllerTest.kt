@@ -13,7 +13,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import dev.hwkbd.ime.strategy.withRemainAfterSelect
+import dev.hwkbd.ime.strategy.withConsumed
 import dev.hwkbd.ime.strategy.withReady
 import dev.hwkbd.ime.strategy.PinyinInputMethod
 
@@ -84,7 +84,8 @@ class ImeControllerTest {
 
     private fun rig(
         pageSize: Int = 5,
-        remainAfterSelect: String? = null,
+        /** 引擎报「这个候选吃掉了几个输入字符」;null = 不参与选词(走旧路径全清)。 */
+        consumed: Int? = null,
         engineReady: Boolean = true,
     ): Rig {
         // 用 [FakePinyinInputMethod] 而不是真引擎(2026-10-03 换 librime):
@@ -93,7 +94,7 @@ class ImeControllerTest {
         val h = RecHost()
         // 注册表 = 出厂语言/表现 + 拼音输入法(加语言/输入法走注册,不改状态机)
         val engine = FakePinyinInputMethod.common()
-            .withRemainAfterSelect(remainAfterSelect)
+            .withConsumed(consumed)
             .withReady(engineReady)
         // **注册的是装饰器**,和 `ImeService.kt:162` 的生产写法一样
         // (`registerMethod(PinyinInputMethod(rime))`)。
@@ -376,32 +377,38 @@ class ImeControllerTest {
     // ---------------- 拼音消费(2026-10-04 用户「按实际选词消费,不能一次清空」)
 
     /**
-     * 引擎说「还剩 `hao`」时,**不能**把 `hao` 一起清掉。
+     * 引擎说「这个候选吃掉了 2 个字符」时,缓冲**只能**剩后三个。
      *
      * 旧实现无条件 `clearComposition()`,等于假设一个候选吃掉全部拼音 ——
-     * 单音节成立,`ni'hao` 选「你」之后 `hao` 被清掉,用户白打。
+     * 单音节成立,`nihao` 选「你」之后 `hao` 被清掉,用户白打。
+     *
+     * 2026-10-05:这一条此前**验的是反方向的量**(「还剩什么」而不是「吃掉几个」),
+     * 所以真机上 `nihao` 选「你」把缓冲截成 `n` 时它是绿的。
      */
     @Test
     fun `只清候选实际吃掉的那部分 剩下的拼音留着`() {
-        // 照**真实形状**给替身:librime 一次吃掉最后一段,前面原样留下。
-        // 上一版这里让替身返回的剩余比喂进去的还长(`raw="ni"` 却说剩 `"hao"`),
-        // 那条断言其实在验一个不可能发生的情形 —— 引擎不可能报出比输入还多的剩余。
-        val r = rig(remainAfterSelect = "ni")
+        val r = rig(consumed = 2) // 引擎说「你」只覆盖 ni
         r.type("nihao")
         val before = r.c.state.candidates
         r.c.selectCandidate(2)
         assertEquals("只应上屏一个词", 1, r.h.commits.size)
-        assertEquals("剩下的拼音应留在缓冲里", "ni", r.c.state.raw)
+        // 被吃掉的是**开头**那两个字符 ⇒ 留的是**尾巴** hao,不是 n 也不是 ni。
+        assertEquals("剩下的拼音应留在缓冲里", "hao", r.c.state.raw)
         assertTrue("应按剩下的拼音重新查到候选", r.c.state.candidates.isNotEmpty())
         // 消息里**不要用 ASCII 双引号** —— 它会提前结束 Kotlin 字符串字面量,
         // 编译报「Unresolved reference」指向消息里那个词,看着像别处坏了。
-        assertTrue("候选应换了(按「ni」而不是按「nihao」)", r.c.state.candidates != before)
+        assertTrue("候选应换了(按 hao 而不是按 nihao)", r.c.state.candidates != before)
     }
 
-    /** 引擎说「全吃完了」时照旧清空 —— 单音节输入的常态,行为不能变。 */
+    /**
+     * 引擎说「全吃完了」时照旧清空 —— 单音节输入的常态,行为不能变。
+     *
+     * librime 一次吃掉整串时 `consumed` 等于整个 raw 的长度,
+     * 截断的结果是空串,与旧路径同一结果。
+     */
     @Test
     fun `引擎说吃完时 照旧清空整个缓冲`() {
-        val r = rig(remainAfterSelect = null)
+        val r = rig(consumed = null)
         r.type("ni")
         r.c.selectCandidate(2)
         assertEquals(listOf("你"), r.h.commits)
@@ -412,11 +419,39 @@ class ImeControllerTest {
     /** 引擎不参与选词时(`selectAndRemain` 给 null)也走旧路径 —— 加法式接口的保证。 */
     @Test
     fun `引擎不参与选词时 行为与旧版一致`() {
-        val r = rig(remainAfterSelect = null)
+        val r = rig(consumed = null)
         r.type("ni")
         r.c.selectCandidate(2)
         assertEquals(listOf("你"), r.h.commits)
         assertEquals("", r.c.state.raw)
+    }
+
+    /**
+     * 给引擎的必须是**全局下标**,不是页内下标(2026-10-05 修)。
+     *
+     * 候选栏按 5 个一页分显示,而引擎手里的菜单是**一整份**。传页内下标的话,
+     * 翻到第 2 页按空格,界面上是 `candidates[10]`、引擎选的是 `candidates[0]`。
+     *
+     * 上屏的字不受影响(用的是我们自己那份候选表),所以症状不是「上错字」,
+     * 而是**引擎报回另一个词吃掉的长度** ⇒ 缓冲被截到错位置。
+     * 而且**只在翻过页之后出现**,第 0 页一切正常 —— 最难自查的那种。
+     *
+     * 用 `ni` 而不是 `nihao`:替身那张表里 `nihao` 精确只中「你好」一个词(两页都不到),
+     * 而 `ni` 靠前缀命中能出 6 个 —— 够翻到第 2 页。
+     */
+    @Test
+    fun `翻页后给引擎的仍是全局下标`() {
+        val r = rig(consumed = 1) // 只吃掉开头一个字符 ⇒ raw 留 i,后面还能验截断
+        r.type("ni") // 6 个候选 ⇒ 2 页
+        assertEquals(2, r.c.state.totalPages)
+        val lastPage = r.c.state.currentPageLogical() // 第 0 页那一页
+        assertTrue("第 0 页该是满页", lastPage.size == 5)
+        r.c.pageStep(1) // 翻到第 2 页:只剩 1 个词,显示位 2 映射到页内 0 ⇒ 全局 5
+        val secondPageWord = r.c.state.currentPageLogical()[0].word
+        r.c.selectCandidate(2)
+        assertEquals("引擎该收到全局下标", listOf(5), r.method.selectedIndexes)
+        assertEquals("上屏的应是第 2 页那一个词", listOf(secondPageWord), r.h.commits)
+        assertEquals("吃掉开头一个字符后应留 i", "i", r.c.state.raw)
     }
 
     // ---------------- 选字的表现回调(2026-10-02 用户「按键选词也需要飞字动画」)

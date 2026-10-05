@@ -1,99 +1,119 @@
 package dev.hwkbd.ime.rime
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * 「按实际选词消费」的两个纯函数。
+ * 「按实际选词消费」里唯一的那个纯函数。
  *
- * 这条链路上一版**一次都没生效**却看不出来:引擎层读错了字段
- * (`get_commit` 恒 null),而单测用的替身压根没走引擎 ⇒ 全绿。
- * 所以这里把「剥取」与「坐标映射」的每一步都单独钉住。
+ * ## 为什么这里从「剥取」改成了「截断」
+ *
+ * 上一版有两个纯函数:[unconsumedFromPreview](从 `commit_text_preview` 里把刚选中的词
+ * 减掉)与 [rawPrefixOf](把引擎坐标映回 `raw`)。**两个的模型都是错的**,而且错在
+ * 真机上天天走的那条路上 —— 2026-10-05 的 CI 日志(真引擎,`nihao` 选第 4 个候选「你」):
+ *
+ * ```
+ * consume: preview="你好" word="你"
+ * query#18 from=选词后剩余 raw="n"
+ * ```
+ *
+ * 「你」只覆盖 `ni`,吃掉 2 个字符,缓冲**应该是 `hao`**,却变成了 `n`。
+ *
+ * 两处错:
+ * 1. `commit_text_preview` 里「没被吃掉的那部分」是**汉字**(那段当前高亮的候选),
+ *    不是拼音。拿它的长度(1)当拼音长度,就把 5 个字符的缓冲截成了 1 个。
+ * 2. 方向也反了 —— librime 的候选永远从当前段起点开始吃,也就是吃**前缀**,
+ *    留的是**尾巴**。[rawPrefixOf] 截的却是前缀。
+ *
+ * 现在只剩一个函数 [rawAfterConsuming],输入是引擎给的**个数**,输出是剩下的 `raw`。
+ * 没有减法、没有猜测,所以「单音节恰好对」的那种巧合也一并没了。
  */
 class PinyinConsumptionTest {
 
-    // ---------------- unconsumedFromPreview
+    // ---------------- rawAfterConsuming
 
     /**
-     * `nihao` 选「好」:preview = `"ni好"` ⇒ 剥掉末尾的「好」⇒ 剩下 `"ni"`。
+     * **这条就是 2026-10-05 那个真机 bug 的钉子。**
      *
-     * 这是整条链路的**核心断言**:preview 里末尾那个词就是刚被吃掉的,
-     * 其余是没被吃掉的(证据见 unconsumedFromPreview 的 KDoc)。
+     * `nihao` 选「你」(只覆盖 `ni`)⇒ 吃掉 2 个字符 ⇒ 剩 `hao`。
+     * 旧实现给的是 `n`。
      */
     @Test
-    fun `剥掉末尾的已选词 就是没被吃掉的部分`() {
-        assertEquals("ni", unconsumedFromPreview("ni好", "好"))
+    fun `吃掉开头两个字符 剩下的是尾巴`() {
+        assertEquals("hao", rawAfterConsuming("nihao", 2))
     }
 
-    /** 单音节:全部被吃掉 ⇒ 剩空串。空串是合法结果(上层据此清空)。 */
+    /** 吃掉全部 ⇒ 空串(上层据此清空)。空串是合法结果,不是「说不清」。 */
     @Test
-    fun `单音节剥完是空串`() {
-        assertEquals("", unconsumedFromPreview("你", "你"))
-    }
-
-    /**
-     * 用 `lastIndexOf`:未消费的部分里若也含同名词,**末尾**那个才是刚选中的。
-     *
-     * 例:raw = `hao`,选中「好」,而未消费部分末尾也恰好是「好」——
-     * 取第一个会把该留的吃掉。
-     */
-    @Test
-    fun `同名词出现两次时剥末尾那个`() {
-        assertEquals("好", unconsumedFromPreview("好好", "好"))
-    }
-
-    /** 剥不出来就返回 null —— 上层据此走旧路径。留错拼音比清空更糟。 */
-    @Test
-    fun `剥不出那个词就给 null 不猜`() {
-        assertNull(unconsumedFromPreview("ni", "好"))
-    }
-
-    @Test
-    fun `候选为空串时也给 null`() {
-        assertNull(unconsumedFromPreview("ni", ""))
-    }
-
-    // ---------------- rawPrefixOf
-
-    /** 无分节符时就是前 n 个字符。 */
-    @Test
-    fun `无分节符就是前 n 个字符`() {
-        assertEquals("ni", rawPrefixOf("nihao", 2))
+    fun `全吃掉得空串`() {
+        assertEquals("", rawAfterConsuming("nihao", 5))
     }
 
     /**
-     * 引擎坐标**不含**分节符,所以 n=2 在 `ni'hao` 里要取到 `ni` 而不是 `ni'`。
+     * **方向**:截的是**前缀**,留的是**尾巴**。
      *
-     * 这正是 v0.7.7 那版的隐雷:长度直接当 raw 下标用,带分节符时必错位。
+     * 这是最容易写反的一步 —— 上屏的词来自 `nihao` 的**开头**那一段,
+     * 所以被吃掉的一定在开头。反过来截会得到 `nih`,缓冲从此与用户敲的拼音不符。
      */
     @Test
-    fun `带分节符时末尾的分节符要一并去掉`() {
-        assertEquals("ni", rawPrefixOf("ni'hao", 2))
+    fun `截的是前缀不是后缀`() {
+        assertEquals("ao", rawAfterConsuming("nihao", 3))
+        assertEquals("o", rawAfterConsuming("nihao", 4))
     }
 
+    /** `consumed <= 0`:引擎说不清(整串被自动提交掉时就是这个值)⇒ 原样返回。 */
     @Test
-    fun `分节符在中间时只数非分节符`() {
-        // raw = "ni'hao" 的非分节符序列是 "nihao";n=4 ⇒ 留下 "niha",
-        // 在 raw 坐标里就是下标 0..4(含中间那个分节符)= "ni'ha"。
-        // **中间的分节符要保留** —— 它标着「这里是两段」,下一轮 query 靠它定界。
-        assertEquals("ni'ha", rawPrefixOf("ni'hao", 4))
+    fun `consumed 非正数时原样返回`() {
+        assertEquals("nihao", rawAfterConsuming("nihao", 0))
+        assertEquals("nihao", rawAfterConsuming("nihao", -2))
     }
 
-    /** raw 以分节符结尾时,那个分节符不留下(它是刚被吃掉那段留下的边界)。 */
+    /**
+     * `consumed` 超过 raw 的长度 ⇒ 空串。
+     *
+     * 宁可全清,也不能留半个词:留 `"ni"` 那样用户会以为按键没生效。
+     */
     @Test
-    fun `raw 以分节符结尾时那个分节符不留下`() {
-        assertEquals("ni", rawPrefixOf("ni'", 2))
+    fun `consumed 超过长度时给空串`() {
+        assertEquals("", rawAfterConsuming("nihao", 99))
+        assertEquals("", rawAfterConsuming("ni", 5))
     }
 
+    // ---------------- 分节符的坐标桥
+
+    /**
+     * [consumed] 是**引擎坐标**:喂给 librime 之前 `'` 被剥掉了。
+     * 所以 `ni'hao` 吃 2 个字符,切点落在下标 2 —— 那正好是一个分节符。
+     */
     @Test
-    fun `n 为 0 或负数得空串`() {
-        assertEquals("", rawPrefixOf("ni'hao", 0))
-        assertEquals("", rawPrefixOf("ni'hao", -3))
+    fun `切点正好落在分节符上时那个分节符一起丢`() {
+        // 「那个分节符标着上一个音节到此为止」——它属于**被吃掉**的那一段。
+        // 留着会得到 "'hao",下一次 query 拿到的是以分节符开头的串。
+        assertEquals("hao", rawAfterConsuming("ni'hao", 2))
     }
 
+    /** 中间的分节符要**保留** —— 它标着「这里是两段」,下一轮 query 靠它定界。 */
     @Test
-    fun `n 超过长度时给整个 raw`() {
-        assertEquals("ni'hao", rawPrefixOf("ni'hao", 99))
+    fun `中间的分节符保留`() {
+        // "ni'ha'o" 吃掉 ni'ha 四个字符 ⇒ 只剩 o,前面那个分节符已被吃掉。
+        assertEquals("o", rawAfterConsuming("ni'ha'o", 4))
+    }
+
+    /** raw 以分节符结尾时,吃掉前面全部音节 ⇒ 空串。 */
+    @Test
+    fun `raw 以分节符结尾且全吃掉`() {
+        assertEquals("", rawAfterConsuming("ni'", 2))
+    }
+
+    /** 连续分节符:`PinyinInputMethod.normalize` 会把它们并成一个,这里也不该留半个。 */
+    @Test
+    fun `切点后的连续分节符一起丢`() {
+        assertEquals("hao", rawAfterConsuming("ni''hao", 2))
+    }
+
+    /** 空 raw 无从截断,给空串。 */
+    @Test
+    fun `空 raw 给空串`() {
+        assertEquals("", rawAfterConsuming("", 2))
     }
 }

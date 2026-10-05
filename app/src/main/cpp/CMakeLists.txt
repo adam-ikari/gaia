@@ -190,7 +190,21 @@ add_subdirectory(${RIME_SRC} librime_build EXCLUDE_FROM_ALL)
 # 三个依赖是"使用它但不产生依赖"(r → dl, m → c, sqlite → dl/pthread)。
 add_library(rime_jni SHARED rime_jni.cpp)
 
-target_include_directories(rime_jni PRIVATE ${RIME_SRC}/src)
+# librime 的头文件分两处:
+#   ${RIME_SRC}/src          源码树里的头
+#   ${CMAKE_BINARY_DIR}/librime_build/src   **生成**的头(build_config.h 在这儿)
+#
+# 第二条是 2026-10-05 加的:`rime_jni.cpp` 为了拿「这个候选吃掉了几个输入字符」
+# 直接用了 librime 的 C++ API(`Composition::GetCurrentStartPosition()`,
+# `RimeApi` 表里没有这一项)。而 `rime/common.h` 无条件 `#include <rime/build_config.h>`
+# —— 那个文件是 librime 自己 configure 时生成的,不在源码树里,只加 ${RIME_SRC}/src
+# 会在编译期报 `'rime/build_config.h' file not found`。
+#
+# 二进制目录名必须与上面 `add_subdirectory(... librime_build)` 的那个**一致**。
+target_include_directories(rime_jni PRIVATE
+    ${RIME_SRC}/src
+    ${CMAKE_BINARY_DIR}/librime_build/src)
+
 target_link_libraries(rime_jni
     rime-static
     ${DEPS_STAGE}/lib/libyaml-cpp.a

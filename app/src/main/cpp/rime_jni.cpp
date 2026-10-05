@@ -25,6 +25,13 @@
 
 #include "rime_api.h"
 
+// 「这个候选吃掉了几个输入字符」只能从 C++ 侧拿,`RimeApi` 表里没有这一项(见
+// nativeSelectCandidate 的注释)。librime 是**静态链接**进来的(见 CMakeLists.txt),
+// 它的头文件与实现都在同一个 so 里,所以这里可以直接用 C++ API。
+#include <rime/service.h>   // Service::instance() / Session::context()
+#include <rime/context.h>   // Context::composition()
+#include <rime/composition.h>  // Composition::GetCurrentStartPosition()
+
 namespace {
 
 const RimeApi* api() {
@@ -288,37 +295,87 @@ JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCompositionLengt
   return ctx.composition.length;
 }
 
-/** 上屏指定序号的候选(按 0 起算,对应 `nativeCandidates` 的下标)。 */
-JNIEXPORT jboolean JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeSelectCandidate(
+/**
+ * 上屏第 [index] 个候选,返回**这次选词吃掉了几个输入字符**。
+ *
+ * [index] 是**菜单里的全局下标**(对应 `nativeCandidates` 的下标),不是页内下标。
+ *
+ * ## 为什么返回值是「吃掉几个输入字符」,而不是「剩下的文本」
+ *
+ * 上一版这里返回 `Bool`,由上层拿 `commit_text_preview` 去减 —— **那条路是错的**,
+ * 而且是那种「跑得通、看着有模有样、结果全错」的错误。2026-10-05 真机日志实测:
+ *
+ *     raw="nihao"  选中第 4 个候选「你」(它只覆盖 "ni")
+ *     commit_text_preview = "你好"
+ *     ⇒ 上层剥掉「你」得到「好」,把「好」的长度 1 当成拼音长度
+ *       ⇒ 缓冲从 "nihao" 变成 "n"(应该是 "hao")
+ *
+ * 错在 `Composition::GetCommitText()`(src/rime/composition.cc):
+ *
+ * ```cpp
+ * for (const Segment& seg : *this) {
+ *   if (auto cand = seg.GetSelectedCandidate()) { result += cand->text(); }
+ *   else { result += input_.substr(seg.start, seg.end - seg.start); }  // 几乎走不到
+ * }
+ * ```
+ *
+ * 那个 `else` 分支要 `GetSelectedCandidate()` 返回 nullptr 才进得去,而
+ * `Segment::selected_index` **默认值就是 0**(src/rime/segmentation.h),
+ * 于是**任何一个有菜单的段都会返回它的第 0 个候选**,永远不会 nullptr。
+ *
+ * ⇒ `commit_text_preview` 是**「现在按回车会提交什么」的预览**(每段都填候选文字),
+ *   根本不是「哪些输入被吃掉了」的记录。拿它反推长度必然错,
+ *   而且错得没有任何征兆:单音节时答案恰好是对的。
+ *
+ * ## 正确的来源:composition 当前段的起点
+ *
+ * `Select` 之后 librime 会走 `ConcreteEngine::OnSelect` → `composition().Forward()`,
+ * **追加一个起点 = 刚被吃掉那段末尾的空段**。于是
+ * `Composition::GetCurrentStartPosition()`(就是 `back().start`)就是被吃掉的输入长度:
+ *
+ * - 选「你」(覆盖 "ni")⇒ 当前段从下标 2 起 ⇒ 返回 2 ⇒ 剩 "hao"
+ * - 选「你好」(覆盖全部)⇒ 空段起点 5 ⇒ 返回 5 ⇒ 剩 ""
+ *
+ * 全吃干净时若 `_auto_commit` 打开,composition 会被清空,此时起点是 0 ——
+ * 上层把「<= 0」一律当「说不清,照旧全清」,结果与旧行为一致。
+ *
+ * @return 被吃掉的输入字符数(>= 0);**-1 = 没选成**(index 越界 / 没 session)
+ */
+JNIEXPORT jint JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeSelectCandidate(
     JNIEnv*, jobject, jlong session, jint index) {
   const RimeApi* a = api();
-  if (!a || !a->select_candidate || !session || index < 0) return JNI_FALSE;
-  return a->select_candidate(static_cast<RimeSessionId>(session), static_cast<size_t>(index))
-             ? JNI_TRUE
-             : JNI_FALSE;
+  if (!a || !a->select_candidate || !session || index < 0) return -1;
+  auto sid = static_cast<RimeSessionId>(session);
+  if (!a->select_candidate(sid, static_cast<size_t>(index))) return -1;
+
+  rime::an<rime::Session> s = rime::Service::instance().GetSession(sid);
+  if (!s) return -1;
+  rime::Context* ctx = s->context();
+  if (!ctx) return -1;
+  return static_cast<jint>(ctx->composition().GetCurrentStartPosition());
 }
 
 /**
- * 选出候选之后的 **`commit_text_preview`**(2026-10-04 修:上一版取错了字段)。
+ * 选出候选之后的 `commit_text_preview` —— **只用于埋点,不能用来算消费**。
  *
- * ## 上一版为什么一次都没生效
+ * ## 它是什么
  *
- * 上一版读的是 `composition.preedit`,**那个字段也给不出「剩下的拼音」**:
- * librime 的 `OnSelect`(src/rime/engine.cc)在段尾时走的是
- * `composition().Forward()` 而不是 `Commit()`,所以 commit 队列里什么都没有 ——
- * 于是 `RimeNative.commit()` 恒为 null,整条「按段消费」路径**一次都没走到**。
- * 用户看到的仍然是「一次清空」。
+ * `Composition::GetCommitText()` 的产物:**「现在按回车会提交什么」的预览** ——
+ * 每个段都填**候选文字**,连还没被选中的段也是(见上面 `nativeSelectCandidate`
+ * 里 `selected_index` 默认 0 那段分析)。
  *
- * 而且即便 commit 队列有东西,`preedit` 也不是答案:它是
- * `Composition::GetPreedit()`,对**已确认**的段会填**候选文字**。
- * `nihao` 选「好」之后 preedit 是 `"ni好"` —— 里面已经混进了被吃掉的那段。
+ * `nihao` 选「你」(只覆盖 "ni")之后它是 `"你好"`:
+ * 「你」是被吃掉的那段的候选文字,「好」是**剩下那段当前高亮的候选**。
  *
- * ## 正确的来源是 `commit_text_preview`
+ * ## 为什么不能拿它反推「还剩多少拼音」
  *
- * `Composition::GetCommitText()` 逐段走:已选中的段填**候选文字**,
- * 没选中的段填**原始输入**。所以 `nihao` 选「好」之后它是 `"ni好"` ——
- * **末尾那个词就是刚被吃掉的,其余就是没被吃掉的**。
- * 上层拿已知的候选词把那段剥掉即可(见 `unconsumedFromPreview`)。
+ * 上一版(2026-10-04)的整条「按段消费」就是靠它:把刚选中的词从 preview 里剥掉,
+ * 剩下的当拼音。**这个假设是错的** —— 剩下的那部分是**汉字**,不是拼音,
+ * 拿它的长度当拼音长度就会把缓冲截到错误的位置(实测 `nihao` → `n`,见上)。
+ *
+ * 真正的答案在 `nativeSelectCandidate` 的返回值里。这个入口留着是因为
+ * 它是**唯一能一眼看出「引擎认为的整串是什么」的字段** ——
+ * 上面那个 bug 正是靠对比它与 `select:` 那行埋点才定位到的。
  *
  * ## 为什么这个字段一定被填上
  *
