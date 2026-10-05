@@ -1,6 +1,7 @@
 package dev.hwkbd.ime.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -334,5 +335,47 @@ class PageSettleTest {
         // ζ=1 是所有不过冲曲线里**最慢**的一条 —— 这正是「弹性太强」的根因(见 brain
         // 的 spring-damping-direction)。翻页提交要的是冲量,收回要的是"赶紧回去"。
         assertTrue(SpringSpec.PAGE_ROLLBACK.dampingRatio != 1f)
+    }
+
+    // ---------------- 拖动中途反向的镜像闩锁(2026-10-04 真机报「滑動還是過沖」)
+
+    /**
+     * 位移只有几 px 时**不许镜像** —— 那会让画面一帧跳将近整页。
+     *
+     * 手指在 `downX` 附近抖 5px:`pageSlide` 5 → 镜像 → `full - 5` = 1435。
+     * 屏幕上读作「翻页反复回弹好几次」,而这发生在**拖动阶段**,
+     * 弹簧还没起跑,所以调阻尼比完全没用。
+     */
+    @Test
+    fun `位移没到提交距离时反向不镜像`() {
+        assertFalse(
+            "位移 5px、提交线 8px 时镜像就是跳一整页",
+            allowPageMirror(pageSlide = 5f, commitPx = 8f, mirrored = false),
+        )
+    }
+
+    /** 位移已过提交线 ⇒ 允许镜像(那是「改主意了」,镜像保住画面连续)。 */
+    @Test
+    fun `位移过了提交距离 允许镜像一次`() {
+        assertTrue(allowPageMirror(pageSlide = 300f, commitPx = 8f, mirrored = false))
+    }
+
+    /**
+     * 一次手势**只镜像一次**。
+     *
+     * 镜像后 `pageSlide` 变大,再反向就又满足「过了提交线」——
+     * 没有闩锁就会在 `p` 与 `full - p` 之间来回,正是那个「反覆回弹」。
+     */
+    @Test
+    fun `一次手势只镜像一次`() {
+        assertFalse("镜像过之后不许再镜像", allowPageMirror(pageSlide = 300f, commitPx = 8f, mirrored = true))
+        assertFalse("镜像过之后即使位移很大也不许再镜像", allowPageMirror(pageSlide = 1400f, commitPx = 8f, mirrored = true))
+    }
+
+    /** 边界:正好等于提交线算「没过」(位移刚到提交线,镜像的语义还不成立)。 */
+    @Test
+    fun `正好等于提交线不算过`() {
+        assertFalse(allowPageMirror(pageSlide = 8f, commitPx = 8f, mirrored = false))
+        assertTrue(allowPageMirror(pageSlide = 8.5f, commitPx = 8f, mirrored = false))
     }
 }

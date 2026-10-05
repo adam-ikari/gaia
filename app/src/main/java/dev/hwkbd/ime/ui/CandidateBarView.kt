@@ -416,12 +416,21 @@ class CandidateBarView @JvmOverloads constructor(
             pageTo = if (dir > 0f) pageNextSlots else pagePrevSlots
             pageSlide = 0f
             pageCommitted = false
+            pageDirMirrored = false // 新手势,闩锁复位
         } else if (dir != pageDir) {
+            if (!allowPageMirror(pageSlide, pageCommitPx(), pageDirMirrored)) {
+                // 反向但不镜像:**基线不动**,让 [setPageDrag] 按手指把它带回 0。
+                // 这时 `travel` 变负 ⇒ [DragGesture.slide] 夹到 0 ⇒ 位移自然回原页,
+                // 而弹簧还没起跑,所以没有任何跳变。
+                if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
+                return
+            }
             val f = pageFrom
             pageFrom = pageTo
             pageTo = f
             pageDir = dir
             pageSlide = full - pageSlide
+            pageDirMirrored = true
         }
         // 手指接管:取消弹簧动画,但**保留 [pageSlide] 当前值** ——
         // 下一帧 `setPageDrag` 会按它重算基线,所以画面不会跳。
@@ -558,6 +567,14 @@ class CandidateBarView @JvmOverloads constructor(
      * 这一段动画在用的物理参数 —— **不能读 `pageSpring.spec`**:
      * 埋点在 `pageSpring` 自己的 `onFrame` 里,那是字段初始化期,自引用编译不过。
      */
+    /**
+     * 本次手势是否已经镜像过方向(闩锁,见 [allowPageMirror])。
+     *
+     * 一次 `ACTION_DOWN`..`ACTION_UP` 之间只允许镜像一次,
+     * 抬手时由 [endPageDrag] / [clearPageTurn] 清掉。
+     */
+    private var pageDirMirrored = false
+
     private var pageRingSpec: SpringSpec = SpringSpec.DEFAULT
 
     /**
@@ -655,6 +672,7 @@ class CandidateBarView @JvmOverloads constructor(
         if (!pageDragging) return
         setPageDrag(x) // 抬手前最后跟一次手指
         pageDragging = false
+        pageDirMirrored = false // 手势结束,闩锁复位(clearPageTurn 不一定走到)
         val step = if (pageDir > 0f) 1 else -1
         val full = width.toFloat()
         val threshold = pageCommitPx()
@@ -839,6 +857,7 @@ class CandidateBarView @JvmOverloads constructor(
         pageTo = emptyList()
         pageSlide = 0f
         pageDragTravel = 0f
+        pageDirMirrored = false // 手势已结束(或从未开始),闩锁复位
     }
 
     /** 飞字拖动开始:冻结当前候选,后续 [setFlyDrag] 按手指进度实时驱动。可重入(拖回又拖上来时接管淡回)。 */
@@ -1540,6 +1559,42 @@ internal fun pageDragSlide(
     limit = viewW,
     dead = dead,
 )
+
+/**
+ * 拖动中途手指反向时,要不要把这次翻页**镜像**过来(纯函数,便于单测)。
+ *
+ * ## 这里原来无条件镜像 ⇒ 一帧跳整整一页(2026-10-04 真机报「滑動還是過沖」)
+ *
+ * [CandidateBarView.beginPageDrag] 里的 `dir != pageDir` 分支会做
+ * `pageSlide = full - pageSlide`。单看那一次是对的:手指改主意了,
+ * 同一屏位置应该改成「朝另一页走」,镜像能保住画面连续。
+ *
+ * **问题在于它每个 MOVE 都会重新判定一次。** `dir` 是按 `event.x - downX`
+ * 算的,而 MOVE 分支的门槛只有 `pageDeadPx`(4dp)—— 于是:
+ *
+ *     手指往左 5px → dir=+1 → pageSlide = 5
+ *     手指回右 1px → dir=-1 → pageSlide = full - 5     ← 一帧跳了 1435px
+ *     手指再往左  → dir=+1 → pageSlide = 5             ← 又跳回去
+ *
+ * `pageSlide` 在这种抖动下**永远很小**(手指还没走出几 px),所以每次镜像
+ * 都是接近整页的跳变。屏幕上读起来就是「翻页反复回弹好几次」。
+ *
+ * 这与阻尼比**无关** —— 抖动发生在拖动阶段,弹簧还没起跑,
+ * 所以 ζ 从 0.72 一路调到 1.0 都不可能改善它。
+ *
+ * ## 两个条件缺一不可
+ *
+ * 1. **已经走出提交距离**才镜像:位移只有几 px 时镜像的视觉代价最大而语义为零
+ *    (这时用户改主意,正确做法是让 [DragGesture.slide] 把位移自然带回 0)。
+ * 2. **一次手势只镜像一次**:镜像后 `pageSlide` 变大,再反向又会满足条件 1,
+ *    于是又镜像回去 —— 必须用闩锁掐断。
+ *
+ * @param pageSlide 当前位移(px,恒 ≥ 0)
+ * @param commitPx 提交距离(px)
+ * @param mirrored 本次手势是否已经镜像过
+ */
+internal fun allowPageMirror(pageSlide: Float, commitPx: Float, mirrored: Boolean): Boolean =
+    !mirrored && pageSlide > commitPx
 
 /**
  * 翻页收尾的落点与物理参数(纯函数,便于单测)。
