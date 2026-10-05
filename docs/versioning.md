@@ -38,6 +38,12 @@
 3. **`versionCode` 严格大于所有已存在 tag 所带的值。** 比「最近一个 tag」更严：任何一个旧 tag 的
    `versionCode` 都不能 ≥ 当前值。这条天然容忍空洞（历史上 `v0.3.0` 没发出去但烧掉了 3 号）。
 4. **不发版就不改号。** 中途改动会让下一个版本号跳号，无害但让历史读起来费解。
+5. **版本号只在发版那一个 commit 里改，且那个 commit 必须是 master 的 tip。**
+   于是 `master 的版本号 == 最新已发布版本的版本号`，恒等式成立。
+
+> 第 5 条由 `tools/release/gate.sh` 检查，判据见 `docs/branching.md` 第三节。
+> 它**覆盖**下面「发布链路」第 1 步的「与改动一起提交」——那句是「顺手改」的许可，
+> 而 2026-10-05 的版本号漂移正是从那里来的（见下面「一次真实的漂移」）。
 
 ## 检查
 
@@ -70,19 +76,43 @@ tools/release/check-version.sh v0.5.2     # 或指定即将打的 tag
 ## 发布链路
 
 ```bash
-# 1. 改 app/build.gradle.kts 的 versionCode / versionName，与改动一起提交
-# 2. 本地校验
-tools/release/check-version.sh v0.5.2
-# 3. 打 tag 并推
-git tag -a v0.5.2 -m "..." && git push origin v0.5.2
+# 1. 改 app/build.gradle.kts 的 versionCode / versionName
+#    —— 这一步**本身就是发版 commit**,不是夹在别的改动里(见上面规矩第 5 条)
+# 2. 本地校验(闸门,不是单个脚本)
+tools/release/gate.sh --release    # 七步,含单测 / 构建 / JNI 闸门 / E2E 引用
+# 3. 打 tag 并推 —— 这一推才真的发版
+git tag -a v0.5.2 -m "v0.5.2" && git push origin v0.5.2
 # 4. 等流水线：单测 → assembleRelease/Debug → GitHub Release
-# 5. 同步到站点（CI 的 publish-site 需要 WEB_RELEASE_TOKEN，未配则手动）
-#    脚本自己会等 Deploy site 跑完，并逐字节核对 Pages 上的 gaia.apk
+# 5. 同步到站点(CI 的 publish-site 需要 WEB_RELEASE_TOKEN,未配则手动)
+#    脚本自己会等 Deploy site 跑完,并逐字节核对 Pages 上的 gaia.apk
 tools/release/sync-apk-to-site.sh v0.5.2
 ```
 
 第 5 步的 `publish-site` 任务在没配 `WEB_RELEASE_TOKEN` 时是 **skipped 且退出码 0** ——
-会伪装成成功。`v0.4.2`/`0.4.3`/`0.4.4`/`0.4.8` 都漏过这一步，站点停在旧版本而没人发现。
+会伪装成成功。`v0.4.2`/`0.4.3`/`0.4.4`/`0.4.8` 都漏过这一步,站点停在旧版本而没人发现。
+
+## 一次真实的漂移(2026-10-05,写这条规则的原因)
+
+现场:`3eac2f1` —— 一个补埋点、修「在飞的动画没人管」、加 E2E 的功能 commit ——
+顺手把 `versionCode` 提到 29、`versionName` 提到 0.7.10。
+
+于是 master 停在 **0.7.10 整整 14 个 commit**,而最新已发布的是 v0.7.9,
+**没有对应 tag**。
+
+代价不是历史难看,是两句具体的话都定位不到东西:
+
+- 用户报 bug 说「我用的 0.7.10」—— 这句话指向一个**从不存在的产物**。
+- 从 master 编出的包自称 0.7.10,装到真机上设置页也写 0.7.10。
+
+而 `check-version.sh` **分不清**「master 正在开发 0.7.10」和「0.7.10 即将发布」——
+它验的是「号有没有撞」和「tag 对不对」,没有「master 该自称什么」这一问。
+
+修法:版本号退回 28/0.7.9,把 bump 留给发版 commit。
+判据进 `tools/release/gate.sh`(比**值**,不是比「谁碰过这个文件」)。
+
+> 顺带一个实现上的坑:第一版判据查的是「`$top..HEAD` 里哪个 commit 碰过
+> `build.gradle.kts`」,结果把「顺手修了个 typo」也算成一次 bump。
+> 正确做法是解出 HEAD 与最高 tag 各自的版本号**比值**。
 
 ### 第 6 步已经进了脚本(2026-10-05)
 

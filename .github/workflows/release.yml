@@ -77,39 +77,30 @@ jobs:
       - name: Check version consistency
         run: tools/release/check-version.sh "${GITHUB_REF_NAME}"
 
-      - name: Unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
-
-      - name: Assemble release APK (signed if keystore present)
+      # ---- 闸门:本地跑的是同一段代码 ------------------------------------
+      #
+      # 原本这里是三四个各写一遍的 step(版本号 / 单测 / assemble / JNI 闸门),
+      # 规则散在 yml 里。改一处漏一处的代价已经付过两次:
+      #   · 三条流水线的依赖清单不同步 ⇒ CMake 报「找不到 deps/yaml-cpp」(brain: release-flow)
+      #   · JNI 闸门只加在 release.yml ⇒ E2E 结构上看不到 R8 问题(它跑 debug 包)
+      #
+      # 现在规则集中在 `tools/release/gate.sh`,CI 与本地调同一个入口。
+      #
+      # **这里刻意不加 `--release`。** 那个开关要求本 commit 引用一次 E2E run,
+      # 而 tag 推上来时 commit message 早就写死了 —— CI 里查它等于**稳定误报**,
+      # 而会误报的闸门只会被绕过去。E2E 引用是**本地发版前**的检查
+      # (`gate.sh --release`,推 tag 之前跑),不是产物闸门。
+      # 为什么 E2E 硬接不上:`on: push: tags` 上它与本流水线**并行、无依赖**;
+      # job 级 needs 跨不了 workflow,要接就得重构成 reusable workflow,
+      # 代价大且丢掉手动 dispatch 入口 —— 而换来的仍不是「产物被验过」,
+      # 因为 E2E 装的是 **debug 包,不过 R8**。详见 gate.sh 的 check_e2e_cited。
+      - name: 闸门(版本号 + 单测 + 构建 + JNI)
         env:
           SIGNING_KEYSTORE: ${{ runner.temp }}/keystore.jks
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug
-
-      # ---- JNI 闸门:必须在**上传与发布之前** -----------------------------
-      #
-      # R8 只看得到显式引用,而 JNI 的方法名是 native 侧按**字符串**解析的
-      # (`Java_<类>_<方法>`),Kotlin 那边没有任何编译期联系 ⇒ R8 改名毫无代价。
-      # 症状是运行期 `UnsatisfiedLinkError`,而且 `System.loadLibrary` 成功、
-      # `available` 是 true,**看起来一切正常**。
-      #
-      # 这个闸门在 2026-10-04 抓到了一个真的事故:已发布的 v0.7.1 里
-      # 14 个 JNI 入口有 7 个被改名 ⇒ 真机上拼音引擎整个不可用。
-      # 而 E2E 跑的是 debug 包(不过 R8)⇒ **CI 上结构性看不到**。
-      #
-      # 清单不是写死的:从 `RimeNative.kt` 现场解析 `external fun`,
-      # 再交叉核对 dex 方法名 / 类名 / .so 导出符号。
-      # 用块标量(`run: |`)而不是 `\` 续行 —— YAML 的**plain scalar 折叠**会把
-      # 换行变成空格,而 `\` 留在里面成了普通字符,于是 bash 收到的是**一个**参数:
-      #   "a.apk \ b.apk"  ⇒  脚本报「APK 不存在: a.apk \ b.apk」
-      # 第一次跑就踩了这个,表现是闸门红了但原因跟 R8 无关。
-      - name: JNI 闸门(R8 有没有削掉入口名)
-        run: |
-          tools/release/check-jni-symbols.py \
-            app/build/outputs/apk/release/app-release.apk \
-            app/build/outputs/apk/debug/app-debug.apk
+        run: tools/release/gate.sh --tag "${GITHUB_REF_NAME}"
 
       - name: Release
         uses: softprops/action-gh-release@v3

@@ -46,11 +46,17 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
-
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+      # 闸门在仓库里,不在这个 yml 里(`tools/release/gate.sh`)。
+      # 本地跑的是同一段代码 —— 原来这里和 release.yml 各写一遍 gradle 命令,
+      # 改了一边忘了另一边,规则就只在一半的地方生效。
+      #
+      # `--quick` = 单测 + 版本号漂移,不打 release 包(那是 release.yml 的事)。
+      # 这里仍然编 debug 包,因为 E2E 用的就是它;而版本号漂移检查顺带在这里跑,
+      # 于是「master 自称未发布版本」在**每次 push** 上都能看见,不用等发版。
+      - name: 闸门(单测 + 版本号漂移)
+        run: |
+          tools/release/gate.sh --quick
+          ./gradlew --no-daemon :app:assembleDebug
 
       - name: Upload test reports on failure
         if: failure()

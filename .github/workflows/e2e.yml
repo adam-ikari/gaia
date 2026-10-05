@@ -93,11 +93,13 @@ jobs:
           echo "ndk: $(ls $ANDROID_SDK_ROOT/ndk)"
 
       # ---------------------------------------------------------------- 构建
-      - name: 单元测试
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
-
-      - name: 构建 debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+      # 与 ci.yml 调**同一个**闸门脚本,不各写一遍 gradle 命令。
+      # 理由见 brain 的 release-flow:「加了某条流水线才需要的东西,要么三条都加,
+      # 要么抽出来」。原来这里是裸的 gradle 命令,改一处就漏一处。
+      - name: 闸门(单测 + 版本号漂移)
+        run: |
+          tools/release/gate.sh --quick
+          ./gradlew --no-daemon :app:assembleDebug
 
       # ---- 把磁盘腾出来,否则 AVD 建不起来 ------------------------------
       #

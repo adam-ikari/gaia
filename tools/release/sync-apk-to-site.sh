@@ -44,30 +44,72 @@ trap 'rm -rf "$WORK"' EXIT
 
 # 从私有仓库取包(这一步需要 gh 有该仓库的读权限 —— 有 token 或有账号权限都行)
 #
-# 下载同样要重试:两个包合计 ~29MB,而 `gh release download` 走的是 release-assets
-# 的直链,大文件会 `unexpected EOF`(实测连续两次)。
-# 与上传同理:**release 包取不到是致命的**,debug 包取不到就降级(见下面那个循环的注释)。
-dl_ok=0
-for attempt in 1 2 3 4 5; do
-  if gh release download "$TAG" -R "$APP_REPO" \
-       -p "app-release.apk" -p "app-debug.apk" --clobber --dir "$WORK" >/dev/null 2>&1; then
-    dl_ok=1; break
-  fi
-  echo "  下载第 $attempt 次失败,重试"
-  sleep $((attempt * 5))
-done
-if [ "$dl_ok" != "1" ] && [ ! -f "$WORK/app-release.apk" ]; then
-  echo "::error::从 $APP_REPO 下载 $TAG 连续 5 次失败,且连 app-release.apk 都没有" >&2
+# 资产清单 = **远端实际存着**多少字节(权威)。
+#
+# 不用本地构建产物的 size —— 那是「我们以为传了什么」,而这里要验的是
+# 「拿回来的东西完整吗」。两者相等是应有之义,不等才是要抓的情况。
+declare -A WANT_SIZE=()
+while read -r _n _s; do
+  [ -n "$_n" ] && WANT_SIZE[$_n]=$_s
+done < <(gh api "repos/$APP_REPO/releases/tags/$TAG" --jq '.assets[] | "\(.name) \(.size)"' 2>/dev/null || true)
+
+if [ "${#WANT_SIZE[@]}" -eq 0 ]; then
+  echo "::error::取不到 $TAG 的资产清单(仓库是私有的,需要 gh 有读权限)—— 没有权威大小就没法验完整性" >&2
   exit 1
 fi
 
-if [ ! -f "$WORK/app-release.apk" ]; then
-  echo "::error::$TAG 里没有 app-release.apk,发版是不是没跑完?" >&2
-  exit 1
-fi
-if [ ! -f "$WORK/app-debug.apk" ]; then
-  echo "::warning::$TAG 里没取到 app-debug.apk,跳过它(站点不消费它)"
-fi
+# ## 判据是**大小**,不是「文件在不在」(2026-10-05 修,真 bug)
+#
+# 原来判的是 `[ ! -f "$WORK/app-release.apk" ]` —— **只判存在**。
+# 而 `gh release download` 的真实行为是:**整体返回非零,但已下的文件留在盘上**。
+# 2026-10-05 实测(同步 v0.7.10 时):
+#
+#     5 次全部「失败」(退出码非零),可盘上两个文件都在:
+#     app-release.apk  期望 6931568  实得 6931568  ✓
+#     app-debug.apk    期望 30213158 实得 10288175 ✗ **截断到三分之一**
+#
+# 于是**截断的包被静默当成下载成功** —— debug 那条只发 warning,
+# 没人会看;而它会被传成一个 10MB 的坏资产,并且**站点的 latest 指向它**。
+#
+# 讽刺的是**这与下面上传那段的注释是同一件事**:那边写着
+# 「`HTTP 408` / `unexpected EOF` 反复出现(实测连续 4 次失败)」——
+# **下载失败是常态,而代码假设它是例外**。
+# 只判存在正好漏掉常态里最常见的那一种:下到一半、退出码非零、文件却在。
+fetch() {
+  local name=$1 fatal=$2 attempt got want
+  want=${WANT_SIZE[$name]:-}
+  if [ -z "$want" ]; then
+    echo "::error::资产清单里没有 $name —— 取不到权威大小就没法验完整性,不能当成没事" >&2
+    return 1
+  fi
+  for attempt in 1 2 3 4 5; do
+    # **先删**:上一次失败留下的半截文件就在这儿,不清会被当成这次的结果。
+    rm -f "$WORK/$name"
+    if gh release download "$TAG" -R "$APP_REPO" -p "$name" --dir "$WORK" >/dev/null 2>&1; then
+      got=$(stat -c%s "$WORK/$name" 2>/dev/null || echo 0)
+      if [ "$got" = "$want" ]; then
+        echo "  ✓ $name($got 字节,与远端一致)"
+        return 0
+      fi
+      echo "  $name 第 $attempt 次:下了 $got / 期望 $want —— 截断,重下"
+    else
+      echo "  $name 第 $attempt 次下载失败,重试"
+    fi
+    sleep $((attempt * 5))
+  done
+  # 非致命的那条:**不留半截文件在盘上** —— 否则下面上传那段的 `-f` 判断会把它当真。
+  rm -f "$WORK/$name"
+  if [ "$fatal" = yes ]; then
+    echo "::error::$name 连续 5 次取不到完整文件(期望 $want 字节)—— 站点会停在旧版本,不许继续" >&2
+    return 1
+  fi
+  echo "::warning::$name 取不到完整文件,跳过它(站点不消费它)"
+  return 0
+}
+
+echo "远端资产:$(for k in "${!WANT_SIZE[@]}"; do echo -n "$k=${WANT_SIZE[$k]} "; done)"
+fetch app-release.apk yes || exit 1
+fetch app-debug.apk no
 
 # 幂等:同名 release 已存在就只覆盖资产,不重建(否则会把已有的说明文字冲掉)
 if gh release view "$TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
