@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-04T16:50:00"
+updated: "2026-10-05T00:25:24"
 ---
 
 <!-- compiled_truth -->
@@ -167,3 +167,15 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   summary: "拼音消费按实际选词消费:靠选完后反查 composition.preedit 拿剩余;librime 的 RimeCandidate 不暴露覆盖范围"
   source: "2026-10-04 用户「拼音的消费也要根据实际选词消费,不能一次清空」"
   affects: [librime-android-build, sensitivity-tiers]
+
+- time: 2026-10-05T00:25:24
+  kind: decision
+  summary: "输出简体要同时过三关:schema 开关 reset:1、OpenCC 转换表进 assets、install() 真的比对内容"
+  source: "2026-10-04 用户「自從換過輸入法一直是繁體中文」"
+  affects: [librime-android-build]
+
+- time: 2026-10-05T00:25:24
+  kind: reversal
+  summary: "「按实际选词消费」的初版实现从未生效:select_candidate 之后 get_commit 永远是 null"
+  source: "2026-10-04 读 librime 源码发现 OnSelect 在段尾走 Forward() 而非 Commit(),commit 队列里什么都没有"
+  affects: [librime-android-build]
