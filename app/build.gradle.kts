@@ -40,8 +40,9 @@ android {
         // 判据是 `tools/release/gate.sh` 的「版本号漂移」那一步,它比的是
         // **值**(`ver_of` 解 HEAD 与最高 tag 的 build.gradle.kts),不是
         // 「哪个 commit 碰过这个文件」—— 后者会把顺手修 typo 也算成一次 bump。
-        versionCode = 28
-        versionName = "0.7.9"
+        // ↓↓↓ 发版 commit 的唯一改动就是这两行 ↓↓↓
+        versionCode = 29
+        versionName = "0.7.10"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
