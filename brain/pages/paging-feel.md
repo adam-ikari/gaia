@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-02T12:38:31"
+updated: "2026-10-05T09:34:16"
 ---
 
 <!-- compiled_truth -->
@@ -253,3 +253,9 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   summary: "跟手不动点的真正根因与「单测覆盖不到 View 私有状态」这条教训;v0.5.1 已发布并验过站点哈希"
   source: "2026-10-02 真机报障定位 + 站点验哈希"
   affects: [paging-feel]
+
+- time: 2026-10-05T09:34:16
+  kind: evidence
+  summary: "2026-10-05 翻页提交链的完整时序(pageStep 埋点后拿到):begin# 打 8 次(一次手势!),rolesSet 从 false 变 true 后其余全是「同向+正在拖」的空操作;pageCommitted 在 slide=303 过 thr=302 那一刻才变 true ⇒ setPageDrag 的当帧提交生效 ⇒ onPage(1) ⇒ pageStep 0→1;抬手时 willSend=false 是**正确**的,它防的正是同一次手势提交两遍(page 会 0→1→2)。上一轮那次 page 停在 0 不是 end 的锅,而是那一轮当帧提交压根没发生。"
+  source: "2026-10-05 E2E run 37289078764 真机 full.log"
+  affects: [paging-feel, e2e-capture]

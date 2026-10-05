@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [e2e, ci, emulator, media, capture]
 created: "2026-10-01T05:09:58"
-updated: "2026-10-05T07:14:17"
+updated: "2026-10-05T09:34:37"
 ---
 
 <!-- compiled_truth -->
@@ -234,4 +234,10 @@ FATAL | Not enough space to create userdata partition.
   kind: decision
   summary: "2026-10-05 第三条:takeLog 的 pattern 不能含非 ASCII。pattern 被塞进 adb shell | grep -E,设备侧按 locale 处理字节,5 个汉字(15 字节 UTF-8)传过去就匹配不上 —— 日志里那行明明在,takeLog 却收不到。症状是「断言说没有,可 full.log 里明明有」。改用 ASCII 前缀(from=),中文标签留给本地 JS 正则取(JS 没有编码问题)。全项目只有我新加的这几处踩到,既有 pattern 恰好全是 ASCII。"
   source: "2026-10-05 E2E run 37272958949,拿 full.log 对照 takeLog 输入逐段排查"
+  affects: [e2e-capture]
+
+- time: 2026-10-05T09:34:37
+  kind: decision
+  summary: "「静默的字段」比「错的字段」更难识破:page end / page begin 里的 page= 读的是 CandidateBarView 自己那份字段,由 setState 从 state.page 同步,而 render 经 RenderPump 延后 ⇒ 那些行**不能**当作 state.page 的证据。我上一轮差点拿它当权威值,于是把 page=0/9 读成了「没翻页」,其实 view 的 page 本来就滞后。判据:埋点答哪个问题要与该问题的**权威来源**对齐,权威在 state 侧就只有 state 侧的埋点(pageStep)算数。"
+  source: "2026-10-05 查 select-global-index 失败现场时走错方向"
   affects: [e2e-capture]
