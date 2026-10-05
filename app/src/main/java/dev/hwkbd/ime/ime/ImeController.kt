@@ -521,6 +521,21 @@ class ImeController(
         // 引擎不参与选词 / 剥不出来时(`selectAndRemain` 给 null)照旧全清 —— 行为不变。
         val sel = inputMethod().selectAndRemain(li, c.word)
 
+        // 埋点:「选的候选与上屏不一致」时,这一行就是判据(2026-10-05 用户报)。
+        //
+        // 上屏与飞字动画用的是**同一个** `c.word`,所以两者不可能互相不同。
+        // 若用户看到「槽里是 A、进去的是 B」,分歧只可能在**更早**:我们这个 `c`
+        // 本身就与 librime 菜单的第 li 项不是同一个词 —— 也就是 `state.candidates`
+        // 与引擎当前 session 不同步。把整条链打出来才能定位是哪一环。
+        android.util.Log.i(
+            "ImeService",
+            "select: zone=$displayIndex → li=$li word=\"${c.word}\" " +
+                "page=${state.page}/${state.totalPages} raw=\"${state.raw}\" " +
+                "order=${state.displayOrder(logical.size).joinToString()} " +
+                "pageWords=${logical.joinToString("|") { it.word }} " +
+                "consumed=${sel?.preview}"
+        )
+
         // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
         // 放在两个 `?: return` 之后 —— 选不中就不该有动画。
         onCandidateSelected?.invoke(displayIndex, c.word)

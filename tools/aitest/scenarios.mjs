@@ -58,6 +58,10 @@ export const scenarios = [
           /interrupt:/.test(log),
           '动画在飞时的第二次手势应打出 interrupt(没有它就是「没有打断」)',
         )
+        // 顺带把选词那条链也读出来:zone/li/word/page/order/整页词。
+        // 「选的候选与上屏不一致」时,这一行是唯一的判据。
+        const sel = c.device.takeLog('select: zone=.*')
+        c.expect(/select: zone=\d+ → li=\d+ word="[^"]+"/.test(sel), `选词埋点应出现(实际: ${JSON.stringify(sel.slice(0, 300))})`)
       },
     ],
   },
