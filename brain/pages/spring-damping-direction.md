@@ -5,35 +5,46 @@ category: decision
 status: active
 tags: [animation, physics, spring, damping]
 created: "2026-10-03T11:23:42"
-updated: "2026-10-05T00:25:53"
+updated: "2026-10-05T00:59:57"
 ---
 
 <!-- compiled_truth -->
-## ζ=1.0 只在**从静止起步**时才保证零过冲(2026-10-04)
+## 「过冲」先怀疑拖动阶段,不要先怀疑弹簧(2026-10-04 v0.7.9)
 
-用户要求「非線性動畫、到位不要过衝也不要回彈」⇒ 提交改成临界阻尼 ζ=1.0。
-但用户仍报「候選詞欄滑動還是过衝」。**根因不在阻尼比,在初速度。**
+用户报「候選詞欄滑動還是過沖」时 PAGE_COMMIT 已是 ζ=1.0。
+**先证明弹簧无罪**,再去别处找 —— 否则会在参数上白调好几轮。
 
-临界阻尼的解是 `x(t)-target = (A + B t)·e^(-ω₀ t)`,`B = v0 + ω₀·A`。
-归一化 `u(t) = (1 + c t)e^(-ω₀ t)`,`c = ω₀ + v0/A`。
+### 排除弹簧的判据(可复算)
 
-- **v0 = 0** ⇒ `c = ω₀` ⇒ 极值点不在正时间轴 ⇒ **恒不过冲**(response 0.28/0.45/0.60 都是)。
-- **趋近速度 v** ⇒ `c = ω₀ - v/A`。`v/A ≤ ω₀` 时仍无过冲;`v/A > ω₀` 时极值为负
-  ⇒ **冲过目标再回来**,过冲量 `(s-1)·e^-(1+1/(s-1))·A`,`s = v/(ω₀·A)`。
+临界阻尼 `x−target = (A+Bt)e^(−ω₀t)`,`B = v0 + ω₀A`;过冲门槛
+`r* = |v0|/(ω₀·|A|)` = 10.6(resp 0.60) ~ 22.6(resp 0.28) @ ζ=1.0。
+**从静止起步的弹簧飞行中 r 最大只有 1/e = 0.368** ⇒ 即使被
+`animateToFinalPosition` 打断保留速度,也过不了冲。
 
-⇒ **打断的过冲门槛是 `v > ω₀·A`** —— `A` 是**剩余距离**,不是总行程。
-所以**越接近目标越容易过冲**(A 小 ⇒ 门槛低),而且 response 越短 ω₀ 越大、越敏感。
-实测(response=0.28s 那一档):剩余 100px、速度 8000px/s ⇒ 过冲 63.9px。
+⇒ 「零过冲」这个保证在**从静止起步**时是数学事实;只要引入初速度就要重算门槛。
 
-⇒ 结论:**「零过冲」这个保证只在「起跑时速度为零」时成立。**
-任何「保留在飞速度」的打断路径都会破坏它,与阻尼比无关。
+### 真根因:每帧重判方向 + 无条件镜像
 
-`SpringChannel.settle` 在 `isRunning` 时走 `animation.animateToFinalPosition(target)`,
-**刻意保留速度**(注释写明这是速度唯一该被保留的场合)。
-那个判断在「连续性」上是对的,与「零过冲」直接冲突 —— 两个目标不能同时要,
-要哪个得由用户定。可能的解法:按 `v ≤ ω₀·A` 夹住保留的速度(保住连续性又守住零过冲)。
+`onTouchEvent` 的 MOVE 分支**每个事件**都调 `takeOverPageDrag`(门槛仅 4dp),
+而 `dir` 按 `event.x - downX` 算。`beginPageDrag` 的 `dir != pageDir` 分支
+做 `pageSlide = full - pageSlide`。手指在按下点附近抖 ±5px:
 
-**待确认**:用户当时测的是哪个版本(反馈与版本错配过一次)。
+    5px → 镜像 → full−5 = 1435 → 再抖 → 5
+
+抖动期间 `pageSlide` 永远很小 ⇒ 每次镜像都是接近整页的跳变。
+**发生在弹簧起跑之前,所以 ζ 怎么调都没用。**
+
+### 修法:镜像闩锁(`allowPageMirror`)
+
+两个条件缺一不可:**过了提交距离**才镜像(否则视觉代价最大而语义为零,
+让 `DragGesture.slide` 自然带回 0 就好)+ **一次手势只镜像一次**
+(镜像后位移变大,再反向又满足前一条,会来回)。闩锁在起手/收尾复位。
+
+### 教训
+
+「动画参数调到 X 仍不改善」⇒ **先证伪参数这条路径**(用解析解或数值积分
+给出「不可能」的判据),再去找结构性原因。ζ 从 0.72→0.9→0.95→1.0 四轮
+全白调,是因为问题在拖动阶段。
 
 
 ## Timeline
@@ -72,4 +83,10 @@ updated: "2026-10-05T00:25:53"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-04 读 SpringBridge.settle 与临界阻尼解析解:ζ=1.0 只在从静止起步时保证零过冲"
+  affects: [spring-damping-direction]
+
+- time: 2026-10-05T00:59:57
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-04 v0.7.9:ζ=1.0 仍过冲,根因是拖动阶段的方向镜像,与阻尼比无关"
   affects: [spring-damping-direction]
