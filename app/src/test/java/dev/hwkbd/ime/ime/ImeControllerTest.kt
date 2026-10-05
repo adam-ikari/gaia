@@ -383,12 +383,17 @@ class ImeControllerTest {
      */
     @Test
     fun `只清候选实际吃掉的那部分 剩下的拼音留着`() {
-        val r = rig(remainAfterSelect = "hao")
-        r.type("ni")
+        // 照**真实形状**给替身:librime 一次吃掉最后一段,前面原样留下。
+        // 上一版这里让替身返回的剩余比喂进去的还长(`raw="ni"` 却说剩 `"hao"`),
+        // 那条断言其实在验一个不可能发生的情形 —— 引擎不可能报出比输入还多的剩余。
+        val r = rig(remainAfterSelect = "ni")
+        r.type("nihao")
+        val before = r.c.state.candidates
         r.c.selectCandidate(2)
-        assertEquals(listOf("你"), r.h.commits)
-        assertEquals("剩下的拼音应留在缓冲里", "hao", r.c.state.raw)
-        assertTrue("应重新查到候选", r.c.state.candidates.isNotEmpty())
+        assertEquals("只应上屏一个词", 1, r.h.commits.size)
+        assertEquals("剩下的拼音应留在缓冲里", "ni", r.c.state.raw)
+        assertTrue("应按剩下的拼音重新查到候选", r.c.state.candidates.isNotEmpty())
+        assertTrue("候选应换了(按 "ni" 而不是按 "nihao")", r.c.state.candidates != before)
     }
 
     /** 引擎说「全吃完了」时照旧清空 —— 单音节输入的常态,行为不能变。 */

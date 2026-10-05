@@ -74,8 +74,16 @@ class PinyinConsumptionTest {
 
     @Test
     fun `分节符在中间时只数非分节符`() {
-        // raw = "ni'hao":非分节符序列是 "nihao",n=4 ⇒ "ni'h"
-        assertEquals("ni'h", rawPrefixOf("ni'hao", 4))
+        // raw = "ni'hao" 的非分节符序列是 "nihao";n=4 ⇒ 留下 "niha",
+        // 在 raw 坐标里就是下标 0..4(含中间那个分节符)= "ni'ha"。
+        // **中间的分节符要保留** —— 它标着「这里是两段」,下一轮 query 靠它定界。
+        assertEquals("ni'ha", rawPrefixOf("ni'hao", 4))
+    }
+
+    /** raw 以分节符结尾时,那个分节符不留下(它是刚被吃掉那段留下的边界)。 */
+    @Test
+    fun `raw 以分节符结尾时那个分节符不留下`() {
+        assertEquals("ni", rawPrefixOf("ni'", 2))
     }
 
     @Test

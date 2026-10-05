@@ -296,8 +296,17 @@ internal fun unconsumedFromPreview(preview: String, selectedWord: String): Strin
  * 喂给 librime 之前分节符被剥掉了(`RimeEngine.query`),所以引擎报的长度
  * 与 `state.raw` 的下标对不上 —— 这一步就是那座桥。
  *
- * 末尾若正好停在分节符上,把它一并去掉:它标记的是「刚被吃掉的那一段的边界」,
- * 留着会让下一轮 `query` 拿到以分节符开头的串。
+ * ## 为什么切在「计数停下的那个下标」而不是「跳过尾部分节符之后」
+ *
+ * 第一版在后面加了一句「末尾若正好停在分节符上就跳过它」,结果把分节符
+ * **包进了返回值**:`rawPrefixOf("ni'hao", 2)` 给出 `"ni'"` 而不是 `"ni"` ——
+ * 因为跳过之后 `substring(0, 3)` 又把下标 2 那个分节符包含了回去。
+ *
+ * 正确做法就是**不做任何额外处理**:数满 n 个非分节符字符时那个下标天然
+ * 就落在分节符**之前**,切在那里即可。
+ *   n=2 → i=2 → `"ni"`(分节符自然被排除)
+ *   n=4 → i=5 → `"ni'ha"`(分节符在中间,该保留)
+ *   raw 以分节符结尾时同理:`"ni'"` n=2 → `"ni"`。
  */
 internal fun rawPrefixOf(raw: String, n: Int): String {
     if (n <= 0) return ""
@@ -307,6 +316,6 @@ internal fun rawPrefixOf(raw: String, n: Int): String {
         if (raw[i] != '\'') seen++
         i++
     }
-    while (i < raw.length && raw[i] == '\'') i++
+    // seen 没数够就说明 raw 本身不够长,此时 i == raw.length,整段保留。
     return raw.substring(0, i)
 }
