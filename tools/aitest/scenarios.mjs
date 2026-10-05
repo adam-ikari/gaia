@@ -19,6 +19,47 @@ const kcOf = (ch) => K[ch.toLowerCase()]
 
 export const scenarios = [
   {
+    // 「拼音消费按实际选词消费」的真引擎验证(2026-10-04)。
+    //
+    // 之前两版都没能证明它生效:v0.7.7 读 `get_commit`(恒 null,整条路径是死代码),
+    // 而单测用的替身压根不走引擎 ⇒ 全绿。
+    //
+    // ## 可观测的差别
+    //
+    // 输入 `nihao` 选中一个候选之后:
+    //   - 消费生效 ⇒ `state.raw` 变成 `ni`,**组词缓冲还在**、输入法窗口还在;
+    //   - 没生效   ⇒ `state.raw` 清空,组词结束。
+    // 飞字动画期间窗口也在,所以断言前要等它飞完(与其它场景同样 900ms)。
+    //
+    // 顺带把 `consume:` 那行日志抓出来 —— 它打的是 librime 真实返回的
+    // `commit_text_preview`,能直接看出「未消费 + 已选词」这个形状成立与否。
+    name: 'consume-partial',
+    desc: '选完候选后剩下的拼音留在缓冲里',
+    steps: [
+      async (c) => {
+        c.device.shell('logcat -c')
+        for (const ch of 'nihao') c.device.key(kcOf(ch))
+        await sleep(1200)
+        c.shot('composing-nihao')
+        c.expect(c.device.imeShown(), '组词中输入法窗口显示')
+        // 选第 0 槽(Shift = 选首位)
+        c.device.key(K.shift)
+        await sleep(900)
+        const log = c.device.takeLog('consume: .*')
+        c.shot('after-select')
+        c.expect(
+          /consume: preview="[^"]+"/.test(log),
+          `应打出 commit_text_preview(实际日志: ${JSON.stringify(log.slice(0, 200))})`,
+        )
+        c.expect(
+          c.device.imeShown(),
+          '选完仍有组词缓冲 ⇒ 输入法窗口应还在(若消失说明消费把拼音全清了)',
+        )
+      },
+    ],
+  },
+
+  {
     // 2026-10-04 用户「自從換過輸入法一直是繁體中文,必須輸入簡體中文」。
     //
     // ## 为什么不能用「中国 / 中國」这种词

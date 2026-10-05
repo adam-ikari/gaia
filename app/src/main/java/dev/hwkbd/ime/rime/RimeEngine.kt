@@ -250,8 +250,14 @@ class RimeEngine(private val context: Context) : InputMethod {
  *
  * @param preview librime 的 `commit_text_preview` 整串(埋点用)
  * @param unconsumed 剥掉已选词之后、**还没被吃掉**的那部分(引擎坐标:已剥掉 `'`)
+ *
+ * ## 为什么是 public 而不是 internal
+ *
+ * 它是 `InputMethod.selectAndRemain` 的返回类型,而那个接口方法是 public ——
+ * Kotlin 不允许 public 函数暴露 internal 类型(编译报 "exposes its internal return type")。
+ * 同理两个纯函数保持 internal:它们只在模块内被调用。
  */
-internal data class PinyinConsumption(
+data class PinyinConsumption(
     val preview: String,
     val unconsumed: String,
 )

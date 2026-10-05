@@ -125,7 +125,6 @@ object RimeNative {
     private external fun nativeCommit(session: Long): String?
 
     /**
-    /**
      * 选出候选之后的 `commit_text_preview`(见 `rime_jni.cpp` 里同名函数的注释 ——
      * 那里解释了为什么 `get_commit` 与 `composition.preedit` 都给不出「剩下的拼音」)。
      *
