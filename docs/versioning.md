@@ -77,13 +77,30 @@ tools/release/check-version.sh v0.5.2
 git tag -a v0.5.2 -m "..." && git push origin v0.5.2
 # 4. 等流水线：单测 → assembleRelease/Debug → GitHub Release
 # 5. 同步到站点（CI 的 publish-site 需要 WEB_RELEASE_TOKEN，未配则手动）
+#    脚本自己会等 Deploy site 跑完，并逐字节核对 Pages 上的 gaia.apk
 tools/release/sync-apk-to-site.sh v0.5.2
-# 6. 验：匿名下载的字节与 release 里的逐字节一致
 ```
 
 第 5 步的 `publish-site` 任务在没配 `WEB_RELEASE_TOKEN` 时是 **skipped 且退出码 0** ——
 会伪装成成功。`v0.4.2`/`0.4.3`/`0.4.4`/`0.4.8` 都漏过这一步，站点停在旧版本而没人发现。
-所以第 6 步不能省。
+
+### 第 6 步已经进了脚本(2026-10-05)
+
+原先是「打印一句提醒人去查」——**提醒不算验证**,所以它被漏过。
+现在 `sync-apk-to-site.sh` 自己做完:
+
+| 验什么 | 判据 |
+| --- | --- |
+| Deploy site 真的跑成功 | 轮询到该 run `conclusion=success`（找不到 run 也算失败） |
+| Pages 上的 `gaia.apk` 是这次的包 | 与刚上传的 `app-release.apk` **逐字节**一致 |
+
+关键区分:**release 资产与 Pages 产物是两个东西**。上传成功就能过
+`releases/latest/download/…` 那道 200,而站点按钮发的是 Pages 上那份,
+它只在站点仓库被触发时才刷新 —— 所以「200」验不到它。
+
+**比字节而不是比 `versionCode`**:字节相同 ⇒ 版本号必然相同(它就在 APK 里);
+只比版本号会漏掉「同一版本号配不同字节」—— 安卓会拒装升级,
+且同一下载链接在不同时刻给出不同的包。
 
 ## 什么时候升 minor
 

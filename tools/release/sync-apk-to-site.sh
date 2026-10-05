@@ -147,10 +147,115 @@ echo "  (latest 落在 $(gh release list -R "$SITE_REPO" --limit 1 --json tagNam
 # Pages 产物**只在站点仓库被 push/手动触发时才刷新**,同步 release 不会通知它。
 # 所以这里显式触发一次,否则站点继续发上一次的包,而上面那步还验过 200 —— 验的
 # 还是旧包。
+#
+# ## 触发之前先记下已有的 run(2026-10-05 加)
+#
+# `gh workflow run` **不返回 run id**,而「找出刚触发的那一个」不能靠
+# `gh run list --limit 1` —— 那取到的是**最近一次**,若有人同时手动触发了别的
+# workflow,就会盯着别人的 run 等。`docs/versioning.md` 记着同一族的坑:
+# **同一个检查在两个环境跑通不代表它对**,得问「两边的初始状态一样吗」。
+# 这里的初始状态就是「已有哪些 run」,所以先取一份快照,再取差集。
+echo "记录 $SITE_REPO 现有的 deploy run(用于找出刚触发的那个)…"
+before_runs=$(gh run list -R "$SITE_REPO" --workflow deploy.yml --limit 20 \
+  --json databaseId -q '.[].databaseId' 2>/dev/null || echo "")
 echo "触发站点重新部署(把新包取进 Pages)…"
-gh workflow run deploy.yml --repo "$SITE_REPO" || {
+if ! gh workflow run deploy.yml --repo "$SITE_REPO"; then
   echo "::error::触发站点部署失败 —— release 资产是新的,但站点页面仍是上一次的包" >&2
   exit 1
-}
-echo "  已触发 $SITE_REPO 的 Deploy site。等它跑完后:"
-echo "  https://adam-ikari.github.io/gaia/media/gaia.apk 才是 $TAG"
+fi
+
+# ---- 等 Deploy site 跑完,然后**验 Pages 那份** ----------------------------------
+#
+# ## 为什么不能像原来那样「打印一句提醒就收工」
+#
+# 原来脚本的最后一行是「等它跑完后,Pages 才是 $TAG」—— **提醒人去查**。
+# 而 `docs/versioning.md` 里 `publish-site` 被 skipped 且退出码 0 的那几次,
+# 正是这类「看起来成功」的失败模式:v0.4.2/0.4.3/0.4.4/0.4.8 站点一直停在旧版本,
+# 流水线全绿、没人发现链接是旧的。提醒不算验证。
+#
+# 更具体的缺口(2026-10-05 发现):上面那道「匿名下载 200」验的是 **release 资产**,
+# **不是 Pages 产物**。两者是两个东西 ⇒ 上传成功就能过,而站点按钮仍旧发上一次的包。
+# ⇒ 所以这里必须**下 Pages 那份、逐字节比**。
+pages_url="https://adam-ikari.github.io/gaia/media/gaia.apk"
+
+# 找出刚触发的那一个 run:取差集,轮询到出现为止(CI 起来有几秒延迟)。
+run_id=""
+for _ in $(seq 1 20); do
+  now=$(gh run list -R "$SITE_REPO" --workflow deploy.yml --limit 20 \
+    --json databaseId -q '.[].databaseId' 2>/dev/null || echo "")
+  for id in $now; do
+    # 前后都补空格:否则 before="1 2"、id="12" 时 `*" 12 "*` 会误判成已存在
+    case " $before_runs " in
+      *" $id "*) ;;   # 触发前就有,跳过
+      *) run_id="$id"; break ;;
+    esac
+  done
+  [ -n "$run_id" ] && break
+  sleep 3
+done
+if [ -z "$run_id" ]; then
+  echo "::warning::没找出刚触发的 deploy run —— release 资产是新的,但站点页面是否刷新**未知**" >&2
+  echo "::warning::请手工确认 $pages_url 的 versionCode" >&2
+  exit 1
+fi
+echo "  Deploy site run: $run_id,等它跑完…"
+
+# 等它结束。**轮询而不是 gh run watch**:watch 挂在本地断线/限流上不好收拾,
+# 而这里只需要「结束了吗」这一个事实。
+deploy_ok=0
+for _ in $(seq 1 60); do
+  status=$(gh run view "$run_id" -R "$SITE_REPO" --json status -q '.status' 2>/dev/null || echo unknown)
+  case "$status" in
+    completed)
+      concl=$(gh run view "$run_id" -R "$SITE_REPO" --json conclusion -q '.conclusion' 2>/dev/null || echo unknown)
+      if [ "$concl" = "success" ]; then deploy_ok=1; else deploy_ok=0; fi
+      break ;;
+    *) sleep 10 ;;
+  esac
+done
+if [ "$deploy_ok" != "1" ]; then
+  echo "::error::Deploy site 没跑成功 —— release 资产是新的,但站点页面仍发上一次的包" >&2
+  echo "::error::$SITE_REPO 的 run $run_id 上看日志;修好后重跑本脚本(幂等)" >&2
+  exit 1
+fi
+echo "  Deploy site 成功"
+
+# ---- 决定性的那一步:Pages 那份必须**逐字节**等于刚上传的那份 -------------------
+#
+# 这是 `docs/versioning.md` 发版链路第 6 步「验:匿名下载的字节与 release 里的
+# 逐字节一致」—— 之前一直靠人记得做,这里替人做。
+#
+# **比字节而不是比 versionCode**:字节相同 ⇒ 版本号必然相同(它就在 APK 里);
+# 而只比 versionCode 会漏掉「同一个版本号配不同字节」那种(安卓会拒装升级,
+# 且同一下载链接在不同时刻给出不同的包 —— 见 build.gradle.kts 里的注记)。
+if [ ! -f "$WORK/app-release.apk" ]; then
+  echo "::error::本地没有 app-release.apk 可比 —— 上传时就该缺了,不该到这一步" >&2
+  exit 1
+fi
+pages_file="$WORK/pages-gaia.apk"
+# 重试:Pages 产物可能比 run 完成稍晚一拍(CDN 缓存),且大文件要重下。
+pages_ok=0
+for attempt in 1 2 3 4 5; do
+  rm -f "$pages_file"
+  if curl -sL --max-time 300 -o "$pages_file" "$pages_url" && [ -s "$pages_file" ]; then
+    if cmp -s "$WORK/app-release.apk" "$pages_file"; then pages_ok=1; break; fi
+    echo "  第 $attempt 次下到的 Pages 包与上传的不一致,重试"
+  else
+    echo "  第 $attempt 次下载 Pages 包失败,重试"
+  fi
+  sleep $((attempt * 5))
+done
+if [ "$pages_ok" != "1" ]; then
+  echo "::error::Pages 上的 gaia.apk 与刚上传的 app-release.apk **不一致** —— 站点发的不是这次的包" >&2
+  echo "::error::期望 $pages_url == $SITE_REPO:$TAG 的 app-release.apk" >&2
+  exit 1
+fi
+echo "✓ Pages 产物与上传的 release 包逐字节一致"
+
+# 版本号读出来给人看(只是**报告**,不参与判定 —— 判定已经由字节比对给出)。
+AAPT=$(command -v aapt2 2>/dev/null || find "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/build-tools" -name aapt2 -type f 2>/dev/null | sort | tail -1 || true)
+if [ -n "$AAPT" ]; then
+  echo "  Pages 上的版本:$("$AAPT" dump badging "$pages_file" 2>/dev/null |
+    sed -n "s/.*versionCode='\([^']*\)' versionName='\([^']*\)'.*/versionCode=\1 versionName=\2/p" | head -1)"
+fi
+echo "  $pages_url 现在是 $TAG"
