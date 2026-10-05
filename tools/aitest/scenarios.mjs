@@ -82,6 +82,19 @@ export const scenarios = [
     // 而「你」恰好只覆盖 `ni` —— 所以这个组合稳定地产生「部分消费」,
     // 也就是 bug 唯一会露头的那条路。
     //
+    // ## pattern 必须**全 ASCII**
+    //
+    // `takeLog` 把 pattern 塞进 `adb shell ... | grep -E "<pattern>"`。
+    // pattern 里的**非 ASCII 会在设备那一侧被吃掉**:Android 的 `sh` + `grep`
+    // 按设备 locale 处理字节,而「选词后剩余」是 5 个汉字 = 15 字节 UTF-8 ——
+    // 传过去就匹配不上了(2026-10-05 实测:日志里那行明明在,`takeLog` 却没收到)。
+    //
+    // 所以这里用 **`from=`** 这个 ASCII 前缀(`query#N from=… raw=…`),
+    // 真正的中文标签留给**上面的 JS 正则**去取 —— JS 在本地跑,没有编码问题。
+    //
+    // 代价:`from=` 会顺带捞到别的 `from=` 行(字符键/退格/部署完成回调…)。
+    // 无妨:下面的正则只取带 `raw="` 的那一条,且断言要的是**关系**。
+    //
     // 飞字动画期间窗口也在,断言前等它飞完(与其它场景同样 900ms)。
     name: 'consume-partial',
     desc: '选完候选后剩下的拼音留在缓冲里',
@@ -94,7 +107,8 @@ export const scenarios = [
         c.expect(c.device.imeShown(), '组词中输入法窗口显示')
         c.device.key(K.shift) // 显示槽 0
         await sleep(900)
-        const log = c.device.takeLog('consume:|select:|选词后剩余')
+        // **pattern 必须全 ASCII**(见这条下面的说明)。
+        const log = c.device.takeLog('consume:|select:|from=')
         c.shot('after-select')
         // ① 引擎报出「吃掉了几个**输入**字符」。
         c.expect(
@@ -242,6 +256,23 @@ export const scenarios = [
   },
 
   {
+    // 「拼音组词 + 空格上屏首选」。
+    //
+    // ## 为什么不能断言 `editText == "你"`(2026-10-05)
+    //
+    // 「ni 的首选是『你』」**不是我们能定的事实** —— 它由词典顺序 + **用户词频**决定。
+    // 而 librime 会从每次上屏里学习(用户词频走 LevelDB,**跨场景累积**)。
+    //
+    // 2026-10-05 实测:同一个 run 里,前面的 `select-global-index` 提交了一次「妳」,
+    // 于是之后 `ni` 的首选变成「妳」,这条断言拿到 `editText="妳"` 而红。
+    // 它自己什么都没做错 —— 与 `simplified` 那条「为什么不能用『中国/中國』」是同一个坑。
+    //
+    // ⇒ 断言挂在**关系**上,不挂在具体是哪个字:
+    //   空格上屏的必须是**一个汉字**,且**正好等于当前页里 li=0 那个**(槽2 的定义)。
+    // 后者顺带证明了「空格走的是首选那条路」,比「是个汉字」强。
+    //
+    // `select:` 埋点里 `pageWords` 就是当前页的词(顺序即逻辑序),
+    // `li` 是空格选中时的页内下标 —— 断言它等于 0 就等于「空格选的就是首选」。
     name: 'compose-space',
     desc: '拼音组词 + 空格上屏首选',
     steps: [
@@ -250,10 +281,25 @@ export const scenarios = [
         await sleep(900)
         c.shot('composing')
         c.expect(c.device.imeShown(), '组词中输入法窗口显示(全屏飞字态)')
+        c.device.shell('logcat -c')
         c.device.key(K.space)
         await sleep(900)
         const t = c.device.editText()
-        c.expect(last(t) === '你', `空格后应上屏首选「你」,实际 editText="${t}"`)
+        const log = c.device.takeLog('select: zone=.*')
+        c.expect(
+          /[\u4e00-\u9fff]$/.test(t),
+          `空格后应上屏一个汉字而不是原始字母 ni,实际 editText="${t}"`,
+        )
+        const m = /select: zone=(\d+) li=(\d+) global=(\d+) .*?pageWords=([^ ]+)/.exec(log)
+        c.expect(m, `应打出 select 埋点(实际: ${JSON.stringify(log.slice(0, 300))})`)
+        if (m) {
+          const [, zone, li, , pageWords] = m
+          c.expect(Number(zone) === 2, `空格应走显示槽 2(实际 zone=${zone})`)
+          // li=0 ⇔ 选的是页内第 0 个 ⇔ 首选。这是「空格选首选」这件事本身。
+          c.expect(Number(li) === 0, `空格应选页内第 0 个候选(实际 li=${li})`)
+          const top = pageWords.split('|')[0]
+          c.expect(last(t) === top, `空格上屏的应是当前页首选「${top}」,实际 "${last(t)}"`)
+        }
       },
     ],
   },

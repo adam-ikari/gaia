@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [e2e, ci, emulator, media, capture]
 created: "2026-10-01T05:09:58"
-updated: "2026-10-03T18:16:05"
+updated: "2026-10-05T07:14:17"
 ---
 
 <!-- compiled_truth -->
@@ -223,3 +223,15 @@ FATAL | Not enough space to create userdata partition.
   summary: "8/8 确定性场景全绿、crash 0、10 场景 3分36秒;六次红色里五次是工具缺陷"
   source: 2026-10-03 E2E run 37142471832
   affects: [e2e-capture, librime-android-build]
+
+- time: 2026-10-05T07:13:38
+  kind: decision
+  summary: "2026-10-05 新增两条跨场景污染通道:(a) 设备上那个输入框 —— harness 的 probeIme 清了字段,但探针之后场景又打了字,而 ci-capture.sh 是每场景一个独立 node 进程,进程间唯一公共状态就是那个字段 ⇒ 修在 runScenario 的 finally 里统一清,不靠每个场景自觉。(b) librime 用户词频(LevelDB)—— 上屏一次它就学到一次,**没有任何 API 能撤销**,所以前面场景提交过某个字之后,后面场景的首选就变了。compose-space 断言 editText==你 因此被误伤,改成关系式(zone=2 && li=0 && 上屏==pageWords[0])。"
+  source: 2026-10-05 E2E run 37272958949
+  affects: [e2e-capture, rime-candidate-consumption]
+
+- time: 2026-10-05T07:14:17
+  kind: decision
+  summary: "2026-10-05 第三条:takeLog 的 pattern 不能含非 ASCII。pattern 被塞进 adb shell | grep -E,设备侧按 locale 处理字节,5 个汉字(15 字节 UTF-8)传过去就匹配不上 —— 日志里那行明明在,takeLog 却收不到。症状是「断言说没有,可 full.log 里明明有」。改用 ASCII 前缀(from=),中文标签留给本地 JS 正则取(JS 没有编码问题)。全项目只有我新加的这几处踩到,既有 pattern 恰好全是 ASCII。"
+  source: "2026-10-05 E2E run 37272958949,拿 full.log 对照 takeLog 输入逐段排查"
+  affects: [e2e-capture]
