@@ -272,7 +272,24 @@ async function runScenario(name, device, dir) {
   // 好在部署是一次性的,后面的场景第一次轮询就过。
   if (!device.probeIme(90000)) throw new Error('探针:IME 没能给出候选(按键没到 IME,或词库还没部署完 —— 两种都会让断言读到原始字母)')
 
-  for (const step of sc.steps) await step(ctx)
+  // **场景结束后清空输入框**(2026-10-05 加)。
+  //
+  // 探针自己清了字段,但**探针之后场景又往里打了字**。而 `ci-capture.sh` 是
+  // **每个场景一个独立 node 进程**,进程之间唯一的公共状态就是**设备上那个字段**。
+  //
+  // 2026-10-05 实测:`select-global-index` 选完留下的字没清,紧接着的
+  // `compose-space` 断言「空格后上屏『你』」拿到 `editText="昵"` 而红 ——
+  // 而 `compose-space` 自己什么都没做错。
+  //
+  // ⇒ **一个场景污染后一个场景,而症状落在后者身上**,读起来像后者坏了。
+  //
+  // 放 `finally` 而不是场景自己收尾:指望每个场景都记得清是**约定**,而约定会被漏。
+  // harness 是唯一的收口点,这里清一次对所有场景生效(场景自己再清也无害)。
+  try {
+    for (const step of sc.steps) await step(ctx)
+  } finally {
+    device.clearField()
+  }
   return { name, results, shots }
 }
 

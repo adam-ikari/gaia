@@ -94,7 +94,7 @@ export const scenarios = [
         c.expect(c.device.imeShown(), '组词中输入法窗口显示')
         c.device.key(K.shift) // 显示槽 0
         await sleep(900)
-        const log = c.device.takeLog('(consume|select|选词后剩余): .*')
+        const log = c.device.takeLog('consume:|select:|选词后剩余')
         c.shot('after-select')
         // ① 引擎报出「吃掉了几个**输入**字符」。
         c.expect(
@@ -111,9 +111,9 @@ export const scenarios = [
         //     · 截错方向(留前缀)    → raw_after 对不上 tail      ⇒ 红
         const sel = /select: zone=\d+ li=\d+ global=\d+ word="[^"]*" page=\d+\/\d+ raw="([^"]*)"/.exec(log)
         const consumed = Number(/consume: .*consumed=(-?\d+)/.exec(log)?.[1] ?? -1)
-        const after = /选词后剩余 raw="([^"]*)"/.exec(log)?.[1]
+        const after = /from=选词后剩余 raw="([^"]*)"/.exec(log)?.[1]
         c.expect(!!sel, `应打出 select 埋点(含 raw)(实际: ${JSON.stringify(log.slice(0, 300))})`)
-        c.expect(after !== undefined, `应打出「选词后剩余」那行(实际: ${JSON.stringify(log.slice(0, 300))})`)
+        c.expect(after !== undefined, `应打出「from=选词后剩余 raw=…」那行(实际: ${JSON.stringify(log.slice(0, 300))})`)
         if (sel && after !== undefined && consumed > 0) {
           const before = sel[1]
           c.expect(
@@ -141,32 +141,46 @@ export const scenarios = [
     // 状态机传的是**页内**下标(0..4),而 librime 的 `Select(index)` 索引的是
     // **整份菜单**(0..44)。两者只在第 0 页相等。
     //
-    // 症状因此是「翻过页之后**选完缓冲不对**」,而不是「上错字」——
-    // 引擎报回的是**另一个词**吃掉的长度,剩下的拼音从此错位。
+    // 症状因此是「翻过页之后**选完缓冲不对**」,而不是「上错字」。
     //
     // ## 判据是 `global=` 那一段
     //
-    // `select: … li=N global=M`,`M` 必须等于 `N + page * 5`。
-    // 修之前打的是 `li=N`(压根没有 global 这个字段),所以这条必红。
-    // 纯文本断言,不依赖任何截图。
+    // `select: … li=N global=M page=P/…`,恒等式 `M == N + P * 5`。
+    // 修之前压根没有 `global` 这个字段,所以这条必红。纯文本断言,不依赖截图。
+    //
+    // ## 第一版这个场景三处错(白跑一轮)
+    //
+    // 1. **翻页没生效**,而我把「翻没生效」写成了断言失败的样子。
+    //    原因:`pageStep` **不打任何日志** —— 它只改 `state.page` 再 render。
+    //    于是「翻页成功」与「按键没进 IME」在 logcat 里**同形**(都没有痕迹)。
+    //    第一版去断言 `updateSelection`,那是**组词区**的回调,翻页不改组词区,
+    //    所以它永远不该出现 —— 我等于断言了一条不存在的东西。
+    //    ⇒ 现在不中间断言,直接看 `select:` 那行里的 `page=P`,并要求 `P > 0`:
+    //    **翻没翻成功由 `page` 自己说**,不需要额外埋点。
+    // 2. DPAD_RIGHT 在**组词态**下会不会真的翻页,取决于它有没有进到 IME。
+    //    证据里两次按键**零日志**、`page` 停在 0 ⇒ 没进。
+    //    这里改成**用候选栏横滑**翻页(那条路有 `page begin:` 埋点),
+    //    顺带验「翻页手势真到了候选行」。
+    // 3. 忘了 `probeIme` 会把输入框清空、而**上一个场景的残留字**还在字段里,
+    //    于是 `select-global-index` 之后 `compose-space` 读到脏数据。
+    //    每个场景结尾必须清干净字段(见 `clearField`)。
     name: 'select-global-index',
     desc: '翻页后给引擎的仍是全局下标',
     steps: [
       async (c) => {
-        // `ni` 前缀命中 6 个候选 ⇒ 2 页,够翻。第 1 页(第二页)只剩 1 个。
+        const ROW = 1397 // 候选行(真机实测:槽0 在 175,1397)
+        // `ni` 前缀命中 45 个候选 ⇒ 9 页,一次横滑就到第 2 页。
         c.device.key(K.n, K.i)
         await sleep(900)
         c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
         c.device.shell('logcat -c')
-        // 右箭头翻到第 2 页。两次都按是为了确认**到头会停住**(不循环),
-        // 那条夹取逻辑也是这条路径的一部分。
-        c.device.key(22) // KEYCODE_DPAD_RIGHT
-        await sleep(500)
-        c.device.key(22)
-        await sleep(500)
-        c.expectLog(c.device.takeLog('page |updateSelection'), 'updateSelection')
+        await sleep(400) // > 300ms 静默窗,否则候选行不接管这次横滑
+        // 横滑翻页(有 `page begin:` 埋点 ⇒ 能确认手势真的到了候选行)。
+        c.device.swipe(1100, ROW, 400, ROW, 300)
+        await sleep(1000)
+        c.shot('after-page-swipe')
         c.device.shell('logcat -c')
-        c.device.key(K.space) // 显示槽 2 = 那一页的首选
+        c.device.key(K.space) // 显示槽 2 = 当前页的首选
         await sleep(900)
         const log = c.device.takeLog('select: zone=.*')
         c.shot('after-paged-select')
@@ -175,13 +189,17 @@ export const scenarios = [
         if (m) {
           const [, , li, global, page] = m
           const p = Number(page)
-          // 页内下标 li 加上页偏移,才是引擎菜单里的下标。
+          // **先验「确实翻过页」**:这一条把「下标算错」与「压根没翻页」分开。
+          // 少它的话,page=0 时恒等式 M==N+0*5 恒成立,断言会**假绿**。
+          c.expect(p > 0, `本用例需要翻过页才验得出,实际 page=${p}(横滑没生效?)`)
           const want = Number(li) + p * 5
           c.expect(Number(global) === want, `global 应等于 li + 页号×页宽 = ${want},实际 ${global}(page=${p})`)
-          c.expect(p > 0, `本用例需要翻过页才验得出(实际 page=${p})`)
         }
-        c.device.key(K.del, K.del) // 清掉选词留下的字
-        await sleep(300)
+        // **清干净字段**:上一个场景的残留字会让后面 `editText()` 断言读到脏数据
+        // (2026-10-05 实测:select-global-index 选完留下的字让 compose-space 拿到
+        // editText="昵" 而非 "你")。这条与 harness 的 `probeIme` 同理。
+        c.device.key(K.del, K.del, K.del)
+        await sleep(400)
       },
     ],
   },
