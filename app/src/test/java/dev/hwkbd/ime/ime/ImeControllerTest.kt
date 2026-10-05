@@ -393,7 +393,9 @@ class ImeControllerTest {
         assertEquals("只应上屏一个词", 1, r.h.commits.size)
         assertEquals("剩下的拼音应留在缓冲里", "ni", r.c.state.raw)
         assertTrue("应按剩下的拼音重新查到候选", r.c.state.candidates.isNotEmpty())
-        assertTrue("候选应换了(按 "ni" 而不是按 "nihao")", r.c.state.candidates != before)
+        // 消息里**不要用 ASCII 双引号** —— 它会提前结束 Kotlin 字符串字面量,
+        // 编译报「Unresolved reference」指向消息里那个词,看着像别处坏了。
+        assertTrue("候选应换了(按「ni」而不是按「nihao」)", r.c.state.candidates != before)
     }
 
     /** 引擎说「全吃完了」时照旧清空 —— 单音节输入的常态,行为不能变。 */
