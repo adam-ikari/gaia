@@ -402,6 +402,21 @@ class CandidateBarView @JvmOverloads constructor(
      */
     private fun beginPageDrag(dir: Float, x: Float, eventTimeMs: Long = 0L) {
         val rolesSet = pageFrom.isNotEmpty() && pageTo.isNotEmpty()
+        // 埋点:这一行是「一次 swipe 触发了**几次**起手」的唯一证据(2026-10-05)。
+        //
+        // 此前 `page begin` 只在 [takeOverPageDrag] 打,而它每次接管都打 ——
+        // 于是**看不出是同一个手势打了两次,还是两次独立手势**:
+        // 2026-10-05 E2E 里一次 swipe 打出两次 `page begin`,与「翻页没生效」现场撞在一起。
+        //
+        // `rolesSet` / `pageDragging` / `pageCommitted` 三个状态都打出来,
+        // 因为**走哪个分支**完全由它们决定,而那个分支正是当时推不出的那一环:
+        // `rolesSet=false` 会重定基线并把 `pageCommitted` 抹成 false,
+        // `rolesSet=true && 同向 && 正在拖` 则整个函数是空操作。
+        android.util.Log.i(
+            TAG,
+            "page begin#: dir=$dir rolesSet=$rolesSet pageDragging=$pageDragging " +
+                "pageCommitted=$pageCommitted page=$page/$totalPages slide=${pageSlide.toInt()}"
+        )
         if (rolesSet && dir == pageDir && pageDragging) {
             // 同向且手指正在驱动 → 空操作:基线与速度都不动,只继续喂样本
             if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
@@ -713,6 +728,14 @@ class CandidateBarView @JvmOverloads constructor(
         val byFinger = DragGesture.progress(pageDragTravel, threshold, pageDragDeadPx()) >= 1f
         val byFling = v > 0f && landing >= threshold
         if (byFinger || byFling) {
+            // 埋点:`pageCommitted` 决定要不要发 `onPage`,而它此前**没有**被记录 ——
+            // 于是「发了提交但页码没动」与「压根没发」在 logcat 里同形(2026-10-05)。
+            // `willSend` 是那一行的判据,打出来才能把两种情况分开。
+            android.util.Log.i(
+                TAG,
+                "end: 判定提交 pageCommitted=$pageCommitted willSend=${!pageCommitted} " +
+                    "travel=${pageDragTravel.toInt()} thr=${threshold.toInt()} dead=${pageDragDeadPx().toInt()}"
+            )
             if (!pageCommitted) {
                 onPage?.invoke(step)
                 haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义

@@ -649,10 +649,38 @@ class ImeController(
     /** 词的用户使用频次(测试/调试用)。 */
     fun userCountOf(word: String): Int = inputMethod().userCount(word)
 
+    /**
+     * 翻页一步。
+     *
+     * ## 为什么打埋点(2026-10-05)
+     *
+     * 此函数此前**完全静默**,而它是「翻页到底发不发生」的唯一落地点 ——
+     * 于是 logcat 里「翻页成功」与「翻页手势压根没进来」**同形**(都没有痕迹)。
+     *
+     * 代价具体落在 2026-10-05 那个查不下去的现场:E2E `select-global-index`
+     * 打出 `page begin 0→1` 与 `end: 提交 commit=true`,之后页码却是 0。
+     * 能确定的是「view 说它提交了」,不能确定的是「controller 有没有真的翻」——
+     * 中间那一步没有记录,于是两种解释都能自圆其说,谁也排除不掉。
+     *
+     * `before→after` 两个数都打,而不是只打 `after`:只打后者的话
+     * 「被夹回原页」与「压根没调用」长得一样(夹取后页码没变)。
+     * `delta` 也打 —— 重复调用(比如 +1 打两次)只有它能看出来。
+     *
+     * **夹到边界时 `after == before` 是正常的**(到头不循环,见 `pageStep` 的语义),
+     * 所以 `after != before` 才说明真的翻了。
+     */
     fun pageStep(delta: Int) {
-        if (state.totalPages == 0) return
+        val before = state.page
+        if (state.totalPages == 0) {
+            android.util.Log.i("ImeService", "pageStep: delta=$delta 忽略(总页数=0)")
+            return
+        }
         state.page = (state.page + delta).coerceIn(0, state.totalPages - 1)
         state.highlight = -1
+        android.util.Log.i(
+            "ImeService",
+            "pageStep: delta=$delta page=$before→${state.page}/${state.totalPages}",
+        )
         host.render()
     }
 

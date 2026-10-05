@@ -17,6 +17,39 @@ const last = (s) => (s ? s[s.length - 1] : '')
 /** 字母 → Android KEYCODE_*(A=29 起的连续段)。 */
 const kcOf = (ch) => K[ch.toLowerCase()]
 
+/**
+ * 「横滑之后页码没动」时,**说出是哪一环没动**(2026-10-05)。
+ *
+ * ## 为什么值得写这十几行
+ *
+ * 上一轮这个场景红了,而现场是:`page begin 0→1` 与 `end: 提交 commit=true`
+ * 都在,可之后 `select:` 显示 `page=0/9`。
+ *
+ * 当时能确定的是「**view 说它提交了**」,不能确定的是「**controller 有没有真的翻**」——
+ * 中间那一步(`pageStep`)**不打任何日志**。于是两种解释都能自圆其说:
+ * 「提交了但页码被夹回 0」与「压根没提交」,谁也排除不掉,查不下去。
+ *
+ * 这个函数把三处埋点一起读出来给出结论:
+ * - `pageStep: … page=A→B/N` ⇒ controller **真的翻了**,`B` 就是权威页码
+ * - `end: 判定提交 … willSend=false` ⇒ view 判定提交但**没发** `onPage`
+ *   (被 [pageCommitted] 挡了 —— 那就去看 `page begin#` 里的那个标记)
+ * - `page begin#` 出现两次 ⇒ 一次手势起了两次手(为什么?)
+ *
+ * ⇒ 失败时消息直接指出断点,**不用再翻 full.log 人工推理**。
+ */
+const describePageFailure = (page, pageLog) => {
+  const steps = [...pageLog.matchAll(/pageStep: delta=(-?\d+) page=(\d+)→(\d+)\//g)].map((m) => m[0])
+  const sends = [...pageLog.matchAll(/end: 判定提交.*willSend=(true|false)/g)].map((m) => m[1])
+  const begins = pageLog.split('\n').filter((l) => l.includes('page begin#:')).length
+  const facts = [
+    `最终 page=${page}(应为 >0)`,
+    `pageStep 调用 ${steps.length} 次${steps.length ? ': ' + steps.join(' / ') : ' ⇒ **controller 侧压根没被要求翻页**'}`,
+    sends.length ? `view 判定提交时 willSend=${sends.join(',')}(false ⇒ 被 pageCommitted 挡在 onPage 之前)` : 'end 判定提交: **无记录** ⇒ 抬手时没判定过线',
+    `page begin# ${begins} 次${begins > 1 ? '(一次手势起了两次手)' : ''}`,
+  ]
+  return facts.join('\n    · ')
+}
+
 export const scenarios = [
   {
     // 「横向滑动候选词没有打断动画」—— 要证明**打断真的发生了**。
@@ -193,6 +226,17 @@ export const scenarios = [
         c.device.swipe(1100, ROW, 400, ROW, 300)
         await sleep(1000)
         c.shot('after-page-swipe')
+        // **翻页那一段的日志单独留一份**(2026-10-05)。
+        //
+        // 上一轮这里直接 `logcat -c` 清掉了,而翻页到底发没发生**只有这里有答案**:
+        // `pageStep`(controller 侧,页码真正落地的地方)此前**完全静默**,
+        // 候选栏那边的 `page end` 打的又是 view 自己那份字段、而 render 经
+        // RenderPump 延后 ⇒ 那些 `page=` 不能当作 state.page 的证据。
+        // 结果就是「view 说提交了、页码却是 0」这个现场**推不出自洽解释**。
+        //
+        // 现在 pageStep / page begin# / end: 判定提交 三处都有埋点,
+        // 所以这个场景失败时能**自己说出是哪一环没动**,不用再猜。
+        const pageLog = c.device.takeLog('page begin#|end: |pageStep:')
         c.device.shell('logcat -c')
         c.device.key(K.space) // 显示槽 2 = 当前页的首选
         await sleep(900)
@@ -205,7 +249,7 @@ export const scenarios = [
           const p = Number(page)
           // **先验「确实翻过页」**:这一条把「下标算错」与「压根没翻页」分开。
           // 少它的话,page=0 时恒等式 M==N+0*5 恒成立,断言会**假绿**。
-          c.expect(p > 0, `本用例需要翻过页才验得出,实际 page=${p}(横滑没生效?)`)
+          c.expect(p > 0, describePageFailure(p, pageLog))
           const want = Number(li) + p * 5
           c.expect(Number(global) === want, `global 应等于 li + 页号×页宽 = ${want},实际 ${global}(page=${p})`)
         }
