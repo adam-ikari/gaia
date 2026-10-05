@@ -180,7 +180,12 @@ export class Device {
     // tag 白名单:**`-s` 会把不在列表里的 tag 全部丢掉**,所以在别处加的日志
     // 必须把它的 tag 加进来,否则断言永远看不到(加日志 ≠ 可观测)。
     // CandidateBar 是 2026-10-03 补的 —— 翻页手势在那边,而它此前一条日志都没有。
-    const out = this.shell(`logcat -d -s ImeService:* CandidateBar:* ImeRoot:* 2>/dev/null | grep -E "${pattern}" | tail -20`)
+    // SpringChannel 是 2026-10-05 补的 —— **打断(retarget)与起跑在这里,
+    // 而此前两条都是静默的**:用户报「滑动没有打断动画」时,
+    // 日志里既看不到打断发生、也看不到它没发生,只能靠猜。
+    const out = this.shell(
+      `logcat -d -s ImeService:* CandidateBar:* ImeRoot:* SpringChannel:* 2>/dev/null | grep -E "${pattern}" | tail -20`,
+    )
     this.shell('logcat -c')
     return out.trim()
   }

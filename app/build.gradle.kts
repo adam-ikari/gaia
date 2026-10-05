@@ -37,8 +37,8 @@ android {
         // (0.26s ≈ 5540 px/s),而飞字起飞 52px 用 0.22s(≈236 px/s)—— 速度差 20 倍。
         // 用户原话「一直都很快」是准确的。现在 response = clamp(行程/1800, 0.28s, 0.60s),
         // 收回(滑回原页)按用户要求一起慢。
-        versionCode = 28
-        versionName = "0.7.9"
+        versionCode = 29
+        versionName = "0.7.10"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //

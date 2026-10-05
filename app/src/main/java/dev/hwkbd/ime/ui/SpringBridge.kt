@@ -96,6 +96,14 @@ internal class SpringChannel(
             // **打断**:不断动画、不重设值与速度,只换目标 ⇒ 位置与速度都连续。
             // 这是速度**唯一该被保留**的场合:手指按住正在飞的页面时,画面此刻的物理速度
             // 就是弹簧的速度,丢掉它等于凭空刹一下。
+            //
+            // 埋点:打断**原来完全没有痕迹**。用户报「滑动没有打断动画」时,
+            // 日志里既看不到打断发生过,也看不到它没发生 —— 只能靠猜。
+            android.util.Log.i(
+                "SpringChannel",
+                "interrupt: $spec ζ=$spec.dampingRatio from=$from target=$target " +
+                    "v=$currentVelocity"
+            )
             animation.animateToFinalPosition(target)
             return
         }
@@ -114,6 +122,11 @@ internal class SpringChannel(
         //
         // 修法就是**分工**:松手时速度只用来算落点,不给弹簧;打断时速度留给弹簧。
         // 这不是调参,是语义:[Landing] 答"落到哪",弹簧答"怎么过去",两者不重复计入。
+        // 埋点:起跑(与上面的 interrupt 配对,两条一起看就知道动画是被接管还是被重开)
+        android.util.Log.i(
+            "SpringChannel",
+            "start: ζ=$spec.dampingRatio from=$from target=$target v0=0"
+        )
         animation.cancel()
         holder.value = from
         currentVelocity = 0f
@@ -129,6 +142,7 @@ internal class SpringChannel(
      * 与 [settle] 的区别是**刻意跳变** —— 所以只在确实没有连续性可言时才用。
      */
     fun reset(value: Float) {
+        android.util.Log.i("SpringChannel", "reset: value=$value（硬置,刻意跳变）")
         animation.cancel()
         holder.value = value
         currentVelocity = 0f

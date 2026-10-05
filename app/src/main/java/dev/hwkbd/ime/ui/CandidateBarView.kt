@@ -504,6 +504,13 @@ class CandidateBarView @JvmOverloads constructor(
         return if (neighbour.isNotEmpty() && neighbour.any { it != null }) {
             // **反向从橡皮筋接管**:拉伸量弹回,而不是被清零(见 [settleRubberBack])
             if (rubberDrag.tracking || rubberDrag.raw > 0f) settleRubberBack()
+            // 埋点:跟手翻页接管。`springRunning` 是这次排查的关键 ——
+            // 用户报「滑动没有打断动画」,而这条分支里的 [beginPageDrag] 会 cancel 弹簧,
+            // 所以这里打出 true 就说明打断**应该**发生,false 则说明根本没接管到。
+            android.util.Log.i(
+                TAG,
+                "takeover: 跟手翻页 dir=$dir springRunning=${pageSpring.isRunning}"
+            )
             // 与 [endPageDrag] 里 `step` 同一套符号约定:dir>0 = 往下一页
             android.util.Log.i(
                 TAG,
@@ -517,10 +524,32 @@ class CandidateBarView @JvmOverloads constructor(
             // 不收的话 [pageDragging] 与 [rubberDrag.active] 会同时为真,
             // [pageDragMove] 的 when 里橡皮筋优先 —— 翻页那条名义上在拖却吃不到事件,
             // 抬手又走 [endRubber],于是 pageDragging 永远清不掉,画面卡在中间态。
-            if (pageDragging || pageFrom.isNotEmpty()) reversePageTurn()
+            if (pageDragging || pageFrom.isNotEmpty()) {
+                android.util.Log.i(
+                    TAG,
+                    "takeover: 反向收回 reversePageTurn springRunning=${pageSpring.isRunning}"
+                )
+                reversePageTurn()
+            } else if (pageSpring.isRunning) {
+                // **弹簧在跑、但既不是跟手拖动也不是翻页回收** ⇒ 手指抢过来的是橡皮筋。
+                // 原先这里什么都不做,于是 [beginRubber] 起橡皮筋的同时
+                // pageSpring 还在写 pageSlide —— **两支动画同时动同一行**,
+                // 读作「滑动没有打断动画」,而抬手时 [pageDragEnd] 只走 endRubber,
+                // pageSpring 没人管,自己跑完。
+                //
+                // 这里显式取消并把位移落回 0(取消会把弹簧停在半路,不落定就是错位的画面)。
+                android.util.Log.i(TAG, "takeover: 取消在飞的翻页动画(此前没人管它)")
+                pageSpring.cancel()
+                pageSlide = 0f
+                clearPageTurn()
+            }
             // 带上 totalPages:2026-10-03 这个 bug(只有一页 → 恒「到头」)就是靠
             // 「dir 两个方向都到头」推出来的,而**页数**是那条线索的直接证据。
-            android.util.Log.i(TAG, "page begin: dir=$dir → 到头,走橡皮筋 (page=$page/$totalPages)")
+            android.util.Log.i(
+                TAG,
+                "takeover: 到头走橡皮筋 dir=$dir springRunning=${pageSpring.isRunning} " +
+                    "reverse=${pageDragging || pageFrom.isNotEmpty()} (page=$page/$totalPages)"
+            )
             beginRubber(dir, x)
         }
     }

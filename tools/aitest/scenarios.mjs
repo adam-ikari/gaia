@@ -19,6 +19,50 @@ const kcOf = (ch) => K[ch.toLowerCase()]
 
 export const scenarios = [
   {
+    // 「横向滑动候选词没有打断动画」—— 这一条要证明**打断真的发生了**。
+    //
+    // ## 为什么必须用 `input motionevent` 而不是 `swipe`
+    //
+    // harness 的 `swipe` 是**阻塞**的:一条命令跑到手指抬起才返回。
+    // 而打断的定义就是「上一段动画还没走完就开始下一次手势」,
+    // 两条阻塞 swipe 永远排不上这个时间关系。
+    //
+    // `input motionevent DOWN/MOVE/MOVE/UP` 是逐条投递的,可以在 UP 之后
+    // 立刻再 DOWN —— 这才造得出「动画在飞时手指按住」。
+    //
+    // ## 判据
+    //
+    // 打断发生 ⇒ `SpringChannel` 打出 `interrupt:`(retarget,保留速度)。
+    // 打断没发生 ⇒ 只有第一段 `start:`,第二段手势毫无痕迹。
+    // 两条日志都读出来对比,不靠肉眼判断画面。
+    name: 'page-interrupt-live',
+    desc: '动画在飞时横滑要真的打断它',
+    steps: [
+      async (c) => {
+        const y = 1100
+        const m = (t, x) => c.device.shell(`input motionevent ${t} ${x} ${y}`)
+        c.device.shell('logcat -c')
+        // 第一段:完整翻页手势( DOWN → MOVE 过死区 → UP ),松手后弹簧开始走
+        m('DOWN', 900); m('MOVE', 820); m('MOVE', 700); m('UP', 600)
+        await sleep(90)                       // 远小于 600ms 的动画时长 ⇒ 动画必在飞
+        // 第二段:动画在飞时立刻按住并横滑 —— 这一下必须打断它
+        m('DOWN', 600); m('MOVE', 520); m('MOVE', 440); m('UP', 400)
+        await sleep(900)
+        c.shot('after-interrupt')
+        const log = c.device.takeLog('(SpringChannel|takeover): .*')
+        c.expect(
+          /start:/.test(log),
+          `第一段应起跑一段弹簧(实际: ${JSON.stringify(log.slice(0, 300))})`,
+        )
+        c.expect(
+          /interrupt:/.test(log),
+          '动画在飞时的第二次手势应打出 interrupt(没有它就是「没有打断」)',
+        )
+      },
+    ],
+  },
+
+  {
     // 「拼音消费按实际选词消费」的真引擎验证(2026-10-04)。
     //
     // 之前两版都没能证明它生效:v0.7.7 读 `get_commit`(恒 null,整条路径是死代码),
