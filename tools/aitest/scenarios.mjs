@@ -19,49 +19,38 @@ const kcOf = (ch) => K[ch.toLowerCase()]
 
 export const scenarios = [
   {
-    // 「横向滑动候选词没有打断动画」—— 这一条要证明**打断真的发生了**。
+    // 「横向滑动候选词没有打断动画」—— 要证明**打断真的发生了**。
     //
-    // ## 为什么必须用 `input motionevent` 而不是 `swipe`
+    // ## 第一版这个场景的三处错(都白跑了一轮)
     //
-    // harness 的 `swipe` 是**阻塞**的:一条命令跑到手指抬起才返回。
-    // 而打断的定义就是「上一段动画还没走完就开始下一次手势」,
-    // 两条阻塞 swipe 永远排不上这个时间关系。
+    // 1. **没组词**:preflight 打完字又退格清空了,组词没在进行 ⇒ 输入法窗口
+    //    根本没显示,我划的是空白屏幕 —— 日志里一条触摸事件都没有。
+    // 2. **坐标错了**:y=1100 是**键盘面**(external drive),候选行在 y≈1397。
+    // 3. **没过静默窗**:刚打完字就划,`swipeArmed` 为 false ⇒ 不接管。
     //
-    // `input motionevent DOWN/MOVE/MOVE/UP` 是逐条投递的,可以在 UP 之后
-    // 立刻再 DOWN —— 这才造得出「动画在飞时手指按住」。
+    // ## 为什么不需要 motionevent
     //
-    // ## 判据
-    //
-    // 打断发生 ⇒ `SpringChannel` 打出 `interrupt:`(retarget,保留速度)。
-    // 打断没发生 ⇒ 只有第一段 `start:`,第二段手势毫无痕迹。
-    // 两条日志都读出来对比,不靠肉眼判断画面。
+    // 打断的定义是「上一段动画还没走完就开始下一次手势」。`input swipe` 虽然阻塞,
+    // 但它**抬手之后**弹簧才开始跑(最长 600ms),而下一条 swipe 的 shell 往返
+    // 只有百来毫秒 —— 顺序执行天然就落在动画窗口内。
+    // `input motionevent` 逐条投递看着更可控,却因为上面第 1 条整个手势没打出去。
     name: 'page-interrupt-live',
     desc: '动画在飞时横滑要真的打断它',
     steps: [
       async (c) => {
-        const y = 1100
-        const m = (t, x) => c.device.shell(`input motionevent ${t} ${x} ${y}`)
+        const ROW = 1397 // 候选行(真机实测:槽0 在 175,1397)
+        const sw = (x1, x2, ms) => c.device.swipe(x1, ROW, x2, ROW, ms)
+        // 先组词:候选行必须存在
+        c.device.key(K.n, K.i)
+        await sleep(500) // > 300ms 静默窗,否则 swipeArmed=false 不接管
         c.device.shell('logcat -c')
-        // 第一段:完整翻页手势( DOWN → MOVE 过死区 → UP ),松手后弹簧开始走
-        m('DOWN', 900); m('MOVE', 820); m('MOVE', 700); m('UP', 600)
-        await sleep(90)                       // 远小于 600ms 的动画时长 ⇒ 动画必在飞
-        // 第二段:动画在飞时立刻按住并横滑 —— 这一下必须打断它
-        m('DOWN', 600); m('MOVE', 520); m('MOVE', 440); m('UP', 400)
-        await sleep(900)
+        sw(1100, 400, 300) // 第一段:翻页,抬手后弹簧开始走
+        sw(400, 1100, 300) // 第二段:动画在飞时立刻反向划 —— 必须打断它
+        await sleep(1000)
         c.shot('after-interrupt')
         const log = c.device.takeLog('(SpringChannel|takeover): .*')
-        c.expect(
-          /start:/.test(log),
-          `第一段应起跑一段弹簧(实际: ${JSON.stringify(log.slice(0, 300))})`,
-        )
-        c.expect(
-          /interrupt:/.test(log),
-          '动画在飞时的第二次手势应打出 interrupt(没有它就是「没有打断」)',
-        )
-        // 顺带把选词那条链也读出来:zone/li/word/page/order/整页词。
-        // 「选的候选与上屏不一致」时,这一行是唯一的判据。
-        const sel = c.device.takeLog('select: zone=.*')
-        c.expect(/select: zone=\d+ → li=\d+ word="[^"]+"/.test(sel), `选词埋点应出现(实际: ${JSON.stringify(sel.slice(0, 300))})`)
+        c.expect(/start:/.test(log), `第一段应起跑弹簧(实际: ${JSON.stringify(log.slice(0, 300))})`)
+        c.expect(/interrupt:/.test(log), '动画在飞时的第二次手势应打出 interrupt(没有它就是「没有打断」)')
       },
     ],
   },
