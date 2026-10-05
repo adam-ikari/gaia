@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-03T11:25:09"
+updated: "2026-10-05T13:19:37"
 ---
 
 <!-- compiled_truth -->
@@ -125,4 +125,22 @@ v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-03 v0.7.0 发版实战"
+  affects: [release-flow]
+
+- time: 2026-10-05T13:19:37
+  kind: decision
+  summary: "分支保护用不了(私有仓+Free 套餐,protection 返回 403 要 Pro)⇒ 规范不靠它:闸门收进 tools/release/gate.sh,判定依据是退出码而非 CI 状态;E2E 与 release 在 tag push 上并行无依赖,硬接需重构成 reusable workflow 且仍验不到产物(debug 包不过 R8),定为发版前人工前置 + commit 引用可查"
+  source: "2026-10-05 制定分支与发布规范"
+  affects: [release-flow]
+
+- time: 2026-10-05T13:19:37
+  kind: evidence
+  summary: "Actions 账单失败时 job 一个 step 都不执行、2 秒、conclusion=failure ⇒ fail-open:徽章红但零检查。这是否认「CI 绿=检查过」的直接证据,也是「必须失败就大声响」的来源"
+  source: "2026-10-05 实测"
+  affects: [release-flow]
+
+- time: 2026-10-05T13:19:37
+  kind: evidence
+  summary: "本机 CMake 回落到了 PATH 上的 3.31.10($SDK/cmake 不存在),CI 固定 3.22.1 ⇒ 本地包与 CI 包工具链不同。预检因此查「生效的」CMake 并报差异,不查固定路径"
+  source: "2026-10-05 gate.sh 预检"
   affects: [release-flow]
