@@ -3,6 +3,37 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+/**
+ * `git rev-parse --short HEAD`,取不到就返回 `"nogit"`。
+ *
+ * ## 为什么失败时不抛异常、也不返回空串
+ *
+ * beta 的 `versionNameSuffix` 依赖它。取不到时如果抛异常,整个构建失败 ——
+ * 而「这台机器上编不出 beta」和「构建配置错了」是完全不同的两件事,
+ * 混在一个异常里会让后者更难查。
+ *
+ * 返回 `"nogit"` 而不是 `""`:空串会让 `versionName` 变成 `0.7.11-beta.`,
+ * 那个尾巴看起来像**成功**了。而 `nogit` 一眼就知道「这个标识不可信」。
+ */
+fun gitShortHash(): String = runCatching {
+    providers.exec {
+        commandLine("git", "rev-parse", "--short", "HEAD")
+    }.standardOutput.asText.get().trim()
+}.getOrNull()?.takeIf { it.matches(Regex("[0-9a-f]{7,40}")) } ?: "nogit"
+
+/**
+ * 工作区有没有未提交的改动。
+ *
+ * **不是为了洁癖**:有改动时 `git rev-parse HEAD` 那个 hash **不代表实际编出来的
+ * 字节**。把这种包标成 `0.7.11-beta.7a8e59d` 就是骗人 —— 用户按这个 hash 报 bug,
+ * 他编不出同样的东西,复现不了。所以 `versionNameSuffix` 里要带 `.dirty`。
+ */
+fun gitDirty(): Boolean = runCatching {
+    providers.exec {
+        commandLine("git", "status", "--porcelain")
+    }.standardOutput.asText.get().trim().isNotEmpty()
+}.getOrDefault(false)
+
 android {
     namespace = "dev.hwkbd.ime"
     compileSdk = 36
@@ -41,8 +72,8 @@ android {
         // **值**(`ver_of` 解 HEAD 与最高 tag 的 build.gradle.kts),不是
         // 「哪个 commit 碰过这个文件」—— 后者会把顺手修 typo 也算成一次 bump。
         // ↓↓↓ 发版 commit 的唯一改动就是这两行 ↓↓↓
-        versionCode = 29
-        versionName = "0.7.10"
+        versionCode = 30
+        versionName = "0.7.11"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
@@ -99,6 +130,73 @@ android {
             ndk {
                 abiFilters += listOf("arm64-v8a", "x86_64")
             }
+        }
+        // ---------------------------------------------------------------------
+        // beta = **测试版**:与正式版是**两个不同的应用**(2026-10-06)
+        //
+        // ## 为什么要独立成一个应用,而不是同一个应用的另一个下载链接
+        //
+        // 同一个 applicationId 的话,测试版与正式版**互相顶掉**:
+        // Android 按 `versionCode` 判升级,而测试包是本地编的、字节与 CI 编的
+        // 必然不同 ⇒ 同一号不同字节 ⇒ 用户从正式版装测试版会撞
+        // `INSTALL_FAILED_VERSION_DOWNGRADE`,反之亦然。
+        // **用户被迫在「试新版」与「保住现在这个」之间二选一** ——
+        // 而测试版的意义就是让人两者都能要。
+        //
+        // `applicationIdSuffix = ".beta"` 把它变成 `dev.hwkbd.ime.beta`,
+        // 于是:
+        //   · 与正式版**并存**,互不覆盖,各自的数据与设置分开;
+        //   · `versionCode` 各自独立计数,测试版可以随便发;
+        //   · 输入法列表里是两个条目(`盖亚输入法` / `盖亚输入法 β`),
+        //     可以随时切回去。
+        //
+        // **顺带解掉了「本地侧载烧号」那个问题**:正式包已发的 29 不会被
+        // 测试版消耗掉,不必为了试一个修复去跳正式版本号。
+        //
+        // ## versionName 带 git hash
+        //
+        // `versionNameSuffix = "-beta.<hash>"`,来源是 `git rev-parse --short HEAD`。
+        // 为什么必须带:测试版最需要的不是版本号,是**可追溯性** ——
+        // 用户报「β 版有问题」时,「哪个 commit」是第一个要回答的问题。
+        // 而 `versionName` 是唯一在**设备上、不用连电脑**就能读到的标识
+        // (设置 → 应用 → 版本)。
+        //
+        // 工作区不干净时后缀加 `.dirty`:那个 hash **不代表实际编出来的内容**,
+        // 不标出来就是骗人。
+        create("beta") {
+            initWith(getByName("release"))
+
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-beta.${gitShortHash()}${if (gitDirty()) ".dirty" else ""}"
+
+            // ABI 跟 release 一样只编 arm64 —— beta 发给真机,模拟器用 debug。
+            // (initWith 已复制过来,这里写明是为了让读的人知道它是刻意的。)
+            ndk {
+                abiFilters.clear()
+                abiFilters += "arm64-v8a"
+            }
+
+            // **R8 必须显式打开,不能靠 initWith**。
+            //
+            // `initWith(getByName("release"))` **没有**把 `isMinifyEnabled` 带过来:
+            // 实测 beta 编出来 9.1MB 而 release 6.9MB,`app/build/outputs/mapping/beta/`
+            // 里**没有 mapping.txt** ⇒ beta 根本没混淆过。
+            // 原因:AGP 对 buildType 的配置是延迟生效的,`initWith` 执行时
+            // release 块里的赋值还没落到 DSL 对象上。
+            //
+            // 所以下面两行是**写死的**,不是继承来的:
+            //   - `initWith` 容易让人以为「跟 release 一样」,而**读代码看不出来它没跟**;
+            //   - beta 若不过 R8,就测不出「改名导致的 UnsatisfiedLinkError」那类问题,
+            //     而那正是正式版最贵的一类事故(2026-10-04:v0.7.1 有 7/14 个入口被削掉)。
+            // ⇒ 判据是产物,不是配置:assembleBeta 之后必须有 mapping/beta/mapping.txt。
+            //   见 tools/release/gate.sh 的 check_beta_r8。
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+
+            matchingFallbacks += listOf("release")
         }
         release {
         // **混淆 + 资源压缩**(2026-10-02「应用包需要安全加固 防止重新打包」)

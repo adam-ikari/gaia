@@ -56,7 +56,7 @@ step() { STEP=$((STEP + 1)); printf '\n\033[1m[%d/%d] %s\033[0m\n' "$STEP" "$TOT
 ok()   { printf '      \033[32m✓\033[0m %s\n' "$1"; }
 die()  { printf '\n\033[31m::error:: %s\033[0m\n' "$1" >&2; exit 1; }
 
-TOTAL=7
+TOTAL=8
 [ "$QUICK" = 1 ] && TOTAL=3
 
 # CI 固定的工具版本,三处流水线一致。改这里要同步改三个 yml。
@@ -233,13 +233,45 @@ run_tests() {
 }
 
 assemble() {
-  step "构建 release + debug"
-  ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug >/tmp/gate-build.log 2>&1 \
+  step "构建 release + debug + beta"
+  ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug :app:assembleBeta >/tmp/gate-build.log 2>&1 \
     || { tail -40 /tmp/gate-build.log >&2; die "构建挂了(完整日志 /tmp/gate-build.log)"; }
-  for a in app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/debug/app-debug.apk; do
+  for a in app/build/outputs/apk/release/app-release.apk \
+           app/build/outputs/apk/debug/app-debug.apk \
+           app/build/outputs/apk/beta/app-beta.apk; do
     [ -s "$a" ] || die "构建说成功但 $a 不存在/是空的"
   done
-  ok "两个包都在"
+  ok "三个包都在(release / debug / beta)"
+}
+
+# ---------------------------------------------------------------------------
+# 5b. beta 必须真的过了 R8 —— **验产物,不验配置**
+#
+# ## 这条检查是被一次「读代码看起来对」骗出来的
+#
+# beta 用 `initWith(getByName("release"))` 建,注释里写着「R8 开着(initWith 从
+# release 继承)」。**实际没继承**:AGP 对 buildType 的配置延迟生效,`initWith`
+# 执行时 release 块里的 `isMinifyEnabled = true` 还没落到 DSL 对象上。
+#
+# 症状:beta 编出来 **9.1MB** 而 release **6.9MB**,
+# `app/build/outputs/mapping/beta/` 里**没有 mapping.txt**。
+#
+# ⇒ 判据落在**产物**上。配置文件里写了什么不算数,`mapping.txt` 在才算。
+#   这与 check_jni 同源:那一闸门存在的理由是「E2E 跑 debug 包、不过 R8,
+#   所以这类问题在 CI 上结构性不可见」—— beta 若也不�� R8,同一个盲区又回来了。
+# ---------------------------------------------------------------------------
+check_beta_r8() {
+  step "beta 真的过了 R8 吗(验产物)"
+  local map=app/build/outputs/mapping/beta/mapping.txt
+  if [ ! -s "$map" ]; then
+    echo "::error::$map 不存在 ⇒ beta 没有被混淆。" >&2
+    echo "::error::beta 不过 R8 就测不出「改名导致的 UnsatisfiedLinkError」," >&2
+    echo "::error::而那正是正式版最贵的一类事故(v0.7.1 有 7/14 个 JNI 入口被削掉)。" >&2
+    echo "::error::app/build.gradle.kts 里 isMinifyEnabled 必须**显式**写," >&2
+    echo "::error::不能依赖 initWith —— 它不会继承(release 块是延迟生效的)。" >&2
+    return 1
+  fi
+  ok "mapping.txt 存在($(stat -c%s "$map") 字节)"
 }
 
 # ---------------------------------------------------------------------------
@@ -259,9 +291,12 @@ assemble() {
 check_jni() {
   step "JNI 闸门(R8 有没有削掉入口名)"
   [ -x tools/release/check-jni-symbols.py ] || chmod +x tools/release/check-jni-symbols.py
+  # **beta 也在列**:它是唯一过 R8 又会装到用户/测试者手上的那个。
+  # release 过 R8 但先到 release;beta 过 R8 且更早暴露问题 —— 两个都要验。
   tools/release/check-jni-symbols.py \
     app/build/outputs/apk/release/app-release.apk \
-    app/build/outputs/apk/debug/app-debug.apk || die "JNI 闸门没过"
+    app/build/outputs/apk/debug/app-debug.apk \
+    app/build/outputs/apk/beta/app-beta.apk || die "JNI 闸门没过"
 }
 
 # ---------------------------------------------------------------------------
@@ -329,6 +364,7 @@ check_drift
 check_version
 run_tests
 assemble
+check_beta_r8
 check_jni
 [ "$RELEASE" = 1 ] && check_e2e_cited
 

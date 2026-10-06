@@ -564,10 +564,33 @@ class ImeController(
             // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),
             // 所以留的是**尾巴**。引擎给的长度是**引擎坐标**(喂进去之前 `'`
             // 被剥掉了),由 [dev.hwkbd.ime.rime.rawAfterConsuming] 映回带分节符的 raw。
-            state.raw = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
+            val rest = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
+            state.raw = rest
             state.page = 0
             state.highlight = -1
-            refreshQuery(from = "选词后剩余")
+            // **这里刻意不调 [refreshQuery]**(2026-10-06 用户报「部分消费后没有
+            // 剩余拼音的候选词出现」)。
+            //
+            // [refreshQuery] → [InputMethod.query] 是**无状态**的:
+            // `clear_composition()` + 逐字重喂 `state.raw`。按键路径上这样对 ——
+            // 候选恒等于 raw 的函数。但**这条路径要求一个从没被验证过的等式**:
+            //
+            //     「clear + 重喂 S」 ≡ 「引擎此刻的菜单」
+            //
+            // 而此刻引擎**刚 `Select` 完,菜单已经是「选完剩下那部分」的答案**,
+            // 我们却把它扔掉重喂一遍。2026-10-06 的症状就是两者不等:
+            // 缓冲里明明是 `hao`(纯函数算对了),候选栏却是空的;
+            // 而**从零手打 `hao` 候选是有的** ⇒ 破的就是重建这一步。
+            //
+            // ⇒ 直接读引擎此刻的菜单([InputMethod.currentCandidates])。
+            //   方向上不可能错:引擎说选完剩什么,它的菜单就是剩什么的候选。
+            //   而且比重建**更便宜**:少一次全量重喂 + 一次跨语言往返。
+            state.candidates = inputMethod().currentCandidates(rest, CANDIDATE_LIMIT)
+            querySeq++
+            android.util.Log.i(
+                "ImeService",
+                "query#$querySeq from=选词后剩余 raw=\"$rest\" n=${state.candidates.size}"
+            )
         }
         host.render()
     }

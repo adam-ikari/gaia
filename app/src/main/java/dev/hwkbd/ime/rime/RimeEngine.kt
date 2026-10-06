@@ -141,15 +141,37 @@ class RimeEngine(private val context: Context) : InputMethod {
             // 以 raw 为准重建 librime 的内部状态
             RimeNative.reset(s)
             for (c in raw) {
-                if (c == '\'') continue // 分隔符是本项目自己的概念,librime 不认识
+                if (c == '\'') continue // 分节符是本项目自己的概念,librime 不认识
                 RimeNative.processKey(s, c.code)
             }
         }
+        return readMenu(s, raw, limit)
+    }
+
+    /**
+     * **不重建**,直接读引擎此刻的菜单。选完候选之后用它,不要用 [query]。
+     *
+     * 理由见 [InputMethod.currentCandidates]。一句话:引擎刚 `Select` 完,
+     * 它的菜单**已经是**「选完剩下那部分」的答案,而 [query] 会把这个答案
+     * 扔掉、拿我们拼的字符串重建一遍 —— 那个重建与引擎原本的状态不必相同。
+     *
+     * [pinyin] 是**剩余缓冲**,由调用方([selectCandidate] 里 `rawAfterConsuming`
+     * 的结果)给出:它只填进 [Candidate] 供显示与埋点,不参与查询 ——
+     * 引擎侧的 composition 原文没有便宜的形式(`GetCommitText()` 是**预览**,
+     * 见 [selectAndRemain] 的注释),而字���是我们自己维护的那份。
+     */
+    override fun currentCandidates(pinyin: String, limit: Int): List<Candidate> {
+        val s = synchronized(lock) { session }
+        if (s == 0L) return emptyList()
+        synchronized(lock) { return readMenu(s, pinyin, limit) }
+    }
+
+    private fun readMenu(s: Long, pinyin: String, limit: Int): List<Candidate> {
         val words = RimeNative.candidates(s, limit)
         if (words.isEmpty()) return emptyList()
         return words.map {
             // kind/score 见类注释:librime 不暴露,统一填 EXACT / 0。
-            Candidate(word = it, pinyin = raw, kind = CandidateKind.EXACT, score = 0L)
+            Candidate(word = it, pinyin = pinyin, kind = CandidateKind.EXACT, score = 0L)
         }
     }
 
