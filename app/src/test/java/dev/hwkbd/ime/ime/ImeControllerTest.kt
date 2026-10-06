@@ -148,33 +148,41 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `拼音组词中 v 键作为分隔符进缓冲`() {
+    fun `拼音组词中 v 键是普通字母 不是分隔符`() {
         val r = rig()
         r.type("ni")
-        val before = r.c.state.candidates.map { it.word }
-        assertTrue(before.isNotEmpty())
+        assertTrue(r.c.state.candidates.isNotEmpty())
         assertTrue(r.key(kc('v')))
-        assertEquals("ni'", r.c.state.raw) // 分隔符显示在组词区(xi'an 语义)
-        // 分节符进了组词区,而且**没打断组词**(没上屏、缓冲还在)。
-        //
-        // **这里不再断言「末尾分节把哪些词挡掉」**(2026-10-03 换 librime):
-        // 旧引擎那条规则(`nian/niang/niao/nie` 被挡、只剩 你 + 你好)是
-        // **它自己词库索引的分节位实现**造成的 —— 键带不带撇决定了能不能命中。
-        // librime 的分节规则在方案自己的 `alphabet` 里,与那套不是一回事,
-        // 也不该由这个状态机测试去钉。真机上的实际分节行为见 `docs/rime.md`。
-        assertTrue("分节后仍应有候选", r.c.state.candidates.isNotEmpty())
-        assertTrue(r.h.commits.isEmpty()) // 没有打断组词
+        // `v` 原样进缓冲。旧代码在这里把它换成 `'`,那是个**真 bug**:
+        // 方案的 `derive/^([jqxy])u/$1v/correction` 与 `xform/([nljqxy])v/$1ü/`
+        // 会一起失效 —— lv / nv / jv / qv / xv 五个韵母一个都打不出来。
+        assertEquals("niv", r.c.state.raw)
+        assertTrue(r.c.state.hasComposition)
+        assertTrue(r.h.commits.isEmpty()) // 没打断组词、没上屏
+        // **不断言「组词后仍有候选」**:`niv` 在这张假词典里没有对应词条。
+        // 那是**词典的性质,不是输入法的性质** —— 真引擎那边单独一个 `v` 同样
+        // 没有候选(2026-10-06 `tools/rimeprobe run.sh v`:1 段、preedit "v"、
+        // menu n=0),两边一致,所以在这里断言也是白断言。
     }
 
     @Test
-    fun `拼音空闲时 v 键上屏分隔符 英文态 v 仍是字母`() {
+    fun `拼音空闲时 v 键进组词不立即上屏 英文态 v 直接上屏`() {
         val r = rig()
         assertTrue(r.key(kc('v')))
-        assertEquals(listOf("'"), r.h.commits) // 空闲按 v = 普通上屏,不新开组词
-        assertFalse(r.c.state.hasComposition)
+        // `v` 现在是普通字母(2026-10-06 用户「v 在拼音里有意义不能做分隔符」),
+        // 空闲按它 = 开一个新组词,**不是**一次上屏。
+        assertEquals("v", r.c.state.raw)
+        assertTrue(r.c.state.hasComposition)
+        assertTrue(r.h.commits.isEmpty())
+        // 单独一个 `v` 没有候选,与真引擎实测一致(见上一条的注释)。
+        assertTrue(r.c.state.candidates.isEmpty())
+
+        // 清掉再切英文:英文策略不改写字母,v 就是字母,直接上屏。
+        assertTrue(r.key(KeyEvent.KEYCODE_DEL))
         r.c.setLanguage("en")
         assertTrue(r.key(kc('v')))
-        assertEquals(listOf("'", "v"), r.h.commits) // 英文策略不改写,v 就是字母
+        assertEquals(listOf("v"), r.h.commits)
+        assertFalse(r.c.state.hasComposition)
     }
 
     // ------------------------------------------------------------ 数字类(锁定数字层)
@@ -265,13 +273,18 @@ class ImeControllerTest {
         // `+` 同理(datetime 不放行)
         assertTrue(r.key(kc('e')))
         assertTrue(h.commits.isEmpty())
-        // 白名单并入 L4 显示的键:物理 v 被拼音 mapText 改写成 `'`,L4 正显示 `'` → 放行
+        // 白名单并入 L4 显示的键 —— 这条以前能过,靠的是「物理 v 被拼音 mapText
+        // 改写成 `'`,而 L4 正显示 `' → 放行」。`mapText` 已不再改写字母
+        // (见 `Language.mapText`),v 就是 v,不在 datetime 的合法单字符集里 → 吞。
+        //
+        // 所以这里现在钉的是**吞**。「L4 显示的键会并进白名单」这个机制本身
+        // 由上面 261 行覆盖(那把「分隔」留在 L4 里,正说明它没被 producible 筛掉)。
         assertTrue(r.key(kc('v')))
-        assertEquals(listOf("'"), h.commits)
-        // 换成 NUMBER(L4 为空):物理 v 的 `'` 也不再放行
+        assertTrue(h.commits.isEmpty())
+        // 换成 NUMBER(L4 为空):同样吞
         c.state.fieldKind = FieldKind.NUMBER
         assertTrue(r.key(kc('v')))
-        assertEquals(listOf("'"), h.commits)
+        assertTrue(h.commits.isEmpty())
     }
 
     @Test
