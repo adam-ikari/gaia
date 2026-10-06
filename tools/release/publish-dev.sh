@@ -169,24 +169,42 @@ echo "    ✓ $ASSET ($WANT 字节,与本地一致)"
 # 每次上传都用带新 hash 的文件名 ⇒ 而资产名带身份是刻意的(身份来自
 # 「远端确实存着什么」)。两者相加就是:**资产会一份份堆起来**。
 #
-# 2026-10-06 实测:发两次之后 release 里有 `app-dev-a76daf8.apk` 与
-# `app-dev-8316e6f.apk` 两份。gaia 的 deploy.yml 用 `[...] | last` 挑 ——
-# 那是**碰巧**挑对(依赖 API 返回顺序),而一个 release 里有 N 份「最新版」
-# 本身就是自相矛盾的:最新的**定义**应该是唯一的。
+# 2026-10-06 实测:发过几次之后 release 里有三份 `app-dev-*.apk`。
+# gaia 的 deploy.yml 用 `[...] | last` 挑 —— 那是**碰巧**挑对(依赖 API 返回顺序),
+# 而一个 release 里有 N 份「最新版」自相矛盾:最新的**定义**应该唯一。
 #
-# ⇒ 删掉除本次以外的所有 `app-dev-*.apk`。留下正好一份,
-#   `last` 与「唯一」从此是同一件事。
-for old in $(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq \
-             '.assets[].name | select(startswith("app-dev-"))' 2>/dev/null); do
+# ## 「查不到」不等于「没什么可删」—— 同一个形状的第三个实例
+#
+# 第一版写成 `for old in $(gh api ... --jq ...)`。网络抖一下
+# (`unexpected EOF`,今天遇到过十几次)那个查询返回**空**,循环体一次都不跑,
+# 而脚本**不吭声** —— 删不掉与不需要删,在输出上一模一样。
+#
+# ⇒ 用**退出码**区分「查询失败」与「结果为空」,并重试。
+dev_assets() {
+  local out a
+  for a in 1 2 3 4 5; do
+    if out=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq \
+              '.assets[].name | select(startswith("app-dev-"))' 2>/dev/null); then
+      printf '%s\n' "$out"; return 0            # 成功(可能就是空)
+    fi
+    sleep $((a * 3))
+  done
+  echo "::error::连续 5 次取不到 $DEV_TAG 的资产清单 —— 不知道该删什么,不继续" >&2
+  return 1
+}
+
+list=$(dev_assets) || exit 1
+for old in $list; do
   [ "$old" = "$ASSET" ] && continue
-  gh release delete-asset "$DEV_TAG" "$old" -R "$SITE_REPO" --yes >/dev/null 2>&1 \
-    && echo "    删掉旧的 $old" \
-    || echo "::warning::旧的 $old 没删掉 —— 那个 release 里会有多份 dev 资产" >&2
+  if gh release delete-asset "$DEV_TAG" "$old" -R "$SITE_REPO" --yes >/dev/null 2>&1; then
+    echo "    删掉旧的 $old"
+  else
+    echo "::warning::旧的 $old 没删掉 —— 那个 release 里会有多份 dev 资产" >&2
+  fi
 done
 
-LEFT=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" \
-       --jq '[.assets[].name | select(startswith("app-dev-"))] | length' 2>/dev/null || echo "?")
-[ "$LEFT" = "1" ] || echo "::warning::dev 资产现在有 $LEFT 份(应为 1),站点可能挑到旧的" >&2
+n_left=$(dev_assets | grep -c . || true)
+[ "$n_left" = "1" ] || echo "::warning::dev 资产现在有 $n_left 份(应为 1),站点可能挑到旧的" >&2
 
 # ---- 触发部署 ---------------------------------------------------------------
 #
