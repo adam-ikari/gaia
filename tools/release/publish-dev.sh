@@ -88,6 +88,23 @@ fi
 # —— 一个资产失败,整个 release 都不会被建出来(2026-10-05 在 hwkbd_ime 上实测)。
 step "发到 $SITE_REPO @ $DEV_TAG"
 ASSET="app-dev-${ok_hash}.apk"
+
+# ## 资产名必须来自**本地文件名**,不能靠 `gh release upload` 的 `#`
+#
+# `gh release upload <path>#<label>` 里 **`#` 后面是 label,不是文件名** ——
+# 资产的**文件名**取自 `<path>` 的 basename。
+#
+# 2026-10-06 实测踩到了:`app-dev.apk#app-dev-4c50b4d.apk` 存下来是
+#   name=`app-dev.apk`  label=`app-dev-4c50b4d.apk`
+# 而 gaia 的 deploy.yml 是**按资产名**取 hash 的(`startswith("app-dev-")` 后剥前缀),
+# 于是它看到 `app-dev.apk` → 剥出 `apk` → 去掉 `.apk` → **空** →
+# 走「解析不出身份就跳过」那条路 ⇒ **站点静悄悄没有 dev 渠道**。
+#
+# ⇒ 所以先把文件按带 hash 的名字暂存,让 basename 本身带身份。
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+cp "$APK" "$STAGE/$ASSET"
+[ -s "$STAGE/$ASSET" ] || die "暂存 $ASSET 失败"
 if gh release view "$DEV_TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
   echo "    release 已存在,覆盖资产"
 else
@@ -105,10 +122,10 @@ fi
 # 其实已经存好了(`unexpected EOF`,而 release 已建成)。所以「命令返回了」不等于
 # 「东西在」,「命令失败了」也不等于「东西不在」⇒ 判据落在**远端清单**上。
 for a in 1 2 3 4 5; do
-  if gh release upload "$DEV_TAG" "$APK#$ASSET" -R "$SITE_REPO" --clobber >/dev/null 2>&1; then
+  if gh release upload "$DEV_TAG" "$STAGE/$ASSET" -R "$SITE_REPO" --clobber >/dev/null 2>&1; then
     break
   fi
-  echo "    第 $a 次上传失败,重试"
+  echo "    第 $a 次上传失败(12MB 走 S3 直传容易 HTTP 408),重试"
   sleep $((a * 5))
 done
 
