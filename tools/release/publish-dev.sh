@@ -108,17 +108,6 @@ cp "$APK" "$STAGE/$ASSET"
 if gh release view "$DEV_TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
   echo "    release 已存在,覆盖资产"
 else
-  # **`--prerelease` 不是可选项**(2026-10-06 实测踩到):
-  # `dev-latest` 一旦不是 prerelease,GitHub 就把它当成 **latest**,
-  # 于是 gaia 的 deploy.yml 里 stable 那步(`gh release view` 不带 tag)
-  # 拿到的是 `dev-latest`,去里面找 `app-release.apk` 找不到 →
-  # `no assets match the file pattern` → 部署失败
-  # ⇒ **正式版下载按钮整个挂掉**。
-  # GitHub 的 latest 明确不含 prerelease,所以这个标记就是那道隔断。
-  #
-  # 已存在的 release 也要补标记 —— 建的时候忘了就是忘了,`--clobber` 不会改它。
-  gh release edit "$DEV_TAG" -R "$SITE_REPO" --prerelease=true >/dev/null 2>&1 \
-    || echo "::warning::没能把 $DEV_TAG 标成 prerelease,站点部署可能会失败" >&2
   gh release create "$DEV_TAG" -R "$SITE_REPO" --title "dev(滚动)" --prerelease \
     --notes "master HEAD 的开发版构建,**滚动** —— 每次发版都被下一次覆盖。
 这个包不做任何保证:不过混淆、没跑端到端测试。资产名带 git hash。
@@ -127,6 +116,28 @@ else
 而站点 deploy.yml 的正式版正是按 latest 取的 ⇒ 会去这个 release 里找
 \`app-release.apk\` ⇒ 找不到 ⇒ 部署失败、正式版下载按钮挂掉。" >/dev/null \
     || die "建 release 失败"
+fi
+
+# ## prerelease 标记必须在 if/else **之外**,而且要回读确认
+#
+# 2026-10-06 第一次写这段时,它被放进了 `else` 分支(只在**新建**时跑)。
+# 而那个 release 已经存在 ⇒ **这段从来没执行过** ⇒ `prerelease=false`
+# ⇒ dev-latest 成了 GitHub 的 latest ⇒ 站点部署连续失败两次,
+# 正式版下载按钮整个挂掉,而日志里只有一行 `no assets match the file pattern`。
+#
+# ⇒ 放在 if/else 之外(每次都跑),**并回读确认** ——
+#   「命令返回了」不等于「生效了」,这是今天第三次在这件事上栽。
+rid=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq '.id' 2>/dev/null || true)
+if [ -n "$rid" ]; then
+  gh api -X PATCH "repos/$SITE_REPO/releases/$rid" -f prerelease=true >/dev/null 2>&1 || true
+  is_pre=$(gh api "repos/$SITE_REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || echo "?")
+  if [ "$is_pre" != "true" ]; then
+    die "$DEV_TAG 没能标成 prerelease(现在是 $is_pre)
+     不标的后果不是「dev 渠道显示不出来」,而是**它会 hijack GitHub 的 latest**:
+     站点 deploy.yml 的正式版按 latest 取,于是去这个 release 里找
+     app-release.apk → 找不到 → 部署失败 → 正式版下载按钮挂掉。"
+  fi
+  echo "    prerelease ✓ (回读确认过)"
 fi
 
 # 上传后**回读资产清单核对大小**:`gh release upload` 失败时退出码可能非零而
@@ -147,13 +158,35 @@ done
 WANT=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" \
        --jq ".assets[] | select(.name==\"$ASSET\") | .size" 2>/dev/null | head -1)
 if [ -z "$WANT" ]; then
-  echo "::warning::远端清单里没有 $ASSET —— 上传可能没成,站点这次不会有 dev 渠道"
+  die "远端清单里没有 $ASSET —— 上传没成,站点这次不会有 dev 渠道"
 elif [ "$WANT" != "$SIZE" ]; then
-  echo "::error::远端 $ASSET 是 $WANT 字节,本地是 $SIZE 字节 ⇒ 传输坏了,别当成成功" >&2
-  exit 1
-else
-  echo "    ✓ $ASSET ($WANT 字节,与本地一致)"
+  die "远端 $ASSET 是 $WANT 字节,本地是 $SIZE 字节 ⇒ 传输坏了,别当成成功"
 fi
+echo "    ✓ $ASSET ($WANT 字节,与本地一致)"
+
+# ## 滚动 release 里必须**只有一个** dev 资产
+#
+# 每次上传都用带新 hash 的文件名 ⇒ 而资产名带身份是刻意的(身份来自
+# 「远端确实存着什么」)。两者相加就是:**资产会一份份堆起来**。
+#
+# 2026-10-06 实测:发两次之后 release 里有 `app-dev-a76daf8.apk` 与
+# `app-dev-8316e6f.apk` 两份。gaia 的 deploy.yml 用 `[...] | last` 挑 ——
+# 那是**碰巧**挑对(依赖 API 返回顺序),而一个 release 里有 N 份「最新版」
+# 本身就是自相矛盾的:最新的**定义**应该是唯一的。
+#
+# ⇒ 删掉除本次以外的所有 `app-dev-*.apk`。留下正好一份,
+#   `last` 与「唯一」从此是同一件事。
+for old in $(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq \
+             '.assets[].name | select(startswith("app-dev-"))' 2>/dev/null); do
+  [ "$old" = "$ASSET" ] && continue
+  gh release delete-asset "$DEV_TAG" "$old" -R "$SITE_REPO" --yes >/dev/null 2>&1 \
+    && echo "    删掉旧的 $old" \
+    || echo "::warning::旧的 $old 没删掉 —— 那个 release 里会有多份 dev 资产" >&2
+done
+
+LEFT=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" \
+       --jq '[.assets[].name | select(startswith("app-dev-"))] | length' 2>/dev/null || echo "?")
+[ "$LEFT" = "1" ] || echo "::warning::dev 资产现在有 $LEFT 份(应为 1),站点可能挑到旧的" >&2
 
 # ---- 触发部署 ---------------------------------------------------------------
 #
