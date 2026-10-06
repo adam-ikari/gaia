@@ -611,7 +611,8 @@ class ImeController(
     fun commitL4Key(out: KeyOut) {
         when (out) {
             is KeyOut.Text -> {
-                // 策略先改写按键文本(拼音:v → 分节符),再决定进缓冲还是上屏
+                // 策略先改写按键文本,再决定进缓冲还是上屏
+                // (拼音策略**不改写字母** —— 理由见 Language.mapText)
                 val text = language().mapText(out.text, state)
                 if (language().composes(text, state)) {
                     state.raw += text

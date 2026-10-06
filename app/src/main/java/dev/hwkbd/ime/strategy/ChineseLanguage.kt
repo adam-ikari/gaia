@@ -16,10 +16,36 @@ import dev.hwkbd.ime.keymap.Layer
  * - **半角态** = 键位表出厂值 = 键盘上印着的那个字符,**按眼所见**;
  * - **全角态** = 那个字符的**全角形态**,位子一位不挪。
  *
- * 分节符走 **`v` 键**([mapText]:v → `'`,组词中进缓冲给连读分节 **xi'an ≠ xian**,查询时
- * [PinyinInputMethod] 原样交给引擎、按分节位约束匹配——`xi'an` 只中西安、不中先;
- * 空闲时按 v 就是一次普通上屏),**状态行 L4 不再放分隔符键**——
- * 屏上不占位,v 顺手在字母区。注意:v 记分节符后,ü 词(女/绿,词库 v 记 ü)靠 n/l 前缀候选列出。
+ * **分节符:屏上不提供,靠自动分割**(2026-10-06 用户「自动分割 无需分隔符」)。
+ *
+ * 方案里挂着一整条 segmentor 链(`luna_pinyin.schema.yaml:82`):
+ * `ascii_segmentor` / `abc_segmentor` / `affix_segmentor@alphabet` /
+ * `affix_segmentor@pinyin` / `punct_segmentor` / `fallback_segmentor` ——
+ * 其中 `affix_segmentor@pinyin` 就是**自动按拼音音节切**的主力。
+ *
+ * 连读分节的效果:**`xian` 就能出西安**(用户 2026-10-06 实测,已支持),
+ * 不需要手动撇。
+ *
+ * ⇒ 屏上不做分隔符键。**但能力没丢**:`ascii_segmentor` 仍在链上,
+ *   而 [composes] 认 [SEPARATOR] ⇒ **真机键盘直接敲 `'` 仍然能强制切分**。
+ *   Titan 2 有物理键盘,逃生舱在那里。
+ *
+ * ## 而 `v` 必须回到字母
+ *
+ * 原来 [mapText] 把 `v` 换成 `'`,而方案靠两条规则处理 ü:
+ *
+ * ```yaml
+ * - derive/^([jqxy])u/$1v/correction    # ju → jv
+ * - xform/([nljqxy])v/$1ü/                # jv → jü
+ * ```
+ *
+ * 键盘在**喂给 librime 之前**改写,这两条就一起失效 ⇒
+ * **lv / nv / jv / qv / xv 五个韵母一个都打不出来**。
+ * `v` 是不是 ü 是**方案**的事(那条 xform 的判断条件),键盘一个字都不该改。
+ *
+ * > 教训:我一度把「`xian` 在词典里是合法音节,所以西安打不出来」
+ * > 当成取消分隔符的**代价**写下来 —— 而那只是推理,没验过,
+ * > 用户当场指出它本来就支持。**没查就写的结论,不是结论。**
  */
 object ChineseLanguage : Language {
 
@@ -37,9 +63,37 @@ object ChineseLanguage : Language {
         state.shiftMode = ShiftMode.OFF
     }
 
-    /** v 键 = 分节符(在字母区,组词中顺手);其余文本原样。 */
-    override fun mapText(text: String, state: ImeState): String =
-        if (text == "v") SEPARATOR else text
+    /** 文本键原样输出。**`v` 不是分节符** —— 理由见上面那段注释。 */
+    /**
+     * 文本键**原样输出**,不重写。
+     *
+     * 原来这里是 `if (text == "v") SEPARATOR else text` —— **那是个真 bug**
+     * (2026-10-06 用户指出「v 在拼音里有意义不能做分隔符」)。
+     *
+     * ## 它坏在哪
+     *
+     * `v` 是 ü 的标准写法,而方案靠一条 xform 把它变成 ü:
+     *
+     * ```yaml
+     * - xform/([nljqxy])v/$1ü/     # lv→lü  nv→nü  jv→jü  qv→qü  xv→xü
+     * ```
+     *
+     * 而 [mapText] 在**喂给 librime 之前**就把 `v` 换成了 `'` ⇒ 那条 xform
+     * **永远不会触发** ⇒ `lv`/`nv`/`jv`/`qv`/`xv` 这五个韵母一个都打不出来。
+     *
+     * 反过来看,`v` 到底该不该当 ü 是**方案**的事(那条 xform 的判断条件),
+     * 不是键盘的事。所以正确的分工是:键盘原样把 `v` 送进去,一个字都不改。
+     *
+     * ## 分节符(`'`)去哪了
+     *
+     * 挪到 L4 的凑差补差键([l4Extras])—— 那里本来就是**没有专用物理键的
+     * 功能**聚集的地方(标点、`...`、`--`、`http://` 都在那儿)。
+     *
+     * 挪之前确认过:字母区**没有** `'` 这个键(见 [KeyLayout] 的 l1/l2/l3 三层),
+     * 所以不存在「把已有键换掉」这回事。Sym 层的 `v` 位置现在也还在,仍是 `{` ——
+     * 不为了一个分节符去动常用符号的位置。
+     */
+    override fun mapText(text: String, state: ImeState): String = text
 
     /**
      * L4 核心键的最终处置(**跟全角开关走**,见 [Language.coreKeys])。

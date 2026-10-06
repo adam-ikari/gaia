@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-06T04:17:39"
+updated: "2026-10-06T09:44:43"
 ---
 
 <!-- compiled_truth -->
@@ -173,4 +173,16 @@ v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
   kind: evidence
   summary: "三个结构性陷阱,全部实测撞到:①滚动 release 若不是 prerelease 会**hijack GitHub 的 latest**,正式版按 latest 取包 ⇒ 部署失败、正式版下载按钮整个挂掉;②gh release upload 的 <path>#<label> 里 # 是 **label 不是文件名**,资产名取自 basename,而 deploy 按资产名取 hash ⇒ 静默跳过;③可选渠道必须非致命,缺 beta 只 warning —— 但正因非致命,「查错 release 导致 dev 没上线」也只表现为一行 warning + 部署 success"
   source: "2026-10-06 发布 dev 渠道实跑"
+  affects: [release-flow]
+
+- time: 2026-10-06T09:44:43
+  kind: decision
+  summary: "渠道名一律用**测试版**:这个项目从来没有正式版。我一度把主下载标成「正式版·已撤回」,用户指出「已撤回」预设了它曾经是正式版 —— 那是凭空给它造的一段合法性,而且用一个更醒目的标记盖住了更该说的「这个测试版有已知缺陷」。状态默认值是 withdrawn 而非 official,且缺文案不等于没问题(注入漏了只是没提示,默认 official 则是明知道有问题却不说)"
+  source: "2026-10-06 用户「一直以来都是测试版」"
+  affects: [release-flow]
+
+- time: 2026-10-06T09:44:43
+  kind: evidence
+  summary: "我把「xian 在词典里是合法音节所以西安打不出来」当成取消分隔符的**代价**写进注释,用户当场指出 xian→西安本来就支持。那只是推理没验过 —— 与前三例(下载截断被当成功、initWith 不继承、v 当分隔符)同形。判据:凡是陈述「为什么」的注释,必须能指到一个源码行、一次产物检查或一条真机日志;指不到的是推理,得标出来或删掉"
+  source: "2026-10-06 同一个形状的第四个实例"
   affects: [release-flow]

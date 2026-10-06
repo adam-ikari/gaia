@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, ci, tooling, workflow]
 created: "2026-10-05T21:00:00"
-updated: "2026-10-05T21:00:00"
+updated: "2026-10-06T09:44:32"
 ---
 
 <!-- compiled_truth -->
@@ -107,3 +107,11 @@ CI 里查它等于稳定误报 —— **会误报的闸门只会被绕过去**,�
 所以定检查时先问「它在健康状态下会不会报?」——
 漂移判据的四种情形(无漂移 / 待发版 / 漂移 / 健康仓库)都实测过,
 其中「健康仓库不误报」是最容易被跳过、也最致命的那一种。
+
+## Timeline
+
+- time: 2026-10-06T09:44:32
+  kind: decision
+  summary: "① E2E 搬回本地真机(tools/aitest/local.sh),删掉 e2e.yml —— 私有仓 Actions 计费且已欠费,而 E2E 本来就不是发布闸门(与 release 并行无依赖);本机无 /dev/kvm 时模拟器 SystemUI 自己 ANR,所以「是不是模拟器」做成会拦人的判据。② 公开渠道一律过 R8(用户「任何版本只要公开就需要混淆」)⇒ 闸门判据从「某个渠道名」改成**「有没有人能从公网拿到这个字节」**。③ 站点显示每条渠道的 sha256 与字节数:这个网络下下载会**静默截断**,而截断的 APK 安装器只给一句「软件包无效」,用户无从分辨"
+  source: "2026-10-06 用户三条指令"
+  affects: [branch-and-gate-model]

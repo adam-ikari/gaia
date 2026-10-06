@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [pinyin, dict]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-29T01:30:38"
+updated: "2026-10-06T09:44:04"
 ---
 
 <!-- compiled_truth -->
@@ -65,4 +65,10 @@ updated: "2026-09-29T01:30:38"
   kind: decision
   summary: "词库扩充 30万→40万上限(实际 34.8 万条):jieba 源 1-6 字 CJK 34.7 万条全量入选;另落地首字母输入——全拼精确/前缀/分段三路都空时按音节首字母查(sm→什么/生命/说明),单字母不走(与全拼前缀同集),PinyinDict 加载建 (首字母串,词频desc) 索引,INIT_EXACT/INIT_PREFIX 档位只在空集内排序"
   source: "用户需求+实现定案 2026-09-29"
+  affects: [pinyin-dict-strategy]
+
+- time: 2026-10-06T09:44:04
+  kind: decision
+  summary: "取消屏上拼音分隔符,靠 librime 自动分割。方案挂五级 segmentor 链(affix_segmentor@pinyin 是主力),连读分节 xian→西安**本来就支持**(用户实测,推翻了「xian 是合法音节所以西安打不出来」那个推理)。能力不丢:ascii_segmentor 仍在链上 + composes() 认 ' ⇒ 物理键盘敲撇仍能强制切分。同时 v 恢复为字母 —— 旧代码 mapText 把 v 换成 ' 导致 derive/^([jqxy])u/$1v/ 与 xform/([nljqxy])v/$1ü/ 两条一起失效,lv/nv/jv/qv/xv 全废"
+  source: "2026-10-06 用户「自动分割 无需分隔符」+「v 在拼音里有意义不能做分隔符」"
   affects: [pinyin-dict-strategy]
