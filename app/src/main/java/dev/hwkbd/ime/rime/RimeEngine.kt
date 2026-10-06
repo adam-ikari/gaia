@@ -322,27 +322,45 @@ class RimeEngine(private val context: Context) : InputMethod {
  * 那一段(`nihao` 的首选是「你好」,但列表里也有只覆盖 "ni" 的「你」),
  * 所以那条错路在真机上天天走。
  *
- * ## 分节符:切点之后的那个要跟着一起丢
+ * ## [consumed] 是**下标**,不是「非撇字符的个数」
  *
- * [consumed] 是**引擎坐标**(喂进去之前 `'` 被剥掉了),所以要先数够
- * [consumed] 个非分节符字符,再把紧跟其后的分节符也吃掉 ——
- * 它标的是「上一个音节到此为止」,属于**被吃掉的那一段**。
+ * 2026-10-06 之前这里写的是「喂进去之前 `'` 被剥掉了」,于是实现数的是
+ * **非撇字符**。**那句话是假的** —— [dev.hwkbd.ime.strategy.PinyinInputMethod.normalize]
+ * 明确**保留** `'`(只合并连续的、去掉开头的),所以撇就在喂给引擎的那串里,
+ * 也就在坐标里。
+ *
+ * 探针实测(`tools/rimeprobe/run.sh "zhong'guo"`,9 字符含 1 个撇):
  *
  * ```
- * "nihao"  吃 2 个 ⇒ "hao"    "ni'hao" 吃 2 个 ⇒ "hao"
- * "ni'hao" 吃 4 个 ⇒ "o"      "hao"    吃 99 个 ⇒ ""   (宁可全清,不留半个词)
+ * 选「中古」→ consumed=8,引擎剩下的输入是 "o"（preedit="中古o"）
+ * ```
+ *
+ * `8` 是**下标**(`"zhong'guo"[8] == 'o'`)。按「非撇字符计数」,
+ * 8 个非撇字符正好把那 8 个字母数完 ⇒ 会返回 `""`,**把 `o` 弄丢**。
+ *
+ * 两种语义**只在 raw 里没有撇时相同** —— 而屏幕上没有撇键,
+ * 所以这条错路要等真机接了物理键盘才踩得到,单测里也抓不到。
+ *
+ * 项目自己的 E2E 场景 `consume-partial` 断言的正是
+ * `after === raw_before.slice(consumed)` —— **下标语义**。
+ * 也就是说断言一直是对的,只有这个实现是错的。
+ *
+ * ## 分节符:切点正好落在撇上时,那个撇跟着一起丢
+ *
+ * 撇标的是「上一个音节到此为止」,属于**被吃掉的那一段**。
+ * 留着会得到以撇开头的串(下一次 `normalize` 还得再 `trimStart` 一次)。
+ *
+ * ```
+ * "nihao"  吃 2 ⇒ "hao"    "ni'hao" 吃 2 ⇒ "hao"   (切点落在撇上,撇一起丢)
+ * "ni'ha'o" 吃 4 ⇒ "o"      "hao" 吃 99 ⇒ ""        (宁可全清,不留半个词)
  * ```
  *
  * 中间的分节符要**保留**:它标着「这里是两段」,下一轮 query 靠它定界。
  */
 internal fun rawAfterConsuming(raw: String, consumed: Int): String {
     if (consumed <= 0) return raw
-    var seen = 0
-    var i = 0
-    while (i < raw.length && seen < consumed) {
-        if (raw[i] != '\'') seen++
-        i++
-    }
+    // 下标语义,超长则夹到末尾(宁可全清,不留半个词)
+    var i = consumed.coerceAtMost(raw.length)
     // 切点正好落在分节符上时,那个分节符是**被吃掉那段**的边界 —— 一起丢。
     while (i < raw.length && raw[i] == '\'') i++
     return raw.substring(i)

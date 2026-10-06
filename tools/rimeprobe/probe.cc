@@ -177,7 +177,10 @@ int main(int argc, char** argv) {
   if (a->join_maintenance_thread) a->join_maintenance_thread();
   printf("部署完成。\n");
 
-  int tryCandidates = 6;
+  // 每个用例试几个候选。探针的主要用途之一是量**频次**:
+  // 「部分消费」这条路在常见输入上到底占多少比例,不能凭印象。
+  const char* env = getenv("RIMEPROBE_TRY");
+  int tryCandidates = env ? atoi(env) : 6;
   for (int i = 3; i < argc; ++i) probeOne(argv[i], tryCandidates);
 
   a->finalize();

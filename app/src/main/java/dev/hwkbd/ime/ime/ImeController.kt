@@ -608,19 +608,34 @@ class ImeController(
      * 「缓冲里是 hao、候选栏却是 hao 别的段」,极难查。
      * 打包成一份就只有一个真相来源。
      *
-     * @param consumed 引擎给的消费长度(引擎坐标:不含 `'`);`null` 或 `<= 0` ⇒ `null`。
+     * @param consumed 引擎给的消费长度(引擎坐标 = 喂进去那串里的**下标**,含 `'`);`null` 或 `<= 0` ⇒ `null`。
      */
     private fun readRemainder(consumed: Int?): Remainder? {
         if (consumed == null || consumed <= 0) return null
         // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),
-        // 所以留的是**尾巴**。引擎给的长度是**引擎坐标**(喂进去之前 `'`
-        // 被剥掉了),由 [dev.hwkbd.ime.rime.rawAfterConsuming] 映回带分节符的 raw。
+        // 所以留的是**尾巴**。切点与坐标口径见 [dev.hwkbd.ime.rime.rawAfterConsuming]。
         val rest = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
         // 不用 [refreshQuery] 的理由**不是**「重建算不出 hao 的候选」——
         // 那条判断是错的:重建是 `clear_composition()` + 逐字重喂,纯函数,
         // `hao` 的候选它算得出来。错的是**读的时候引擎可能已经没了**,
         // 重建同样得先问引擎,所以两条路一起空。
-        return Remainder(rest, inputMethod().currentCandidates(rest, CANDIDATE_LIMIT))
+        val candidates = inputMethod().currentCandidates(rest, CANDIDATE_LIMIT)
+        // **这里不做「没候选就当全吃掉」的夹取** —— 试过,撤回(2026-10-06)。
+        //
+        // 起因是我以为「librime 切在词中间会留下一字母碎片,而碎片没有候选」。
+        // **那两条都验错了:**
+        //   · `zhongguo` 选「中古」确实留下 `o`,但 `o` **有 7 个候选**
+        //     (探针 `run.sh o`:menu n=7)—— 不是死碎片;
+        //   · 真正没有候选的是 `i`(与 `v` 之类),而那是**合法的用户输入**。
+        //
+        // 加上夹取会把那种输入**静默丢掉** —— 用户敲的字符无故消失,
+        // 比「候选栏空着」糟糕得多。空候选栏是诚实的:它说的是
+        // 「这几个字母确实没有对应词」,而丢掉输入是骗人。
+        //
+        // E2E 场景 `consume-partial` 的断言 ③(剩余必须有候选)留着 ——
+        // 它是那个场景的验收条件(`nihao` 选槽 0 → `hao`,确实有候选),
+        // 不是一条产品规则。
+        return Remainder(rest, candidates)
     }
 
     /** [readRemainder] 的结果:剩下的拼音 + 它的候选。 */
