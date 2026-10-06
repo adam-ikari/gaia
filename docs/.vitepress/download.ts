@@ -88,3 +88,36 @@ import { withBase } from 'vitepress'
 export const DOWNLOAD_URL = withBase(DOWNLOAD_PATH)
 export const BETA_DOWNLOAD_URL = withBase(BETA_DOWNLOAD_PATH)
 export const DEV_DOWNLOAD_URL = withBase(DEV_DOWNLOAD_PATH)
+
+/* ------------------------------------------------------------------ 正式版的状态 */
+
+/**
+ * `official` —— 正常发版。
+ * `withdrawn` —— **有已知问题,已撤回**,不该当正式版推。
+ *
+ * ## 为什么状态是构建期注入的,而不是从 release 推出来的
+ *
+ * 推不出来:GitHub 上没有「这个版本是经流水线发的」这种标记。v0.7.10 是在
+ * 应用仓 Actions 账单锁定时**手工**发的(见那个 tag 的 message),而它正被站点
+ * 当正式版推。所以「这个包可不可信」**只有发布的人知道**,必须写下来。
+ *
+ * ## 为什么这必须有,而不是「页面文案问题」
+ *
+ * 站点发出去的是**用户直接下载安装的字节**。把一个已知有缺陷的构建放在
+ * 主 CTA 上、且不作任何标注,后果是:用户装了一个坏的输入法,而站点
+ * 每一个信号都在说这是正式版。**这比不提供下载更糟** ——
+ * 不提供只是没得到,提供了却得到坏的、还被告知这是好的。
+ */
+export type StableStatus = 'official' | 'withdrawn'
+
+const rawStatus = (import.meta.env.VITE_STABLE_STATUS || '').trim()
+export const STABLE_STATUS: StableStatus = rawStatus === 'official' ? 'official' : 'withdrawn'
+
+/**
+ * 撤回时显示在主按钮下面的说明。空字符串(没注入)时不显示任何东西,
+ * 但 `STABLE_STATUS` 仍然是 `withdrawn` —— **缺文案不等于没问题**。
+ *
+ * 这条不对称是有意的:注入漏了的后果是「按钮没有提示」,
+ * 而把状态默认成 official 的后果是「明知道有问题却不说」。
+ */
+export const STABLE_NOTE = (import.meta.env.VITE_STABLE_NOTE || '').trim()

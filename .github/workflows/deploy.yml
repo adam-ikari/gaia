@@ -91,6 +91,29 @@ jobs:
           # **tag 带 v,文件名里不带**:`v0.7.11` → `0.7.11`
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
+          # ---- 正式版的**状态**。这一段是给人看的,不是给机器推断的 ----
+          #
+          # 为什么状态要显式写在这儿,而不是从 release 的属性推:推不出来。
+          # GitHub 上没有「这个版本是经流水线发的」这种标记 —— v0.7.10 是在
+          # 应用仓 Actions 账单锁定时**手工**发的(见 hwkbd_ime 的 tag message),
+          # 而它现在正被站点当正式版推。所以「这个包可不可信」这件事
+          # **只有发布的人知道**,必须由发布的人写下来。
+          #
+          # 取值:
+          #   official   —— 正常发版,可作正式版
+          #   withdrawn  —— 有已知问题,**不该当正式版推**;NOTE 会显示在按钮下面
+          #
+          # 2026-10-06:标 withdrawn。v0.7.10 有一个已知缺陷 ——
+          # 「拼音部分消费后,剩余拼音没有候选」(nihao 选「你」之后 hao 出不来),
+          # 用户当场报障,而它从没跑过 E2E(账单锁定)。
+          # 那个缺陷的修复在 beta/dev 里,但**同样没在真机上验证过**。
+          # ⇒ 站点不该把任何一个说成「正式版」。
+          STABLE_STATUS=withdrawn
+          STABLE_NOTE="0.7.10 有一个已知问题:拼音被部分消费后,剩余拼音没有候选(例如 nihao 选「你」之后 hao 的候选不出现)。已撤回,不建议使用。"
+          echo "stable_status=$STABLE_STATUS" >> "$GITHUB_OUTPUT"
+          echo "stable_note=$STABLE_NOTE" >> "$GITHUB_OUTPUT"
+          echo "::warning::正式版 $tag 状态 = $STABLE_STATUS —— 站点会照此标注"
+
           # ---- 取一个可选渠道;取不到只 warning,不算失败 ----
           #
           # `$2` = **release 引用**(tag),`$3` = 资产名前缀,`$4` = 落地路径,
@@ -183,6 +206,10 @@ jobs:
         env:
           # 构建期注入,`download.ts` 读它拼出 `gaia-ime-v<版本>.apk`
           VITE_APP_VERSION: ${{ steps.apk.outputs.version }}
+          # 正式版的**状态**与**说明文字**。都是**内容**,所以放在这里(可评审、
+          # 可见),逻辑留在 download.ts。
+          VITE_STABLE_STATUS: ${{ steps.apk.outputs.stable_status }}
+          VITE_STABLE_NOTE: ${{ steps.apk.outputs.stable_note }}
           # beta/dev 的身份,取自**资产名**(见上面 take_optional 的注释)。
           # `has_*` 决定按钮渲不渲染 —— 取不到就是空,`download.ts` 那个
           # `usable()` 判据会把空串挡掉,不会拼出 `gaia-ime-beta-.apk`。
