@@ -1,91 +1,126 @@
 ---
 id: rime-candidate-consumption
-title: "选词消费:单位是**段**不是字符 —— 前两次都取了对的量、错的模型"
+title: "选词消费:由 GetCurrentStartPosition() 给,依据在 Segment::Close 与 Forward"
 category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-06T09:44:56"
+updated: "2026-10-06T10:06:15"
 ---
 
 <!-- compiled_truth -->
-## 两次都错了,因为错的是**模型**本身:不是「量从哪来」
+## 单位是**引擎坐标的字符偏移**,由 `GetCurrentStartPosition()` 给 —— 这条成立
 
-2026-10-05 我两次修同一个症状,两次都在**同一个错误模型**里:
+2026-10-05 我修过一次(`commit_text_preview` 那条路是错的),2026-10-06 又**推翻**过一次。
+**第二次推翻是错的,已撤回。**
 
-| 版本 | 取「吃掉的量」的方式 | 错在哪 |
-| --- | --- | --- |
-| v0.7.10 之前 | `commit_text_preview` 减去选中词 | 它是**预览**(每段填候选文字),不是输入记录 |
-| v0.7.11 改成 | `Composition::GetCurrentStartPosition()` | 它是 `back().start` —— **末尾段的起点**,不是吃掉的字符数 |
+### 为什么不许只读 `Context::Select` 就下结论
 
-两次都默认了一件事:**选完候选之后,composition 里剩下的是「未消费的输入」**。
-那个前提是错的。
-
-## 源码级定论(2026-10-06 读 librime src/rime/)
+`Context::Select`(`context.cc:118`)确实只做了两件事:
 
 ```cpp
-// context.cc:118  Context::Select
-bool Context::Select(size_t index) {
-  if (composition_.empty()) return false;
-  Segment& seg(composition_.back());   // ← 只看**末尾那一段**
-  if (auto cand = seg.GetCandidateAt(index)) {
-    seg.selected_index = index;
-    seg.status = Segment::kSelected;   // ← 只打标记
-    select_notifier_(this);
-    return true;
-  }
-  return false;
-}
+Segment& seg(composition_.back());
+seg.selected_index = index;
+seg.status = Segment::kSelected;
+select_notifier_(this);   // ← 我 2026-10-06 漏掉了这一行
+```
 
-// segmentation.cc:135
-size_t Segmentation::GetCurrentStartPosition() const {
-  return empty() ? 0 : back().start;   // ← 也是 back()
+`select_notifier_` 是**承重**的:`engine.cc:75` 订阅了它
+
+```cpp
+context_->select_notifier().connect([this](Context* ctx) { OnSelect(ctx); });
+```
+
+`ConcreteEngine::OnSelect`(`engine.cc:259`)才是真正干活的:
+
+```cpp
+Segment& seg(ctx->composition().back());
+seg.Close();
+if (seg.end == ctx->input().length()) {
+  seg.status = Segment::kConfirmed;
+  if (ctx->get_option("_auto_commit")) ctx->Commit();   // 本项目**没配**这个开关
+  else ctx->composition().Forward();
+} else {
+  ctx->composition().Forward();
+  ... Compose(ctx);
 }
 ```
 
-⇒ **`Select` 不消费前缀**,它只把末尾段标成 `kSelected`。
-⇒ 因此选完之后 composition 里**还是 `nihao`**,`GetCurrentStartPosition()`
-在单段输入下就是 **0** ⇒ 上层走 `clearComposition()` ⇒ 缓冲清空、候选置空。
+**两处关键:**
 
-## 为什么这个错特别能骗人
+1. `Segment::Close()`(`segmentation.cc:17`)**明确实现了部分消费**:
 
-librime 的模型是**段**,不是字符偏移:
+   ```cpp
+   void Segment::Close() {
+     auto cand = GetSelectedCandidate();
+     if (cand && cand->end() < end) {
+       // having selected a partially matched candidate, split it into 2 segments
+       end = cand->end();
+       tags.insert(kPartialSelectionTag);
+     }
+   }
+   ```
 
-- `back().start` 在**多段**输入(`ni'hao`)下恰好非 0 且看起来像偏移量 ⇒ **半对**
-- 单段(`nihao`)下是 0 ⇒ 完全错
+   librime 本来就为「选中只覆盖一段的候选」设计了这个行为,并给它打了标记。
 
-而绝大多数输入是单段。所以「多次消费看起来在工作」与「它根本不对」同时成立。
+2. `Segmentation::Forward()`(`segmentation.cc:114`)追加一个**起点 = 刚吃掉那段末尾**的空段:
 
-这与 `paging-feel` 里那条教训同一个形状:**判据要在最常见的情形下也分得清,
-不能只在少数情形下成立。**
+   ```cpp
+   if (empty() || back().start == back().end) return false;
+   push_back(Segment(back().end, back().end));
+   ```
 
-## 由此作废的实现
+⇒ 选完之后 `back().start` = 刚吃掉那段的长度,`GetCurrentStartPosition()` 就是它。
 
-2026-10-06 加的 `InputMethod.currentCandidates(pinyin, limit)`
-(选完直接读 `ctx.menu`,不再 `clear_composition` + 逐字重喂)**建立在同一个错模型上**:
-此刻 composition 还是 `nihao`、菜单仍是末尾段的菜单 ⇒ 它必然无效。
+**所以 `rime_jni.cpp` 那个注释是对的,`GetCurrentStartPosition()` 不是「末尾段起点」那么笼统的说法 —— 在 `Select` 之后,它是「被选中的那段的终点」。**
 
-真机实测:开发版 `0.7.11-dev.15337f3` 里确认含那个改动
-(`git merge-base --is-ancestor 9f93443 15337f3` 通过),**而症状不变**。
+### 分词链是全的(`luna_pinyin.schema.yaml:82`)
 
-## 正确方向(未实施)
+```yaml
+segmentors:
+  - ascii_segmentor
+  - matcher
+  - abc_segmentor
+  - affix_segmentor@alphabet
+  - affix_segmentor@pinyin     # ← 自动按拼音音节切,连读分节的主力
+  - punct_segmentor
+  - fallback_segmentor
+```
 
-单位必须是**段**,不是字符:
+`xian` → 西安 走的是 **`matcher`**(按整串查词典),不是音节切分。
+`xian` 恰好也是合法音节所以不矛盾,但**两条路是两条**,说成一条就是错的。
 
-1. 选完让 librime **推进到下一段**(`select_notifier_` 之后由谁做要读源码),
-   而不是去算「还剩几个字符」
-2. `state.raw` 与 librime 的分段要按**段**对齐 —— 现在的 `rawAfterConsuming`
-   是按字符切的
-3. 手动分隔符已取消(用户 2026-10-06「自动分割 无需分隔符」),
-   所以 `state.raw` 的分段只能来自物理键盘的撇(`ascii_segmentor` 仍在链上)
+### 仍然没有定论的那一件
 
-## 判据本身也要重写
+`Select` 走完之后「剩下的部分」到底以什么形态存在,以及为什么真机上候选栏会空,
+**至今没有运行时证据**。手头唯一的运行时记录是 2026-10-05 的:
 
-`tools/aitest` 的 `consume-partial` 现在断言 `after == raw_before.slice(consumed)`
-—— 那是**字符偏移**模型的断言,修法换了以后它本身要重写。
+```
+consume: index=0 word="妳" consumed=0 preview="null"
+```
 
-已补的 `n > 0` 断言(剩余拼音必须有候选)与单位无关,可以留 —— 它正是这次
-唯一没被模型污染的那条。
+按上面的源码链,单音节 `ni` 选「妳」时 `Forward()` 应推出 `Segment(2,2)`,
+`GetCurrentStartPosition()` 应当是 **2**,且 composition 非空 ⇒ preview 不该是 null。
+**实测与源码推导不符,差在哪没查清。**
+
+用户没有 adb、给不了 logcat,本机模拟器不可用 ⇒ **拿运行时证据的三条路全断**。
+所以现在的状态是:**模型可信(源码支持),但与实测有矛盾,矛盾未解释。**
+
+要往下走必须先有一条**用户能看见**的通道(比如状态行上显示
+`raw / consumed / rest / n`),而不是继续推理。
+
+### 教训(比结论本身更值钱)
+
+2026-10-06 我因为只读了 `Context::Select` 的函数体,就把一个**成立了两天**的结论
+推翻并写进这一页的正文,还顺手把标题也改成新结论 —— 形态上是「纠正」,实质是
+**把对的换成了错的**。
+
+- **涉��� `Select` 的任何结论,必须把 notifier 链走完**
+  (`Context::Select` → `select_notifier_` → `ConcreteEngine::OnSelect`)。
+- **推翻一个结论的门槛要高于建立它**:至少要有一条与新结论矛盾的**观测**,
+  而不是一段「看起来更深的源码阅读」。
+- 同一天我还因为 `rg -A12` 截断,得出「方案里只有两个 segmentor」的相反误判。
+  两次都是**没读全就开始推**。
 
 
 ## Timeline
@@ -118,4 +153,28 @@ librime 的模型是**段**,不是字符偏移:
   kind: evidence
   summary: "currentCandidates(读 ctx.menu 而不重建)建立在与前两次相同的错模型上,所以必然无效 —— 此刻 composition 还是 nihao、菜单仍是末尾段的菜单。用户没有 adb,给不了 logcat,所以**日志路线整条不可用**;能定论的是 librime 源码。这条也说明:修复前先确认「现象是不是我以为的那个现象」,否则改的是别的地方"
   source: "2026-10-06 真机实测:开发版 15337f3 里含改动而症状不变"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-06T09:56:00
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-06 重读 OnSelect/Close/Forward + schema segmentor 全链;推翻自己同日的错误推翻"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-06T09:56:11
+  kind: reversal
+  summary: "**撤回本日前一条的推翻。** 我因为只读 Context::Select 的函数体就断定 GetCurrentStartPosition 是「末尾段起点」,把一个成立两天、源码完全支持的结论推翻并改了标题。实际:select_notifier_ 被 ConcreteEngine 订阅(engine.cc:75)→ OnSelect → Segment::Close()(segmentation.cc:17,注释原文「having selected a partially matched candidate, split it into 2 segments」)→ Forward()(segmentation.cc:114 追加起点=被吃那段末尾的空段)⇒ 选完后 back().start 就是被吃掉的量。教训:涉 Select 的结论必须走完 notifier 链;推翻一个结论的门槛要高于建立它"
+  source: "2026-10-06 重读 engine.cc:75/259、segmentation.cc:17/114"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-06T10:06:15
+  kind: reversal
+  summary: "**真正的根因不是「量怎么算」,是「什么时候读」。** 探针实测:nihao 选「你」(只覆盖 ni)后引擎给出 consumed=2、两段 seg[0]=0..2 kSelected / seg[1]=2..5 kGuess,新菜单 45 个(好 号 浩 豪 耗)—— **引擎完全正常,菜单就在那儿**。但 ImeController.selectCandidate 把读菜单放在 host.commitText **之后**;commitText 走 setComposingText+finishComposingText,App 组词区从 nihao 变「你」⇒ 系统回调 onUpdateSelection ⇒ ImeService:405 的对账认为组词区被外力破坏 ⇒ abandonComposition() 把整个引擎清掉 ⇒ 读到空菜单。两次旧修复(2026-10-05 走 refreshQuery、2026-10-06 走 currentCandidates)**都栽在同一个位置**——不是读法有问题,是都在 commitText 之后读;重建同样要先问引擎,所以一起空"
+  source: "tools/rimeprobe 宿主机实测(2026-10-06)"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-06T10:06:15
+  kind: reversal
+  summary: "**撤回我 2026-10-06 那条「重建算不出 hao 的候选」的判断。** refreshQuery 是 clear_composition()+逐字重喂,纯函数,hao 的候选它算得出来。错的是读的时候引擎可能已经被丢掉 —— 重建得先问引擎,所以两条路一起空。注释已改成这条"
+  source: "同上"
   affects: [rime-candidate-consumption]
