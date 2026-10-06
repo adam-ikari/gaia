@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-06T10:06:15"
+updated: "2026-10-06T14:27:33"
 ---
 
 <!-- compiled_truth -->
@@ -177,4 +177,10 @@ consume: index=0 word="妳" consumed=0 preview="null"
   kind: reversal
   summary: "**撤回我 2026-10-06 那条「重建算不出 hao 的候选」的判断。** refreshQuery 是 clear_composition()+逐字重喂,纯函数,hao 的候选它算得出来。错的是读的时候引擎可能已经被丢掉 —— 重建得先问引擎,所以两条路一起空。注释已改成这条"
   source: "同上"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-06T14:27:33
+  kind: reversal
+  summary: "探针又抓到一个单测里结构性不可见的真 bug:`rawAfterConsuming` 的文档写着「喂进去之前 `'` 被剥掉了」,实现据此数**非撇字符**;而 `normalize` 明确**保留** `'`。引擎实测 `ni'ha'o` 选「你」consumed=3、它自己剩下的输入是 `ha'o` == `slice(3)` —— 下标语义,撇算在坐标里。旧实现在同样输入上给 `a'o`。两种语义只在 raw 没撇时相同,而屏上没有撇键、单测用例恰好同值 ⇒ 单测里结构性不可见。同一形状的第五例(「查不到 ≠ 没有什么」变体:错的**理由**比错的代码活得更久,还会被测试的注释加固)。同时记下撤回:我发明的「剩余没候选就当全吃掉」被自己的探针否掉 —— 拿来举证的 `o` 其实有 7 个候选,真正没候选的 `i` 是合法用户输入,夹取会静默丢字符"
+  source: "2026-10-06 tools/rimeprobe 实测(ni'ha'o / zhong'guo)"
   affects: [rime-candidate-consumption]
