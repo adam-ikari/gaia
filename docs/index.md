@@ -20,6 +20,12 @@ actions:
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
+<AltDownloads />
+</div>
+:::
+
+::: band
+<div class="gaia-band-inner gaia-band-narrow">
 <h2>跟手的动画，一切操作符合直觉。</h2>
 <p>候选不止一页时左右划就翻页，整页跟着手走；动画正播着，再划一下就转过来。</p>
 </div>

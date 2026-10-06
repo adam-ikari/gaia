@@ -57,35 +57,122 @@ jobs:
       #
       # 6.2MB 一份,每次发版都进历史,仓库很快就几十 MB。放进 public/ 但只在 CI 里写,
       # git 完全看不见它。
-      - name: 取最新 APK 放进 public
+      # ---------------------------------------------------------------- 三条渠道
+      #
+      # stable / beta / dev 三份字节,落到三个**固定**路径上。文件名(用户存下来的
+      # 那个)带渠道与身份,URL 不带 —— 见 `docs/.vitepress/download.ts` 的注释。
+      #
+      # ## 致命性不对称,这是这一段最要紧的一行
+      #
+      # stable **致命**,beta/dev **非致命**。
+      #
+      # 照抄 stable 那句 `test -s ... || exit 1` 给 beta/dev 的话,
+      # 「还没发过 beta」就会让整个部署失败 ⇒ **正式版也更新不了、站点停在上一次**。
+      # 一个可选功能能弄挂生产,这是最坏的形状。
+      #
+      # 代价对称性决定方向:缺 stable 是**发布流程断了**(该 fail);
+      # 缺 beta 只是「这个渠道还没上线」(不该 fail)。
+      - name: 取三条渠道的 APK 放进 public
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -uo pipefail
           mkdir -p docs/public/media
-          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
-          echo "最新 release: $tag"
-          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
-            -p app-release.apk -D docs/public/media
+          R="$GITHUB_REPOSITORY"
+
+          # ---- stable:最新的正式 release(latest 不含 prerelease)----
+          tag=$(gh release view --repo "$R" --json tagName -q .tagName)
+          echo "stable: $tag"
+          gh release download "$tag" --repo "$R" -p app-release.apk -D docs/public/media
           mv docs/public/media/app-release.apk docs/public/media/gaia.apk
-          # 落到 Pages 上就是 https://adam-ikari.github.io/gaia/media/gaia.apk
-          ls -la docs/public/media/
-          # 构建产物里要是没它,站点就静悄悄退回跳 GitHub —— 这里先自己验一遍
-          test -s docs/public/media/gaia.apk || { echo "::error::APK 没取到"; exit 1; }
-          # **tag 带 v,文件名里不带**:`v0.4.3` → `0.4.3`,最终 `gaia-ime-v0.4.3.apk`
+          test -s docs/public/media/gaia.apk || {
+            echo "::error::stable APK 没取到 —— 发布流程断了,这是致命的"; exit 1; }
+          # **tag 带 v,文件名里不带**:`v0.7.11` → `0.7.11`
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+          # ---- 取一个可选渠道;取不到只 warning,不算失败 ----
+          #
+          # `$2` = 资产名前缀,`$3` = 落地路径,`$4` = 输出的变量名前缀。
+          # **身份(hash)从资产名读**,不从 tag 推导 —— 资产名是「远端确实存着
+          # 什么」,是这件事的权威。改成从 tag 推导就会多出一个可能漂移的来源,
+          # 不一致的表现是「文件名说 A、装完设置页写 B」。
+          take_optional() {
+            local label=$1 prefix=$2 dest=$3 var=$4
+            local asset ver
+            asset=$(gh release view "$R" --json assets -q \
+              "[.assets[].name | select(startswith(\"$prefix\"))] | last // \"\"" 2>/dev/null || true)
+            if [ -z "$asset" ]; then
+              echo "::warning::$label 没有找到 $prefix* 资产,这个渠道本次不上线"
+              return 0
+            fi
+            ver="${asset#$prefix-}"; ver="${ver%.apk}"
+            if [ -z "$ver" ]; then
+              echo "::warning::$label 资产名 $asset 里解析不出身份,跳过(总比给出错的强)"
+              return 0
+            fi
+            if ! gh release download "$R" -p "$asset" -D docs/public/media; then
+              echo "::warning::$label 下载 $asset 失败,这个渠道本次不上线"
+              rm -f "docs/public/media/$asset"
+              return 0
+            fi
+            mv "docs/public/media/$asset" "$dest"
+            if [ ! -s "$dest" ]; then
+              echo "::warning::$label 落地后 $dest 是空的,这个渠道本次不上线"
+              rm -f "$dest"; return 0
+            fi
+            echo "$var=$ver" >> "$GITHUB_OUTPUT"
+            echo "has_${var}=1" >> "$GITHUB_OUTPUT"
+            echo "$label: $asset → $dest (身份 $ver)"
+          }
+
+          # ---- beta:最新的 prerelease ----
+          # 不用滚动 tag:那样会**丢掉历史**(每个测试版都该能回看),
+          # 而 URL 固定不依赖 tag,所以取「最新 prerelease」既保历史又固定 URL。
+          beta_tag=$(gh release list --repo "$R" --limit 20 --json tagName,isPrerelease \
+            -q '[.[] | select(.isPrerelease)] | first | .tagName // ""' 2>/dev/null || true)
+          if [ -z "$beta_tag" ]; then
+            echo "::warning::还没有 prerelease,测试版本次不上线"
+          else
+            echo "beta: $beta_tag"
+            take_optional "beta" "app-beta" "docs/public/media/gaia-beta.apk" "BETA_VERSION"
+          fi
+
+          # ---- dev:固定 tag 的滚动 release ----
+          # dev **不是发布**,它没有版本号(应用仓那边刻意不给语义版本),
+          # 所以每次 master 构建都发一个 release 是刷屏 + 语义撒谎。
+          # ⇒ 固定 tag `dev-latest`,资产 `--clobber` 覆盖,历史靠 git。
+          take_optional "dev" "app-dev" "docs/public/media/gaia-dev.apk" "DEV_VERSION"
+
+          ls -la docs/public/media/
 
       - name: Build site
         env:
           # 构建期注入,`download.ts` 读它拼出 `gaia-ime-v<版本>.apk`
           VITE_APP_VERSION: ${{ steps.apk.outputs.version }}
+          # beta/dev 的身份,取自**资产名**(见上面 take_optional 的注释)。
+          # `has_*` 决定按钮渲不渲染 —— 取不到就是空,`download.ts` 那个
+          # `usable()` 判据会把空串挡掉,不会拼出 `gaia-ime-beta-.apk`。
+          VITE_BETA_VERSION: ${{ steps.apk.outputs.BETA_VERSION }}
+          VITE_HAS_BETA: ${{ steps.apk.outputs.has_BETA_VERSION }}
+          VITE_DEV_VERSION: ${{ steps.apk.outputs.DEV_VERSION }}
+          VITE_HAS_DEV: ${{ steps.apk.outputs.has_DEV_VERSION }}
         run: npm run build
 
-      - name: 产物里必须有 APK
+      - name: 产物里必须有 stable APK
         run: |
           test -s docs/.vitepress/dist/media/gaia.apk || {
             echo "::error::构建产物里没有 media/gaia.apk,下载链接会 404"; exit 1; }
           ls -la docs/.vitepress/dist/media/
+          # beta/dev 在 dist 里有没有,都**不致命** —— 它们本来就可能没上线。
+          # 这里只报事实,让「按钮指向 404」这件事在 run 日志里看得见。
+          for f in gaia-beta.apk gaia-dev.apk; do
+            if [ -s "docs/.vitepress/dist/media/$f" ]; then
+              echo "  有 $f"
+            else
+              echo "  无 $f(该渠道本次未上线,对应按钮不渲染)"
+            fi
+          done
 
       - uses: actions/upload-pages-artifact@v5
         with:
