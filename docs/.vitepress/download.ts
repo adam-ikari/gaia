@@ -3,7 +3,7 @@
  *
  * | 渠道 | 站点路径(固定) | 下载文件名 |
  * | --- | --- | --- |
- * | 正式版 | `/media/gaia.apk` | `gaia-ime-v0.7.11.apk` |
+ * | 测试版 | `/media/gaia.apk` | `gaia-ime-v0.7.11.apk` |
  * | 测试版 | `/media/gaia-beta.apk` | `gaia-ime-beta-<hash>.apk` |
  * | 开发版 | `/media/gaia-dev.apk` | `gaia-ime-dev-<hash>.apk` |
  *
@@ -16,7 +16,7 @@
  *
  * ## 三条渠道的身份分别从哪来(别处不要再造一个)
  *
- * - **正式版**:`VITE_APP_VERSION`,由 `deploy.yml` 从 release tag 剥 `v` 注入。
+ * - **测试版**:`VITE_APP_VERSION`,由 `deploy.yml` 从 release tag 剥 `v` 注入。
  * - **测试版 / 开发版**:`VITE_BETA_VERSION` / `VITE_DEV_VERSION`,
  *   由 `deploy.yml` **从 release 资产名**读出来 —— 不是从 tag、不是从别处。
  *
@@ -89,24 +89,23 @@ export const DOWNLOAD_URL = withBase(DOWNLOAD_PATH)
 export const BETA_DOWNLOAD_URL = withBase(BETA_DOWNLOAD_PATH)
 export const DEV_DOWNLOAD_URL = withBase(DEV_DOWNLOAD_PATH)
 
-/* ------------------------------------------------------------------ 正式版的状态 */
+/* ------------------------------------------------------------------ 主下载渠道的状态 */
 
 /**
- * `official` —— 正常发版。
- * `withdrawn` —— **有已知问题,已撤回**,不该当正式版推。
+ * 这个项目**一直以来都是测试版** —— 没有任何一次发版是「正式版」。
  *
- * ## 为什么状态是构建期注入的,而不是从 release 推出来的
+ * 所以主下载渠道的标签是**测试版**,不是「正式版」。
  *
- * 推不出来:GitHub 上没有「这个版本是经流水线发的」这种标记。v0.7.10 是在
- * 应用仓 Actions 账单锁定时**手工**发的(见那个 tag 的 message),而它正被站点
- * 当正式版推。所以「这个包可不可信」**只有发布的人知道**,必须写下来。
+ * ## 为什么不叫「正式版 · 已撤回」
  *
- * ## 为什么这必须有,而不是「页面文案问题」
+ * 我第一版写的是那个,用户指出问题:「一直以来都是测试版」。
  *
- * 站点发出去的是**用户直接下载安装的字节**。把一个已知有缺陷的构建放在
- * 主 CTA 上、且不作任何标注,后果是:用户装了一个坏的输入法,而站点
- * 每一个信号都在说这是正式版。**这比不提供下载更糟** ——
- * 不提供只是没得到,提供了却得到坏的、还被告知这是好的。
+ * 「已撤回」这个词**预设了它曾经是正式版** —— 那是我在页面上凭空给它造的一段
+ * 合法性。v0.7.10 是手工发的(应用仓 Actions 账单锁定)、从没跑过 E2E、
+ * 就有已知缺陷,它从头到尾只是个测试版。「正式版 + 已撤回」比直接说「测试版」
+ * 更糟:它在一件事上撒谎,而且用一个更醒目的标记盖住了另一件更该说的事。
+ *
+ * ⇒ 渠道名就是**测试版**。状态只有一种含义:**这个测试版有个已知问题**。
  */
 export type StableStatus = 'official' | 'withdrawn'
 
@@ -114,10 +113,11 @@ const rawStatus = (import.meta.env.VITE_STABLE_STATUS || '').trim()
 export const STABLE_STATUS: StableStatus = rawStatus === 'official' ? 'official' : 'withdrawn'
 
 /**
- * 撤回时显示在主按钮下面的说明。空字符串(没注入)时不显示任何东西,
- * 但 `STABLE_STATUS` 仍然是 `withdrawn` —— **缺文案不等于没问题**。
+ * 有已知问题时显示在按钮下面的说明。
  *
- * 这条不对称是有意的:注入漏了的后果是「按钮没有提示」,
- * 而把状态默认成 official 的后果是「明知道有问题却不说」。
+ * 空字符串(没注入)时只是不显示文字,而状态**仍然是 `withdrawn`** ——
+ * **缺文案不等于没问题**。这个不对称是刻意的:
+ * 注入漏了的后果是「按钮没有提示」;把状态默认成 official 的后果是
+ * 「明知道有问题却不说」。后者严重得多。
  */
 export const STABLE_NOTE = (import.meta.env.VITE_STABLE_NOTE || '').trim()

@@ -15,7 +15,7 @@
     >{{ buttonLabel }}</a>
 
     <!--
-      渠道名与状态。**三条渠道里正式版排在最前**,因为它是唯一被默认推荐的那个。
+      渠道名与状态。**三条渠道里测试版排在最前**,因为它是唯一被默认推荐的那个。
 
       `withdrawn` 时这个块**必须显示**,而且要说清为什么。
       不是为了合规 —— 用户下载的是**会装到手机上的字节**:
@@ -23,14 +23,15 @@
       不给只是没得到;给了却得到坏的、还被告知这是好的。
     -->
     <p class="gi-dl-status">
-      <span class="gi-tag">正式版</span>
-      <span v-if="withdrawn" class="gi-tag gi-tag-bad">已撤回</span>
+      <span class="gi-tag">测试版</span>
+      <span v-if="withdrawn" class="gi-tag gi-tag-bad">有已知问题</span>
       <span v-else class="gi-tag gi-tag-ok">当前</span>
       <span v-if="versionLabel" class="gi-dl-ver">{{ versionLabel }}</span>
     </p>
     <p v-if="withdrawn && STABLE_NOTE" class="gi-dl-note">{{ STABLE_NOTE }}</p>
     <p v-if="withdrawn" class="gi-dl-note">
-      下面的测试版与开发版含这个问题的修复，但同样没在真机上验证过。
+      下面的开发版含这个问题的修复，但同样没在真机上验证过。
+      本站目前**没有正式版** —— 一直以来发出去的都只是测试版。
     </p>
   </div>
 </template>
@@ -41,13 +42,15 @@ import { DOWNLOAD_URL, DOWNLOAD_FILENAME, STABLE_NOTE, STABLE_STATUS } from '../
 const withdrawn = STABLE_STATUS === 'withdrawn'
 
 /**
- * 按钮文案要说清它是哪一版。
+ * 按钮文案要说清它是**哪一版、哪条渠道**。
  *
- * 原来一律写「下载安装包」—— 那句话**不区分渠道**,于是把一个已撤回的构建
- * 和一个正常正式版说得一模一样。而用户判断「我拿到的是什么」只有这一个入口。
+ * 原来一律写「下载安装包」—— 那句话**不区分渠道也不区分版本**,用户点之前
+ * 无从知道拿到的是什么。
+ *
+ * 注意这里写「测试版」而不是「正式版」:这个项目**从来没有正式版**。
  */
 const ver = (import.meta.env.VITE_APP_VERSION || '').trim().replace(/^v+/, '')
-const buttonLabel = ver ? (withdrawn ? `下载 ${ver}(已撤回)` : `下载安装包 v${ver}`) : '下载安装包'
+const buttonLabel = ver ? (withdrawn ? `下载测试版 ${ver}` : `下载测试版 ${ver}`) : '下载测试版'
 
 /** 版本号只用于显示:取不到就空着 —— 空着不误导,有值才可信。 */
 const versionLabel = ver ? `v${ver}` : ''
@@ -106,7 +109,7 @@ const versionLabel = ver ? `v${ver}` : ''
 </style>/*
  * 渠道标签与状态。
  *
- * 「正式版」三个渠道里排最前 —— 它是唯一被默认推荐的那个,所以它的名字要
+ * 「测试版」三个渠道里排最前 —— 它是唯一被默认推荐的那个,所以它的名字要
  * 最先被看到;撤回标记紧跟其后,不能藏在版本号后面。
  */
 .gi-dl-status {
@@ -166,7 +169,7 @@ const versionLabel = ver ? `v${ver}` : ''
 }
 
 /*
- * 撤回时按钮**降级**:不再用满宽实心主色。
+ * 有已知问题时按钮**降级**:不再用满宽实心主色。
  *
  * 它仍然是最大的可点区域(那是转化路径,不该消失),但视觉权重降下来 ——
  * 一个「已知有问题」的下载不该长得和「推荐下载」一模一样。
