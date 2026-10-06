@@ -130,7 +130,15 @@ fi
 rid=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq '.id' 2>/dev/null || true)
 if [ -n "$rid" ]; then
   gh api -X PATCH "repos/$SITE_REPO/releases/$rid" -f prerelease=true >/dev/null 2>&1 || true
-  is_pre=$(gh api "repos/$SITE_REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || echo "?")
+  # 回读要**重试**:这个网络下 `unexpected EOF` 是常态(今天几十次),
+  # 一次读到空就断言失败,那是**网络的问题被报成了标记的问题** ——
+  # 而这种误报会让人去查一个根本不存在的配置错误。
+  is_pre=""
+  for a in 1 2 3 4 5; do
+    is_pre=$(gh api "repos/$SITE_REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || true)
+    [ -n "$is_pre" ] && break
+    sleep $((a * 3))
+  done
   if [ "$is_pre" != "true" ]; then
     die "$DEV_TAG 没能标成 prerelease(现在是 $is_pre)
      不标的后果不是「dev 渠道显示不出来」,而是**它会 hijack GitHub 的 latest**:
