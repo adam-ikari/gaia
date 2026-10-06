@@ -1,6 +1,8 @@
 package dev.hwkbd.ime.strategy
 
-import dev.hwkbd.ime.rime.PinyinConsumption
+// 2026-10-06:[PinyinConsumption] 从 `dev.hwkbd.ime.rime` 搬到这里 ——
+// 它是**接口的返回类型**,定义在实现层意味着「抽象层反向依赖实现层」。
+// 同包的 [PinyinInputMethod] 因此也不用再 import。
 import dev.hwkbd.ime.engine.Candidate
 
 /**
@@ -137,15 +139,50 @@ interface InputMethod {
      * ## 默认实现 = 旧行为(吃干净)
      *
      * 返回 `null` 表示「本引擎不参与选词」,调用方**照旧清空整个缓冲**。
-     * 这样:
-     * - 不支持的引擎([FakePinyinInputMethod] 之类)行为不变;
-     * - librime 一次吃完整串时(单音节常态)也走这条路,行为与之前完全一致。
-     *
+     * 不支持的引擎([FakePinyinInputMethod] 之类)行为不变 ——
      * 也就是说这是个**加法式**接口:猜错了也不会更坏。
      *
      * @param selectedWord 上层**已经决定上屏**的那个词。**只用于埋点** ——
      *   消费长度不再靠减法猜,所以它不参与任何判定。
-     * @return 消费结果;`null` = 本引擎不参与或说不清,调用方**走旧路径**(清空整个缓冲)
+     * @return 消费结果;`null` = 本引擎不参与选词,调用方**走旧路径**(清空整个缓冲)
      */
     fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? = null
 }
+
+/**
+ * 一次选词之后,引擎报回来的**消费事实**。
+ *
+ * ## `consumed == 0` 是一个**答案**,不是「不知道」
+ *
+ * 2026-10-06 之前的写法是把 `<= 0` 一律折成 `null`,注释里写着
+ * 「两者上层动作相同,不必区分」—— 动作确实相同,但**含义完全不同**:
+ *
+ * | `consumed` | 事实 | 上层该做什么 |
+ * | --- | --- | --- |
+ * | `> 0` | 吃掉这么多,剩尾巴 | 截断缓冲、接着组词 |
+ * | `== 0` | **整个输入都被吃掉了** | 清空缓冲 |
+ * | `null` | 引擎不参与 / 没选成 | 清空缓冲(保守) |
+ *
+ * 把 0 折进 `null` 的代价是**埋点会说谎**:日志里 `consumed=0` 原本表示
+ * 「全吃掉」,折掉之后它与「没选成」无法区分。
+ * 而这两种在真机上出现频率差得很远(全吃掉是常态:首选候选通常覆盖整串),
+ * 一旦混在一起,「为什么这次没留下剩余」这种问题就再也查不出答案。
+ *
+ * 依据(宿主机探针实测,`tools/rimeprobe/run.sh nihao`):
+ *
+ * ```
+ * 选「你好」(覆盖整串) → consumed=0,composition 被清空
+ * 选「你」  (只覆盖 ni) → consumed=2,剩下 [2,5) 与它的 45 个候选
+ * ```
+ *
+ * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:不含 `'`)。
+ *   `0` = 整串吃干净。上层拿它把 `state.raw` 截断 —— 截的是**前缀**,
+ *   因为 librime 的候选永远从当前段起点开始吃(见 `rawAfterConsuming`)。
+ * @param preview librime 的 `commit_text_preview` 整串。**只作埋点**:
+ *   它是「按回车会提交什么」的预览,不是「哪些输入被吃掉了」的记录
+ *   (它每段都填候选文字,包括没被选中的那段)—— 拿来算消费会算错。
+ */
+data class PinyinConsumption(
+    val consumed: Int,
+    val preview: String,
+)

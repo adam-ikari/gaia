@@ -1,6 +1,6 @@
 package dev.hwkbd.ime.strategy
 
-import dev.hwkbd.ime.rime.PinyinConsumption
+// [PinyinConsumption] 2026-10-06 从 dev.hwkbd.ime.rime 搬到了 strategy 包(同包,无需 import)
 import dev.hwkbd.ime.engine.Candidate
 
 /**

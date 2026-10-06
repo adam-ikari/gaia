@@ -1,5 +1,6 @@
 package dev.hwkbd.ime.ime
 
+import dev.hwkbd.ime.engine.Candidate
 import android.view.KeyEvent
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
@@ -553,32 +554,17 @@ class ImeController(
 
         // ── 引擎的菜单**必须在 commitText 之前读** ─────────────────────────────────
         //
-        // 引擎刚 `Select` 完是活的 —— `tools/rimeprobe` 实测(2026-10-06):
+        // 上屏会改 App 的组词区(`setComposingText` + `finishComposingText`),
+        // 系统随即回调 `onUpdateSelection`,而 `ImeService` 的对账一旦认为组词区
+        // 被外力破坏就 `abandonComposition()` —— **整个引擎被清掉**。
+        // ⇒ 引擎的读只能发生在上屏之前。
         //
-        //     nihao 选「你」(只覆盖 ni) → consumed=2,两段:
-        //         seg[0] start=0 end=2 kSelected sel=3
-        //         seg[1] start=2 end=5 kGuess menu=有
-        //         新菜单 45 个:好 号 浩 豪 耗 …
-        //
-        // 而 `host.commitText` 会 `setComposingText(词)+finishComposingText()`,
-        // App 的组词区当场从「nihao」变成「你」⇒ 系统回调 `onUpdateSelection`
-        // ⇒ `ImeService` 的对账(见那边 405 行)一旦认为组词区被外力破坏就
-        // `abandonComposition()` —— **整个引擎被清掉**。
-        //
-        // 本函数原来把读菜单放在 `commitText` **之后**,于是读的是一个可能已经被
-        // 丢掉的引擎。症状正是「缓冲里明明是 hao,候选栏却是空的」。
-        // 两次旧修复(2026-10-05 走 refreshQuery、2026-10-06 走 currentCandidates)
-        // **都栽在同一个位置** —— 不是这两个读法有问题,是它们都在 commitText 之后读。
-        //
-        // 只把**读取**提前,其余顺序(动画 → 上屏 → 赋值)一字不动,所以可观察行为
-        // 除了候选内容以外完全不变。
-        val remainCandidates =
-            if (consumed != null && consumed > 0) {
-                dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
-                    .let { inputMethod().currentCandidates(it, CANDIDATE_LIMIT) }
-            } else {
-                emptyList()
-            }
+        // 这一条是**探针实测**逼出来的,不是推理(`tools/rimeprobe/run.sh nihao`):
+        // 刚 `Select` 完引擎给出 consumed=2、剩下一段 `[2,5)` 与它的 45 个候选。
+        // 两次旧修复(2026-10-05 `refreshQuery`、2026-10-06 `currentCandidates`)
+        // **都栽在同一个位置** —— 不是读法有问题,是都在上屏之后读。
+        // 完整经过,连同那两次的错误推导,见 brain 页 `rime-candidate-consumption`。
+        val remainder = readRemainder(consumed)
 
         // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
         // 放在两个 `?: return` 之后 —— 选不中就不该有动画。
@@ -586,34 +572,59 @@ class ImeController(
         host.commitText(c.word)
         inputMethod().onCommitted(c.word)
 
-        if (consumed == null || consumed <= 0) {
+        val rem = remainder
+        if (rem == null) {
+            // `consumed == 0`(整串吃干净)、`consumed == null`(引擎不参与/没选成)
+            // 都归到这里 —— 动作相同,但含义不同,埋点那一行分得开。
             clearComposition()
         } else {
-            // **只清吃掉的那部分**:剩下的拼音继续留在缓冲里,可接着打。
-            //
-            // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),
-            // 所以留的是**尾巴**。引擎给的长度是**引擎坐标**(喂进去之前 `'`
-            // 被剥掉了),由 [dev.hwkbd.ime.rime.rawAfterConsuming] 映回带分节符的 raw。
-            val rest = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
-            state.raw = rest
+            state.raw = rem.raw
             state.page = 0
             state.highlight = -1
-            // 候选在**上面**(commitText 之前)就从引擎读好了,这里只是落位。
-            //
-            // 不用 [refreshQuery] 的理由**不是**「重建算不出 hao 的候选」——
-            // 那条判断是错的:重建是 `clear_composition()` + 逐字重喂,纯函数,
-            // `hao` 的候选它算得出来。错的是**读的时候引擎可能已经没了**
-            // (commitText → onUpdateSelection → abandonComposition),
-            // 重建同样得先问引擎,所以两条路一起空。
-            state.candidates = remainCandidates
+            state.candidates = rem.candidates
             querySeq++
             android.util.Log.i(
                 "ImeService",
-                "query#$querySeq from=选词后剩余 raw=\"$rest\" n=${state.candidates.size}"
+                "query#$querySeq from=选词后剩余 raw=\"${rem.raw}\" n=${state.candidates.size}"
             )
         }
         host.render()
     }
+
+    /**
+     * 选完候选之后,引擎那边「还剩什么」。
+     *
+     * ## **必须在 [ImeHost.commitText] 之前调用**
+     *
+     * 上屏会改 App 的组词区,系统随即回调 `onUpdateSelection`,`ImeService`
+     * 的对账一旦不通过就 `abandonComposition()` —— 引擎整个消失,菜单读出来是空的。
+     * 调用点就在上面三行,理由与两次旧修复的经过写在 [selectCandidate] 里。
+     *
+     * ## 为什么 `raw` 与 `candidates` 打包在一起
+     *
+     * 原来这两样是**各算一遍**的:`rest` 在一处用 `rawAfterConsuming` 算,
+     * `remainCandidates` 在另一处再算一次同样的 `rawAfterConsuming`。
+     * 两份独立推导同一个值,早晚会漂 —— 而漂了以后症状是
+     * 「缓冲里是 hao、候选栏却是 hao 别的段」,极难查。
+     * 打包成一份就只有一个真相来源。
+     *
+     * @param consumed 引擎给的消费长度(引擎坐标:不含 `'`);`null` 或 `<= 0` ⇒ `null`。
+     */
+    private fun readRemainder(consumed: Int?): Remainder? {
+        if (consumed == null || consumed <= 0) return null
+        // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),
+        // 所以留的是**尾巴**。引擎给的长度是**引擎坐标**(喂进去之前 `'`
+        // 被剥掉了),由 [dev.hwkbd.ime.rime.rawAfterConsuming] 映回带分节符的 raw。
+        val rest = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
+        // 不用 [refreshQuery] 的理由**不是**「重建算不出 hao 的候选」——
+        // 那条判断是错的:重建是 `clear_composition()` + 逐字重喂,纯函数,
+        // `hao` 的候选它算得出来。错的是**读的时候引擎可能已经没了**,
+        // 重建同样得先问引擎,所以两条路一起空。
+        return Remainder(rest, inputMethod().currentCandidates(rest, CANDIDATE_LIMIT))
+    }
+
+    /** [readRemainder] 的结果:剩下的拼音 + 它的候选。 */
+    private data class Remainder(val raw: String, val candidates: List<Candidate>)
 
     /** 长按候选(显示位):删除该词的用户频次/词条(可可同款),刷新当前候选。 */
     fun removeUserWord(displayIndex: Int) {

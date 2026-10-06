@@ -1,5 +1,6 @@
 package dev.hwkbd.ime.rime
 
+import dev.hwkbd.ime.strategy.PinyinConsumption
 import android.content.Context
 import android.util.Log
 import dev.hwkbd.ime.engine.Candidate
@@ -216,13 +217,26 @@ class RimeEngine(private val context: Context) : InputMethod {
             TAG,
             "consume: index=$index word=\"$selectedWord\" consumed=$consumed preview=\"$preview\"",
         )
-        // **<= 0 一律当「说不清」**:
-        //   - 0  = 引擎把**整串**都吃掉了(全部吃掉时 composition 被清空,
-        //          起点就报 0 —— 机制与实测证据见 `rime_jni.cpp` 的注释)。
-        //          「全清」正是这种情况的正确答案。
-        //   - <0 = 没选成(见 RimeNative.selectCandidate)。
-        // 两者上层动作相同(照旧清空整个缓冲),所以不必区分。
-        if (consumed <= 0) return null
+        // 2026-10-06:**不再把 0 折进 null**。
+        //
+        // 原文写的是「`<= 0` 一律当说不清…… 两者上层动作相同,不必区分」。
+        // 动作确实相同(都清空缓冲),但**含义完全不同**:
+        //
+        //   0 = 引擎说「整个输入都被吃掉了」 —— 这是**一个答案**
+        //   <0 = 没选成                    —— 这是「没有答案」
+        //
+        // 折掉之后埋点就说谎了:日志里的 `consumed=0` 原本表示「全吃掉」,
+        // 与「没选成」再也分不开。而这两种在真机上频率差得很远 ——
+        // **全吃掉是常态**(首选候选通常覆盖整串),所以一旦混在一起,
+        // 「为什么这次没留下剩余」这类问题就再也查不出来。
+        //
+        // 机制:全吃掉时 `ConcreteEngine::OnSelect` 把段标 kConfirmed 后
+        // `Forward()` 推出空段,composition 里已没有未确认段 ⇒
+        // `GetCurrentStartPosition()` 报 0。探针实测确认
+        // (`tools/rimeprobe/run.sh nihao`:选「你好」→ consumed=0、composition 清空;
+        //  选「你」→ consumed=2、剩 [2,5))。
+        //
+        // 只有 <0 才是「说不清」—— 交给调用方保守处理。
         return PinyinConsumption(consumed = consumed, preview = preview.orEmpty())
     }
 
@@ -290,20 +304,9 @@ class RimeEngine(private val context: Context) : InputMethod {
     }
 }
 
-/**
- * 一次选词的「消费」结果。
- *
- * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:不含 `'`)。
- *   上层拿它把 `state.raw` 截断 —— 截的是**前缀**,因为 librime 的候选
- *   永远从当前段起点开始吃(见 [rawAfterConsuming])。
- * @param preview librime 的 `commit_text_preview` 整串。**只作埋点**:
- *   它是「按回车会提交什么」的预览,不是「哪些输入被吃掉了」的记录
- *   (它每段都填候选文字,包括没被选中的那段)—— 拿来算消费会算错。
- */
-data class PinyinConsumption(
-    val consumed: Int,
-    val preview: String,
-)
+// [PinyinConsumption] 的定义已搬到 `dev.hwkbd.ime.strategy`(2026-10-06):
+// 它是这个包对外的返回类型,放在实现层会让 strategy 反过来依赖 rime。
+// 连「`consumed == 0` 是「全吃掉」而不是「说不清」」那份说明也一起过去了。
 
 /**
  * 丢掉 raw 开头**已经吃掉的那 [consumed] 个字符**,返回剩下的。

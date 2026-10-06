@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-06T09:44:43"
+updated: "2026-10-06T10:21:45"
 ---
 
 <!-- compiled_truth -->
@@ -185,4 +185,10 @@ v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
   kind: evidence
   summary: "我把「xian 在词典里是合法音节所以西安打不出来」当成取消分隔符的**代价**写进注释,用户当场指出 xian→西安本来就支持。那只是推理没验过 —— 与前三例(下载截断被当成功、initWith 不继承、v 当分隔符)同形。判据:凡是陈述「为什么」的注释,必须能指到一个源码行、一次产物检查或一条真机日志;指不到的是推理,得标出来或删掉"
   source: "2026-10-06 同一个形状的第四个实例"
+  affects: [release-flow]
+
+- time: 2026-10-06T10:21:45
+  kind: evidence
+  summary: "2026-10-06 发 c271426 时实测:publish-dev.sh 删旧资产**失败**(旧的 app-dev-43af8e8 留在远端),而脚本把 stderr 吞掉、只打 warning、**照样触发了站点部署** —— 拿一个有两份 dev 资产的 release 去构建。这次站点碰巧取对了(`take_optional` 用 `| last`,GitHub 按创建序返回,last=最新那份),但那是**依赖顺序的巧合**不是判据;手动重删即成功。已改成:删除重试 5 次、错误不再吞、**收敛不到恰好一份就不触发部署并 exit 1**。判据的不对称:「渠道缺失」非致命(它可能真还没上线,`take_optional` 本就设计成非致命),「渠道歧义」致命(站点会挑错字节且没人会响)—— 与 sync-apk-to-site 那条不矛盾,那是缺失,这是歧义"
+  source: "2026-10-06 发 c271426 实测 + 手动重删成功"
   affects: [release-flow]
