@@ -108,9 +108,24 @@ cp "$APK" "$STAGE/$ASSET"
 if gh release view "$DEV_TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
   echo "    release 已存在,覆盖资产"
 else
-  gh release create "$DEV_TAG" -R "$SITE_REPO" --title "dev(滚动)" \
+  # **`--prerelease` 不是可选项**(2026-10-06 实测踩到):
+  # `dev-latest` 一旦不是 prerelease,GitHub 就把它当成 **latest**,
+  # 于是 gaia 的 deploy.yml 里 stable 那步(`gh release view` 不带 tag)
+  # 拿到的是 `dev-latest`,去里面找 `app-release.apk` 找不到 →
+  # `no assets match the file pattern` → 部署失败
+  # ⇒ **正式版下载按钮整个挂掉**。
+  # GitHub 的 latest 明确不含 prerelease,所以这个标记就是那道隔断。
+  #
+  # 已存在的 release 也要补标记 —— 建的时候忘了就是忘了,`--clobber` 不会改它。
+  gh release edit "$DEV_TAG" -R "$SITE_REPO" --prerelease=true >/dev/null 2>&1 \
+    || echo "::warning::没能把 $DEV_TAG 标成 prerelease,站点部署可能会失败" >&2
+  gh release create "$DEV_TAG" -R "$SITE_REPO" --title "dev(滚动)" --prerelease \
     --notes "master HEAD 的开发版构建,**滚动** —— 每次发版都被下一次覆盖。
-这个包不做任何保证:不过混淆、没跑端到端测试。资产名带 git hash。" >/dev/null \
+这个包不做任何保证:不过混淆、没跑端到端测试。资产名带 git hash。
+
+**为什么标成 prerelease**:不标的话 GitHub 会把它当成 latest,
+而站点 deploy.yml 的正式版正是按 latest 取的 ⇒ 会去这个 release 里找
+\`app-release.apk\` ⇒ 找不到 ⇒ 部署失败、正式版下载按钮挂掉。" >/dev/null \
     || die "建 release 失败"
 fi
 
