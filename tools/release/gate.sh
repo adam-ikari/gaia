@@ -242,14 +242,18 @@ run_tests() {
 
 assemble() {
   step "构建 release + debug + beta"
-  ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug :app:assembleBeta >/tmp/gate-build.log 2>&1 \
+  # **dev 也要编**:它现在过 R8(公开渠道一律混淆)⇒ 与 beta 同样有
+  # 「R8 削掉 JNI 入口名」的风险,而那个风险只在**产物**里看得见。
+  ./gradlew --no-daemon :app:assembleRelease :app:assembleDebug \
+                        :app:assembleBeta :app:assembleDev >/tmp/gate-build.log 2>&1 \
     || { tail -40 /tmp/gate-build.log >&2; die "构建挂了(完整日志 /tmp/gate-build.log)"; }
   for a in app/build/outputs/apk/release/app-release.apk \
            app/build/outputs/apk/debug/app-debug.apk \
-           app/build/outputs/apk/beta/app-beta.apk; do
+           app/build/outputs/apk/beta/app-beta.apk \
+           app/build/outputs/apk/dev/app-dev.apk; do
     [ -s "$a" ] || die "构建说成功但 $a 不存在/是空的"
   done
-  ok "三个包都在(release / debug / beta)"
+  ok "四个包都在(release / debug / beta / dev)"
 }
 
 # ---------------------------------------------------------------------------
@@ -317,10 +321,14 @@ check_jni() {
   [ -x tools/release/check-jni-symbols.py ] || chmod +x tools/release/check-jni-symbols.py
   # **beta 也在列**:它是唯一过 R8 又会装到用户/测试者手上的那个。
   # release 过 R8 但先到 release;beta 过 R8 且更早暴露问题 —— 两个都要验。
+  # dev 与 beta 都在列:它们**都过 R8**且都在站点上公开
+  # (2026-10-06 起 dev 也开混淆)。debug 不在风险面里 —— 它不过 R8,
+  # 那正是这个闸门当初存在的原因(见上面那段注释)。
   tools/release/check-jni-symbols.py \
     app/build/outputs/apk/release/app-release.apk \
     app/build/outputs/apk/debug/app-debug.apk \
-    app/build/outputs/apk/beta/app-beta.apk || die "JNI 闸门没过"
+    app/build/outputs/apk/beta/app-beta.apk \
+    app/build/outputs/apk/dev/app-dev.apk || die "JNI 闸门没过"
 }
 
 # ---------------------------------------------------------------------------
