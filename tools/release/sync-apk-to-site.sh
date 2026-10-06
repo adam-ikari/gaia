@@ -79,8 +79,20 @@ fetch() {
   local name=$1 fatal=$2 attempt got want
   want=${WANT_SIZE[$name]:-}
   if [ -z "$want" ]; then
-    echo "::error::资产清单里没有 $name —— 取不到权威大小就没法验完整性,不能当成没事" >&2
-    return 1
+    # 「远端根本没这个资产」≠「下载坏了」,后果也不同:
+    #   致命资产缺 → 阻断(站点会停在旧版本,那是错的包);
+    #   非致命资产缺 → 降级(它本来就不该有,例如 debug 包上传失败过)。
+    #
+    # 一律 return 1 会被 `set -e` 掐死整个脚本 —— 2026-10-05 实测正是这样
+    # 卡住的:debug 包没传上去(那个 22MB 直传的老 408),于是非致命资产
+    # 缺失升级成致命失败,**站点同步停在半路**,而 release 包其实已经就位。
+    # 一个非致命的降级不该阻断它后面真正要做的事。
+    if [ "$fatal" = yes ]; then
+      echo "::error::$TAG 的资产清单里没有 $name —— 站点会停在旧版本,不许继续" >&2
+      return 1
+    fi
+    echo "::warning::$TAG 没有 $name(远端确实没这个资产),跳过它(站点不消费它)"
+    return 0
   fi
   for attempt in 1 2 3 4 5; do
     # **先删**:上一次失败留下的半截文件就在这儿,不清会被当成这次的结果。
@@ -244,23 +256,51 @@ echo "  Deploy site run: $run_id,等它跑完…"
 
 # 等它结束。**轮询而不是 gh run watch**:watch 挂在本地断线/限流上不好收拾,
 # 而这里只需要「结束了吗」这一个事实。
+#
+# ## 「查不到」不等于「失败」(2026-10-05 修,真 bug)
+#
+# 原来 conclusion 那次查询写成 `... || echo unknown`,然后
+# `if [ "$concl" = "success" ]; then ok; else fail; fi` ——
+# **于是一次网络抖动就等于「部署失败」**。实测:run 37391411332 其实
+# `completed/success`(33 秒),而脚本判它失败并退出。
+#
+# 那个 `unexpected EOF` 不是假想的,同一个会话里对
+# `runs/37391411332` 和 `jobs` 都真出现过。
+#
+# ⇒ 只有**拿到确定结论且不是 success** 才算失败;查不到就继续问。
+#
+# ## 更重要的是结构:这个轮询只是**便宜的路由信号**,不是判据
+#
+# 判据是下面那段**逐字节比对**(Pages 那份 == 刚上传的那份)。
+# 原来轮询一判失败就 `exit 1`,**权威检查根本没机会跑** ——
+# 于是「我猜它失败了」被当成了结论,而实际结论是可以直接问出来的。
+#
+# 所以:轮询失败只发 warning,继续往下走,让字节比对去判。
+# 便宜的信号负责路由,贵的权威检查负责下结论。
 deploy_ok=0
+deploy_known=0
 for _ in $(seq 1 60); do
   status=$(gh run view "$run_id" -R "$SITE_REPO" --json status -q '.status' 2>/dev/null || echo unknown)
   case "$status" in
     completed)
       concl=$(gh run view "$run_id" -R "$SITE_REPO" --json conclusion -q '.conclusion' 2>/dev/null || echo unknown)
-      if [ "$concl" = "success" ]; then deploy_ok=1; else deploy_ok=0; fi
-      break ;;
+      case "$concl" in
+        success)             deploy_ok=1; deploy_known=1; break ;;
+        unknown|"")          ;;  # **查不到结论 ≠ 失败**,继续问
+        *)                   deploy_ok=0; deploy_known=1; break ;;
+      esac ;;
+    unknown|"") ;;  # 同上
     *) sleep 10 ;;
   esac
+  sleep 10
 done
-if [ "$deploy_ok" != "1" ]; then
-  echo "::error::Deploy site 没跑成功 —— release 资产是新的,但站点页面仍发上一次的包" >&2
-  echo "::error::$SITE_REPO 的 run $run_id 上看日志;修好后重跑本脚本(幂等)" >&2
-  exit 1
+if [ "$deploy_ok" = "1" ]; then
+  echo "  Deploy site 成功"
+elif [ "$deploy_known" = "1" ]; then
+  echo "::warning::Deploy site 报了失败($SITE_REPO run $run_id),但结论以**下面的字节比对**为准" >&2
+else
+  echo "::warning::60 次都没问到 Deploy site 的结论(网络?),结论以**下面的字节比对**为准" >&2
 fi
-echo "  Deploy site 成功"
 
 # ---- 决定性的那一步:Pages 那份必须**逐字节**等于刚上传的那份 -------------------
 #
