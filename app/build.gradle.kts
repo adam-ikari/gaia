@@ -71,9 +71,21 @@ android {
         // 判据是 `tools/release/gate.sh` 的「版本号漂移」那一步,它比的是
         // **值**(`ver_of` 解 HEAD 与最高 tag 的 build.gradle.kts),不是
         // 「哪个 commit 碰过这个文件」—— 后者会把顺手修 typo 也算成一次 bump。
-        // ↓↓↓ 发版 commit 的唯一改动就是这两行 ↓↓↓
-        versionCode = 30
-        versionName = "0.7.11"
+        // 退回已发布值:`v0.7.10` 是目前唯一发出去的版本(见上面「唯一来源」那段)。
+        //
+        // 之前这里是 30/0.7.11,而 0.7.11 **从未发布** —— 我在 `9f93443`
+        // 那个 commit 里顺手提的,之后又推了 5 个 commit。
+        // 于是 master 停在一个自称「0.7.11」而 0.7.11 不存在的状态,
+        // `gate.sh` 的漂移检查正好把它抓出来(它原本会报成一个错值,已修)。
+        //
+        // 而 dev/beta 渠道**每次都从 master 编**,所以这个谎会被放大成
+        // 「站点上那个 0.7.11-dev.xxx 其实是 0.7.10 的后代,却自称 0.7.11」。
+        //
+        // ⇒ master 承袭已发布版本;0.7.11 由**发版 commit** 引入。
+        //   代价是 dev 渠道会显示 `0.7.10-dev.<hash>` —— 而那是**真的**:
+        //   它确实是 0.7.10 之后、还没成为任何发布的一版。
+        versionCode = 29
+        versionName = "0.7.10"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
@@ -243,14 +255,29 @@ android {
             // Android 只拒绝**降低**)。这正是「看最新」想要的语义。
             versionNameSuffix = "-dev.${gitShortHash()}${if (gitDirty()) ".dirty" else ""}"
 
-            // **不过 R8**:dev 是给开发/自测用的,验功能不验发布形态。
-            // 反过来 beta 必须过(它过 R8 且会装到测试者手上),差别就在这里。
-            // ⇒ 别把这条抄到 beta 上,也不要把这条从 beta 拿掉。
+            // **过 R8**(2026-10-06 用户定:「任何版本只要公开就需要混淆」)。
             //
-            // 这里**显式写死**,理由与 beta 里那条一样:配置文件里写了什么不算数,
-            // 见 tools/release/gate.sh 的 check_beta_r8(它验的是产物)。
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // 我原来在这里写的是 `isMinifyEnabled = false`,理由是
+            // 「dev 是给开发/自测用的,验功能不验发布形态」。**那个理由混淆了两件事**:
+            //
+            //   · 本地自测的产物 —— 确实不需要混淆,快一点更好
+            //   · **公开下载的字节** —— 必须混淆
+            //
+            // 而 dev 渠道**在站点上公开可下**(gaia 的 deploy.yml 会把
+            // `dev-latest` 那个滚动 release 的资产取来放进 Pages)。
+            // ⇒ 一旦公开,判据就变成「任何人都能拿到并反编译」,
+            //   于是不过混淆等于把类名方法名全交出去,
+            //   任何校验都能被 patch 掉(2026-10-02 用户「应用包需要安全加固
+            //   防止重新打包」就是这件事)。
+            //
+            // **代价**:编 dev 变慢,而且崩溃栈会变成 `a.b.c(SourceFile:42)`
+            // ⇒ 定位问题必须要 mapping。所以 mapping 一定要留着。
+            //
+            // 显式写死而不是继承:配置文件里写了什么不算数,
+            // 见 tools/release/gate.sh 的 check_public_r8(它验的是产物)。
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
             // dev 也编两个 ABI:本机若有模拟器可以直接装 dev 试(正式版只有 arm64)。
             ndk {

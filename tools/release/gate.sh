@@ -163,8 +163,16 @@ preflight() {
 # ---------------------------------------------------------------------------
 ver_of() {  # ver_of <ref> → "<versionCode> <versionName>"
   git show "$1:app/build.gradle.kts" 2>/dev/null | awk '
-    /versionCode *=/ { gsub(/[^0-9]/,"",$0); c=$0 }
-    /versionName *=/ { if (match($0, /"[^"]*"/)) { n=substr($0,RSTART+1,RLENGTH-2) } }
+    # **必须锚到行首**(只允许前导空白):beta/dev 用的是 `versionNameSuffix`,
+    # 而松匹配 `/versionName *=/` 会把它也当成 versionName ——
+    # `versionNameSuffix` 里 `versionName` 后面跟的是 `S`,但 `Suffix = …`
+    # 那段又含 ` =`,整个串于是被匹配上了,值取成 `-dev.<hash>`。
+    #
+    # 2026-10-06 实测踩到:漂移检查报「master 的版本号(30 dev-<hash>)」,
+    # 而 build.gradle.kts 里明明是 `versionCode = 30` / `versionName = "0.7.11"`。
+    # 报错信息里的错值会把人带去查一个不存在的漂移 —— 比不报还费时间。
+    /^[[:space:]]*versionCode *=/ { gsub(/[^0-9]/,"",$0); c=$0 }
+    /^[[:space:]]*versionName *=/ { if (match($0, /"[^"]*"/)) { n=substr($0,RSTART+1,RLENGTH-2) } }
     END { print c, n }'
 }
 
@@ -245,33 +253,49 @@ assemble() {
 }
 
 # ---------------------------------------------------------------------------
-# 5b. beta 必须真的过了 R8 —— **验产物,不验配置**
+# 5b. **公开渠道**必须真的过了 R8 —— 验产物,不验配置
 #
-# ## 这条检查是被一次「读代码看起来对」骗出来的
+# ## 判据是「公开」,不是「某个渠道名」
 #
-# beta 用 `initWith(getByName("release"))` 建,注释里写着「R8 开着(initWith 从
-# release 继承)」。**实际没继承**:AGP 对 buildType 的配置延迟生效,`initWith`
-# 执行时 release 块里的 `isMinifyEnabled = true` 还没落到 DSL 对象上。
+# 2026-10-06 用户定:「任何版本只要公开就需要混淆」。
+# 写死成 `check_beta_r8` 就错了 —— 那个判据问的是「beta 过没过 R8」,
+# 而真正要问的是「**有没有人能从公网拿到这个字节**」。
+# dev 渠道挂在站点上,同样是公开的,而我第一版把它的 R8 关了。
 #
-# 症状:beta 编出来 **9.1MB** 而 release **6.9MB**,
-# `app/build/outputs/mapping/beta/` 里**没有 mapping.txt**。
+# ⇒ 判据落在**产物**上,而且遍历所有公开渠道:有 mapping 才算数。
 #
-# ⇒ 判据落在**产物**上。配置文件里写了什么不算数,`mapping.txt` 在才算。
-#   这与 check_jni 同源:那一闸门存在的理由是「E2E 跑 debug 包、不过 R8,
-#   所以这类问题在 CI 上结构性不可见」—— beta 若也不�� R8,同一个盲区又回来了。
-# ---------------------------------------------------------------------------
-check_beta_r8() {
-  step "beta 真的过了 R8 吗(验产物)"
-  local map=app/build/outputs/mapping/beta/mapping.txt
-  if [ ! -s "$map" ]; then
-    echo "::error::$map 不存在 ⇒ beta 没有被混淆。" >&2
-    echo "::error::beta 不过 R8 就测不出「改名导致的 UnsatisfiedLinkError」," >&2
-    echo "::error::而那正是正式版最贵的一类事故(v0.7.1 有 7/14 个 JNI 入口被削掉)。" >&2
-    echo "::error::app/build.gradle.kts 里 isMinifyEnabled 必须**显式**写," >&2
-    echo "::error::不能依赖 initWith —— 它不会继承(release 块是延迟生效的)。" >&2
+# ## 为什么不能用 `initWith` 继承
+#
+# beta 用 `initWith(getByName("release"))` 建,注释里写着「R8 开着(继承)」。
+# **实际没继承**:AGP 对 buildType 的配置延迟生效,`initWith` 执行时
+# release 块里的 `isMinifyEnabled = true` 还没落到 DSL 对象上。
+# 症状:beta 编出来 9.1MB 而 release 6.9MB,`mapping/beta/` 里没有 mapping.txt。
+#
+# ## 与 check_jni 同源
+#
+# 那闸门存在的理由是「E2E 跑 debug 包、不过 R8,所以这类问题在 CI 上
+# 结构性不可见」—— 一个渠道不过 R8,同一个盲区就又回来了。
+check_public_r8() {
+  step "公开渠道真的过了 R8 吗(验产物)"
+  local vt mapping bad=0
+  # 站点的三个落点:主下载(测试版)、gaia-beta、gaia-dev。
+  # 判据都是「站点会去取的那个产物」。
+  for vt in release beta dev; do
+    mapping="app/build/outputs/mapping/$vt/mapping.txt"
+    if [ ! -s "$mapping" ]; then
+      bad=1
+    else
+      ok "$vt: mapping.txt $(stat -c%s "$mapping") 字节"
+    fi
+  done
+  if [ "$bad" = 1 ]; then
+    echo "::error::有渠道没有 mapping.txt ⇒ 它没过 R8。" >&2
+    echo "::error::凡是**站点会去取**的渠道都必须混淆:不过混淆等于把类名方法名" >&2
+    echo "::error::交给任何能下载到它的人,任何校验都能被 patch 掉。" >&2
+    echo "::error::对应 build.gradle.kts 里那个 buildType 的 isMinifyEnabled ——" >&2
+    echo "::error::**显式**写,不能靠 initWith(它不继承,release 块是延迟生效的)。" >&2
     return 1
   fi
-  ok "mapping.txt 存在($(stat -c%s "$map") 字节)"
 }
 
 # ---------------------------------------------------------------------------
@@ -364,7 +388,7 @@ check_drift
 check_version
 run_tests
 assemble
-check_beta_r8
+check_public_r8
 check_jni
 [ "$RELEASE" = 1 ] && check_e2e_cited
 

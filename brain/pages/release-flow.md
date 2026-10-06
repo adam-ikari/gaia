@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-06T00:15:29"
+updated: "2026-10-06T04:17:39"
 ---
 
 <!-- compiled_truth -->
@@ -161,4 +161,16 @@ v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
   kind: evidence
   summary: "两处 fail-closed 误判:非致命资产缺失被 return 1 + set -e 掐死脚本;一次 API 抖动(unknown)被当成部署失败并 exit,挡住了后面的权威字节比对。判据:便宜的信号负责路由,贵的权威检查负责下结论;「拿不到」与「它是坏的」代价不对称时,方向要反过来"
   source: "2026-10-05 同步 v0.7.10 实跑"
+  affects: [release-flow]
+
+- time: 2026-10-06T04:17:39
+  kind: decision
+  summary: "发布改成三条并行渠道,各自是**独立应用**:正式版 dev.hwkbd.ime(语义版本)、测试版 dev.hwkbd.ime.beta(过 R8)、开发版 dev.hwkbd.ime.dev(不过 R8,版本名只有 git hash)。站点三个固定 URL。beta 按「release 里有没有 app-beta-* 资产」挑而不是「最新 prerelease」—— 按内容挑而非命名约定挑"
+  source: "2026-10-06 三渠道并行"
+  affects: [release-flow]
+
+- time: 2026-10-06T04:17:39
+  kind: evidence
+  summary: "三个结构性陷阱,全部实测撞到:①滚动 release 若不是 prerelease 会**hijack GitHub 的 latest**,正式版按 latest 取包 ⇒ 部署失败、正式版下载按钮整个挂掉;②gh release upload 的 <path>#<label> 里 # 是 **label 不是文件名**,资产名取自 basename,而 deploy 按资产名取 hash ⇒ 静默跳过;③可选渠道必须非致命,缺 beta 只 warning —— 但正因非致命,「查错 release 导致 dev 没上线」也只表现为一行 warning + 部署 success"
+  source: "2026-10-06 发布 dev 渠道实跑"
   affects: [release-flow]
