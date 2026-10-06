@@ -33,11 +33,22 @@
       下面的开发版含这个问题的修复，但同样没在真机上验证过。
       本站目前**没有正式版** —— 一直以来发出去的都只是测试版。
     </p>
+    <VerifyLine v-if="STABLE_SHA256" :sha="STABLE_SHA256" :size="STABLE_SIZE" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { DOWNLOAD_URL, DOWNLOAD_FILENAME, STABLE_NOTE, STABLE_STATUS } from '../../download'
+import VerifyLine from './VerifyLine.vue'
+import {
+  DOWNLOAD_URL,
+  DOWNLOAD_FILENAME,
+  STABLE_NOTE,
+  STABLE_SHA256,
+  STABLE_SIZE,
+  STABLE_STATUS,
+  prettySize,
+  shortHash,
+} from '../../download'
 
 const withdrawn = STABLE_STATUS === 'withdrawn'
 

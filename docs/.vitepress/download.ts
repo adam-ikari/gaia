@@ -121,3 +121,54 @@ export const STABLE_STATUS: StableStatus = rawStatus === 'official' ? 'official'
  * 「明知道有问题却不说」。后者严重得多。
  */
 export const STABLE_NOTE = (import.meta.env.VITE_STABLE_NOTE || '').trim()
+
+/* ---------------------------------------------------------------- 下载校验值 */
+
+/**
+ * 每条渠道的 sha256 与字节数,页面上要显示。
+ *
+ * ## 为什么必须有
+ *
+ * 2026-10-06 实测:这个网络下下载**会静默截断** —— 有一次 `curl` 连文件都
+ * 没落下来,而页面本身完全正常。用户拿到残缺的 APK,安装器只给一句
+ * 「软件包无效」,**无从知道是包坏了还是自己网络的问题**。
+ *
+ * 有了这两个数,用户能自己分辨「没下全」与「包有问题」——
+ * 而分辨不出来的时候,唯一合理的动作是重下,或者放弃。
+ *
+ * 这与 `hwkbd_ime` 的 `sync-apk-to-site.sh` 里那个 bug 是同一件事的两端:
+ * 那边是**我们**不该把截断的包发出去(判据只判存在、不判完整),
+ * 这边是**用户**需要能验证自己拿到的包。两边都需要 sha256。
+ *
+ * 来源是 deploy.yml 对**已落地那个文件**算的 —— 即将被 Pages 发出去的那些字节,
+ * 不是构建产物、更不是本地构建机上的那份。
+ */
+function sha(v: string | undefined): string {
+  const t = (v || '').trim()
+  // 64 位十六进制;不是就当没有。给一个错的长度和给没有一样坏。
+  return /^[0-9a-f]{64}$/.test(t) ? t : ''
+}
+
+function bytes(v: string | undefined): string {
+  const t = (v || '').trim()
+  return /^\d+$/.test(t) ? t : ''
+}
+
+export const STABLE_SHA256 = sha(import.meta.env.VITE_STABLE_SHA256)
+export const STABLE_SIZE = bytes(import.meta.env.VITE_STABLE_SIZE)
+export const BETA_SHA256 = sha(import.meta.env.VITE_BETA_SHA256)
+export const BETA_SIZE = bytes(import.meta.env.VITE_BETA_SIZE)
+export const DEV_SHA256 = sha(import.meta.env.VITE_DEV_SHA256)
+export const DEV_SIZE = bytes(import.meta.env.VITE_DEV_SIZE)
+
+/** 字节数给人看:10681511 → "10.2 MB"。下载完对不上就是没下全。 */
+export function prettySize(n: string): string {
+  const b = Number(n)
+  return b > 0 ? `${(b / 1048576).toFixed(1)} MB` : ''
+}
+
+/** sha256 折成 4 段,便于肉眼逐段核对。 */
+export function shortHash(h: string): string {
+  if (!h) return ''
+  return (h.match(/.{1,8}/g) || []).slice(0, 4).join(' ')
+}

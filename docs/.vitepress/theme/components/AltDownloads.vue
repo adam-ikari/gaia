@@ -35,6 +35,16 @@
       >开发版 dev</a>
     </p>
 
+    <!--
+      每条渠道各自的校验值。**在按钮下面紧挨着**,不是页脚 ——
+      用户刚点完下载、最可能发现「下坏了」的位置就在这里。
+      某一侧渠道没上线时它整体不渲染。
+    -->
+    <p class="gi-alt-verify">
+      <VerifyLine v-if="HAS_BETA && BETA_SHA256" :sha="BETA_SHA256" :size="BETA_SIZE" />
+      <VerifyLine v-if="HAS_DEV && DEV_SHA256" :sha="DEV_SHA256" :size="DEV_SIZE" />
+    </p>
+
     <p v-if="HAS_DEV" class="gi-alt-note">
       开发版是 master 的最新构建，<strong>不做任何保证</strong>：不过混淆、
       没跑过端到端测试，可能有还没修的问题。
@@ -74,8 +84,13 @@
  * 因为那是真请求。`router.js` 留了 `download` 与 `target` 两个逃逸口,
  * 用前者 —— `target="_blank"` 也能绕,但手机上多开一个标签页。
  */
+import VerifyLine from './VerifyLine.vue'
 import {
   BETA_DOWNLOAD_URL,
+  BETA_SHA256,
+  BETA_SIZE,
+  DEV_SHA256,
+  DEV_SIZE,
   BETA_FILENAME,
   DEV_DOWNLOAD_URL,
   DEV_FILENAME,

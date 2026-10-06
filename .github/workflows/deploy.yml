@@ -90,6 +90,12 @@ jobs:
             echo "::error::stable APK 没取到 —— 发布流程断了,这是致命的"; exit 1; }
           # **tag 带 v,文件名里不带**:`v0.7.11` → `0.7.11`
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          # 同上:正式版的 sha256 / 字节数也要上页面
+          sha_s=$(sha256sum docs/public/media/gaia.apk | cut -d" " -f1)
+          bytes_s=$(stat -c%s docs/public/media/gaia.apk)
+          echo "SHA256=$sha_s" >> "$GITHUB_OUTPUT"
+          echo "SIZE=$bytes_s" >> "$GITHUB_OUTPUT"
+          echo "stable: $tag, $bytes_s 字节, sha256 ${sha_s:0:12}…"
 
           # ---- 正式版的**状态**。这一段是给人看的,不是给机器推断的 ----
           #
@@ -160,7 +166,22 @@ jobs:
             fi
             echo "$var=$ver" >> "$GITHUB_OUTPUT"
             echo "has_${var}=1" >> "$GITHUB_OUTPUT"
-            echo "$label: $asset → $dest (身份 $ver)"
+            # **把 sha256 与字节数一并输出**,页面上要显示它们。
+            #
+            # 为什么必须有:这个网络下下载**会静默截断**(2026-10-06 实测:
+            # 有一次 curl 连文件都没落下来,页面本身却是好的)。
+            # 而截断的 APK 装上去,安装器只给一句「软件包无效」——
+            # 用户无从知道是包坏了还是自己网络的问题。
+            #
+            # 有了页面上这两个数,用户能自己分辨「没下全」与「包有问题」。
+            # 这与 `sync-apk-to-site.sh` 里那个「只判存在不判完整」的 bug
+            # 是同一件事的两端:那边是**我们**不该把截断的包发出去,
+            # 这边是**用户**需要能验证自己拿到的包。
+            sha=$(sha256sum "$dest" | cut -d" " -f1)
+            bytes=$(stat -c%s "$dest")
+            echo "${var}_SHA256=$sha" >> "$GITHUB_OUTPUT"
+            echo "${var}_SIZE=$bytes" >> "$GITHUB_OUTPUT"
+            echo "$label: $asset → $dest (身份 $ver, $bytes 字节, sha256 ${sha:0:12}…)"
           }
 
           # ---- beta:挑一个**真的含有 app-beta-* 资产**的 prerelease ----
@@ -209,6 +230,13 @@ jobs:
           # 正式版的**状态**与**说明文字**。都是**内容**,所以放在这里(可评审、
           # 可见),逻辑留在 download.ts。
           VITE_STABLE_STATUS: ${{ steps.apk.outputs.stable_status }}
+          # 校验值:让用户能判断自己下全了没有(下载会静默截断)
+          VITE_STABLE_SHA256: ${{ steps.apk.outputs.SHA256 }}
+          VITE_STABLE_SIZE: ${{ steps.apk.outputs.SIZE }}
+          VITE_BETA_SHA256: ${{ steps.apk.outputs.BETA_VERSION_SHA256 }}
+          VITE_BETA_SIZE: ${{ steps.apk.outputs.BETA_VERSION_SIZE }}
+          VITE_DEV_SHA256: ${{ steps.apk.outputs.DEV_VERSION_SHA256 }}
+          VITE_DEV_SIZE: ${{ steps.apk.outputs.DEV_VERSION_SIZE }}
           VITE_STABLE_NOTE: ${{ steps.apk.outputs.stable_note }}
           # beta/dev 的身份,取自**资产名**(见上面 take_optional 的注释)。
           # `has_*` 决定按钮渲不渲染 —— 取不到就是空,`download.ts` 那个
