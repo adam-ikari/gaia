@@ -126,13 +126,30 @@ jobs:
             echo "$label: $asset → $dest (身份 $ver)"
           }
 
-          # ---- beta:最新的 prerelease ----
-          # 不用滚动 tag:那样会**丢掉历史**(每个测试版都该能回看),
-          # 而 URL 固定不依赖 tag,所以取「最新 prerelease」既保历史又固定 URL。
-          beta_tag=$(gh release list --repo "$R" --limit 20 --json tagName,isPrerelease \
-            -q '[.[] | select(.isPrerelease)] | first | .tagName // ""' 2>/dev/null || true)
+          # ---- beta:挑一个**真的含有 app-beta-* 资产**的 prerelease ----
+          #
+          # ## dev 为什么必须是 prerelease
+          #
+          # **`dev-latest` 一旦不是 prerelease,GitHub 就把它当成 latest** ——
+          # 2026-10-06 实测踩到过:stable 那步于是去 `dev-latest` 里找
+          # `app-release.apk`,`gh release download` 回
+          # `no assets match the file pattern` ⇒ 部署失败
+          # ⇒ **正式版下载按钮整个挂掉**。
+          # GitHub 的 latest 明确不含 prerelease,标记 prerelease 就切断了这条 hijack。
+          #
+          # ## 于是 beta 不能按「最新的 prerelease」挑
+          #
+          # 因为 dev 也是 prerelease,「最新 prerelease」可能就是 `dev-latest`。
+          # 判据改成「这个 release 的资产里有没有 `app-beta-*`」——
+          # **按内容挑,不按命名约定挑**。这样 beta 与 dev 谁新谁旧都不影响,
+          # 将来多了第四个 prerelease 渠道也不会选错。
+          beta_tag=$(gh api "repos/$R/releases" --paginate --jq \
+            '[.[] | select(.prerelease == true)
+                | {tag: .tag_name,
+                   hasBeta: ([.assets[].name | select(startswith("app-beta-"))] | length > 0)}]
+             | map(select(.hasBeta)) | first | .tag // ""' 2>/dev/null || true)
           if [ -z "$beta_tag" ]; then
-            echo "::warning::还没有 prerelease,测试版本次不上线"
+            echo "::warning::还没有含 app-beta-* 的 prerelease,测试版本次不上线"
           else
             echo "beta: $beta_tag"
             take_optional "beta" "app-beta" "docs/public/media/gaia-beta.apk" "BETA_VERSION"
