@@ -213,15 +213,39 @@ dev_assets() {
 list=$(dev_assets) || exit 1
 for old in $list; do
   [ "$old" = "$ASSET" ] && continue
-  if gh release delete-asset "$DEV_TAG" "$old" -R "$SITE_REPO" --yes >/dev/null 2>&1; then
-    echo "    删掉旧的 $old"
-  else
-    echo "::warning::旧的 $old 没删掉 —— 那个 release 里会有多份 dev 资产" >&2
-  fi
+  # 删也要重试。第一版只试一次、还把 stderr 吞掉,于是 2026-10-06 那次
+  # 「删不掉」和「不需要删」在输出上一模一样,只多了一行 warning ——
+  # 而脚本**照样触发了站点部署**,拿一个有两份资产的 release 去构建。
+  # 这次它碰巧取对了(`take_optional` 用 `| last`,GitHub 按创建序返回,
+  # last = 最新那份),但那是**依赖顺序的巧合**,不是判据。
+  #
+  # ⇒ 删不掉就当失败:重试,再失败就**不触发部署**。
+  #   「渠道缺失」是非致命的(它可能真还没上线);
+  #   「渠道有歧义」不是 —— 站点会挑错那份字节,而且没有任何地方会响。
+  for a in 1 2 3 4 5; do
+    if err=$(gh release delete-asset "$DEV_TAG" "$old" -R "$SITE_REPO" --yes 2>&1); then
+      echo "    删掉旧的 $old"
+      break
+    fi
+    [ "$a" = 5 ] && echo "    删 $old 第 5 次仍失败:$err"
+    sleep $((a * 3))
+  done
 done
 
-n_left=$(dev_assets | grep -c . || true)
-[ "$n_left" = "1" ] || echo "::warning::dev 资产现在有 $n_left 份(应为 1),站点可能挑到旧的" >&2
+# 收敛判据:**恰好一份**,不多不少。
+# 多了 = 站点可能挑到旧的;少了 = 刚发的东西没上去。两种都不能带着往下走。
+for a in 1 2 3 4 5; do
+  n_left=$(dev_assets | grep -c . || true)
+  [ "$n_left" = "1" ] && break
+  sleep $((a * 3))
+done
+if [ "$n_left" != "1" ]; then
+  echo "::error::$DEV_TAG 上现在有 $n_left 份 dev 资产(应为 1):" >&2
+  dev_assets | sed 's/^/::error::  /' >&2
+  echo "::error::**不触发站点部署** —— 站点会去取这个 release,取错哪份没人会知道。" >&2
+  exit 1
+fi
+echo "    $DEV_TAG 上恰好一份 dev 资产"
 
 # ---- 触发部署 ---------------------------------------------------------------
 #
