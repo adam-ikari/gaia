@@ -198,6 +198,68 @@ android {
 
             matchingFallbacks += listOf("release")
         }
+
+        // ---------------------------------------------------------------------
+        // dev = **开发版**:master HEAD 的构建,与正式版/测试版都不同
+        //
+        // ## 它不是「发布」,所以它没有语义版本号
+        //
+        // 三条渠道里只有前两条是发布。dev 是「现在 master 长这样」——
+        // 给它 `versionName = "0.7.12"` 会做两件坏事:
+        //   1. **烧号**:`versionCode` 是发布计数器,dev 每跑一次就跳一格;
+        //   2. **骗人**:一个从没发布过的号出现在设置页,用户会当成已发布的版本。
+        //
+        // ⇒ dev 的身份**只有 git hash**,一个语义版本号都不给。
+        //   这也是「增加 git hash 版本」那条要求在本渠道的落法:
+        //   hash 才是 dev 唯一诚实的标识。
+        //
+        // ## versionCode 固定,不跟发布计数器走
+        //
+        // 固定成一个大数(dev 是**另一个包**,与正式版/测试版各自独立计数,
+        // 撞不上)。每次 dev 构建**覆盖**上一版而不是升级 —— 同 versionCode 的
+        // `-r` 重装是允许的(Android 只拒绝**降低**),而 dev 本来就是「看最新」。
+        // 若让它跟着发布计数器走,用户得装一串 0.7.12、0.7.13、0.7.14 才能到最新,
+        // 而那些号从来没有对应任何发布。
+        create("dev") {
+            initWith(getByName("beta"))
+
+            applicationIdSuffix = ".dev"
+            // **用 `versionNameSuffix`,不覆盖 `versionName`**。
+            //
+            // 原本想直接写 `versionName = "dev-<hash>"`(一个语义版本号都不给),
+            // 但 buildType 块里设不了 —— 覆盖它要走 `androidComponents` 的
+            // `ApplicationVariantOutput.versionNameOverride`,而 **AGP 8.5.2 的
+            // gradle-api 里没有那个类**(查过 jar:只有 `VariantOutput`,
+            // 任何 jar 都不含 `versionNameOverride`)。要覆盖就得退回已废弃的
+            // `applicationVariants`,不值当。
+            //
+            // ⇒ 退一步:保留基础版本号,后缀标明它从哪条线来 + 哪个 commit。
+            //   `0.7.11-dev.abc1234` 携带的信息严格多于 `dev-abc1234`
+            //   (多一个「它接在哪条发布线后面」),而且**不烧号** ——
+            //   dev 是独立包 `dev.hwkbd.ime.dev`,versionCode 继承 30
+            //   与正式版/测试版各自计数,互不干扰。
+            //
+            // 每次 dev 构建**覆盖**上一版(同 versionCode 的 `-r` 重装合法,
+            // Android 只拒绝**降低**)。这正是「看最新」想要的语义。
+            versionNameSuffix = "-dev.${gitShortHash()}${if (gitDirty()) ".dirty" else ""}"
+
+            // **不过 R8**:dev 是给开发/自测用的,验功能不验发布形态。
+            // 反过来 beta 必须过(它过 R8 且会装到测试者手上),差别就在这里。
+            // ⇒ 别把这条抄到 beta 上,也不要把这条从 beta 拿掉。
+            //
+            // 这里**显式写死**,理由与 beta 里那条一样:配置文件里写了什么不算数,
+            // 见 tools/release/gate.sh 的 check_beta_r8(它验的是产物)。
+            isMinifyEnabled = false
+            isShrinkResources = false
+
+            // dev 也编两个 ABI:本机若有模拟器可以直接装 dev 试(正式版只有 arm64)。
+            ndk {
+                abiFilters.clear()
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+
+            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+        }
         release {
         // **混淆 + 资源压缩**(2026-10-02「应用包需要安全加固 防止重新打包」)
         //
