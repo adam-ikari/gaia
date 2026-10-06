@@ -265,44 +265,54 @@ check_jni() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. 发版模式:本 commit 必须引用 E2E 的 run
+# 7. 发版模式:本 commit 必须引用一次 E2E 证据
 #
 # ## 为什么要有这一步
 #
-# 现状:E2E 与 release 都在 `push: tags: ['v*']` 上触发,**互相并行、没有依赖**。
-# 所以 E2E 红了而 release 照样绿 —— 又一处 fail-open。
+# E2E 是**发版前的人工前置**,不是产物闸门(它装 debug 包、不过 R8,
+# 验的是代码不是产物;硬接成 job 前置要重构成 reusable workflow,
+# 而换来的仍不是「产物被验过」)。人工前置最容易失效的方式是「忘了」。
+# 所以要求**把证据记进 commit message** —— 进了 git,事后可查,脚本也查得了。
 #
-# ## 但先说清 E2E 到底能保证什么
+# ## 判据跟着 E2E 的位置一起改(2026-10-06)
 #
-# E2E 装的是 **debug 包,不过 R8**。所以它验的是「这份**代码**在模拟器上
-# 能打字、能选字、时序对」,**不是**「这份**产物**能用」。产物侧的风险
-# (R8 削名、版本号错、没签名)归 check-jni-symbols / check-version / 签名核对。
+# 原来找的是 `actions/runs/<id>`,因为 E2E 跑在 CI 上。**E2E 已经搬回本地真机**
+# (见 `tools/aitest/local.sh`),CI 上不再有这条流水线 ⇒ 那个 URL 永远不会出现,
+# 判据会稳定误报 —— 而**会误报的闸门只会被绕过去**,等于没有。
 #
-# 硬要把 E2E 接成 release 的前置(job 级 needs 跨不了 workflow,得重构成
-# reusable workflow,代价大且丢掉了手动 dispatch 的入口),换来的仍然不是
-# 「产物被验过」。⇒ 诚实做法:**E2E 是发版前的人工前置,不是产物闸门。**
-#
-# 人工前置最容易失效的方式是「忘了」。所以要求**把 run 记进 commit message**
-# —— 于是它进了 git,事后可查,而且这一步是脚本能查的。
+# 本地跑出来的证据落在 `tools/aitest/evidence/<时间戳>/`,目录名是 ISO 时间戳,
+# 所以判据改成「引用一个真实存在的 evidence 目录」。比 URL 判据强一档:
+# 编不出来的,因为目录要么在要么不在。
 # ---------------------------------------------------------------------------
 check_e2e_cited() {
-  step "E2E run 引用(--release)"
-  local msg
+  step "E2E 证据引用(--release)"
+  local msg ref
   msg=$(git log -1 --format=%B HEAD)
-  if printf '%s' "$msg" | grep -qE 'actions/runs/[0-9]+'; then
-    ok "commit 引用了 E2E run:$(printf '%s' "$msg" | grep -oE 'actions/runs/[0-9]+' | head -1)"
-    return 0
+
+  # ① 引用了本地 evidence 目录 —— 要求它**真的存在**
+  ref=$(printf '%s' "$msg" | grep -oE 'tools/aitest/evidence/[0-9TZ:.-]+' | head -1)
+  if [ -n "$ref" ]; then
+    if [ -d "$ref" ]; then
+      ok "引用了本地 E2E 证据目录(存在):$ref"
+      return 0
+    fi
+    echo "::error::commit 引用了 $ref,但那个目录不存在 —— 证据是编的" >&2
+    return 1
   fi
+
+  # ② 明示跳过
   if printf '%s' "$msg" | grep -qiE '无 E2E|no e2e|skipped e2e'; then
     ok "commit 明示跳过 E2E(理由在 message 里)"
     return 0
   fi
-  die "发版 commit 既没有引用 E2E run,也没写明为什么不做。
-     理由:E2E 跑 debug 包,验的是代码不是产物;但它是发版前唯一的
+  die "发版 commit 既没有引用 E2E 证据,也没写明为什么不做。
+     理由:E2E 跑 debug 包、验的是代码不是产物;但它是发版前唯一的
      端到端回归,「没跑」必须是**写下来的**决定,不能是默认。
      做法:
-       · 跑完 E2E,把 run 链接贴进这个 commit 的 message
-         (gh run list -w 'E2E (模拟器)' -L 3)
+       · 在真机上跑一次:tools/aitest/local.sh
+         然后把证据目录名贴进这个 commit 的 message,例如
+           tools/aitest/evidence/2026-10-06T02-14-33-120Z
+         (脚本会验那个目录真的存在,编不出来)
        · 或者确实不跑,就写「无 E2E:<原因>」"
 }
 

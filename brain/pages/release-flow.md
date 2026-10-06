@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-05T13:19:37"
+updated: "2026-10-06T00:15:29"
 ---
 
 <!-- compiled_truth -->
@@ -143,4 +143,22 @@ v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
   kind: evidence
   summary: "本机 CMake 回落到了 PATH 上的 3.31.10($SDK/cmake 不存在),CI 固定 3.22.1 ⇒ 本地包与 CI 包工具链不同。预检因此查「生效的」CMake 并报差异,不查固定路径"
   source: "2026-10-05 gate.sh 预检"
+  affects: [release-flow]
+
+- time: 2026-10-06T00:15:29
+  kind: decision
+  summary: "v0.7.10 是**手工**发布与同步的(私有仓 Actions 账单锁定,job 从未启动;公开仓 gaia 的 Deploy site 正常)。tag/release/站点三处已对齐,Pages 与本地包 sha256 逐字节一致。但因此 CI 出的 v0.7.10 字节会不同 ⇒ 下一个版本必须是 30/0.7.11"
+  source: "2026-10-05 v0.7.10 实际发布"
+  affects: [release-flow]
+
+- time: 2026-10-06T00:15:29
+  kind: evidence
+  summary: "公开仓(gaia)的 Actions **不受账单影响**,私有仓(hwkbd_ime)受影响 —— 同样账号,差别只在可见性。站点部署这条路一直可用,被挡的只有发版构建"
+  source: "2026-10-05 同步 v0.7.10 实跑"
+  affects: [release-flow]
+
+- time: 2026-10-06T00:15:29
+  kind: evidence
+  summary: "两处 fail-closed 误判:非致命资产缺失被 return 1 + set -e 掐死脚本;一次 API 抖动(unknown)被当成部署失败并 exit,挡住了后面的权威字节比对。判据:便宜的信号负责路由,贵的权威检查负责下结论;「拿不到」与「它是坏的」代价不对称时,方向要反过来"
+  source: "2026-10-05 同步 v0.7.10 实跑"
   affects: [release-flow]
