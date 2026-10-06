@@ -93,14 +93,28 @@ jobs:
 
           # ---- 取一个可选渠道;取不到只 warning,不算失败 ----
           #
-          # `$2` = 资产名前缀,`$3` = 落地路径,`$4` = 输出的变量名前缀。
+          # `$2` = **release 引用**(tag),`$3` = 资产名前缀,`$4` = 落地路径,
+          # `$5` = 输出的变量名前缀。
+          #
+          # ## release 引用必须**显式传**,不能用 latest
+          #
+          # 2026-10-06 实测踩到:第一版签名里没有它,函数体用
+          # `gh release view "$R"`(不带 tag = **latest**)。而 dev 的资产在
+          # `dev-latest` 里,`dev-latest` 又是 prerelease ⇒ latest 指向 `v0.7.10`
+          # ⇒ 在 v0.7.10 里找 `app-dev-*` 找不到 ⇒ **dev 渠道静悄悄没上线**,
+          # 日志里只有一行 warning,而站点部署是 success。
+          #
+          # 这个 bug 之所以难发现,正因为它**非致命**:降级逻辑按设计工作,
+          # 「少一个渠道」被当成「这个渠道还没上线」。
+          # ⇒ 三条渠道的 release 引用一律显式传,不留「默认取 latest」这条捷径。
+          #
           # **身份(hash)从资产名读**,不从 tag 推导 —— 资产名是「远端确实存着
           # 什么」,是这件事的权威。改成从 tag 推导就会多出一个可能漂移的来源,
           # 不一致的表现是「文件名说 A、装完设置页写 B」。
           take_optional() {
-            local label=$1 prefix=$2 dest=$3 var=$4
+            local label=$1 ref=$2 prefix=$3 dest=$4 var=$5
             local asset ver
-            asset=$(gh release view "$R" --json assets -q \
+            asset=$(gh release view "$ref" --json assets -q \
               "[.assets[].name | select(startswith(\"$prefix\"))] | last // \"\"" 2>/dev/null || true)
             if [ -z "$asset" ]; then
               echo "::warning::$label 没有找到 $prefix* 资产,这个渠道本次不上线"
@@ -108,11 +122,11 @@ jobs:
             fi
             ver="${asset#$prefix-}"; ver="${ver%.apk}"
             if [ -z "$ver" ]; then
-              echo "::warning::$label 资产名 $asset 里解析不出身份,跳过(总比给出错的强)"
+              echo "::warning::$label($ref) 资产名 $asset 里解析不出身份,跳过(总比给出错的强)"
               return 0
             fi
-            if ! gh release download "$R" -p "$asset" -D docs/public/media; then
-              echo "::warning::$label 下载 $asset 失败,这个渠道本次不上线"
+            if ! gh release download "$ref" -p "$asset" -D docs/public/media; then
+              echo "::warning::$label($ref) 下载 $asset 失败,这个渠道本次不上线"
               rm -f "docs/public/media/$asset"
               return 0
             fi
@@ -152,14 +166,16 @@ jobs:
             echo "::warning::还没有含 app-beta-* 的 prerelease,测试版本次不上线"
           else
             echo "beta: $beta_tag"
-            take_optional "beta" "app-beta" "docs/public/media/gaia-beta.apk" "BETA_VERSION"
+            take_optional "beta" "$beta_tag" "app-beta" \
+              "docs/public/media/gaia-beta.apk" "BETA_VERSION"
           fi
 
           # ---- dev:固定 tag 的滚动 release ----
           # dev **不是发布**,它没有版本号(应用仓那边刻意不给语义版本),
           # 所以每次 master 构建都发一个 release 是刷屏 + 语义撒谎。
           # ⇒ 固定 tag `dev-latest`,资产 `--clobber` 覆盖,历史靠 git。
-          take_optional "dev" "app-dev" "docs/public/media/gaia-dev.apk" "DEV_VERSION"
+          take_optional "dev" "dev-latest" "app-dev" \
+            "docs/public/media/gaia-dev.apk" "DEV_VERSION"
 
           ls -la docs/public/media/
 
