@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, ci, tooling, workflow]
 created: "2026-10-05T21:00:00"
-updated: "2026-10-06T09:44:32"
+updated: "2026-10-06T13:55:04"
 ---
 
 <!-- compiled_truth -->
@@ -114,4 +114,10 @@ CI 里查它等于稳定误报 —— **会误报的闸门只会被绕过去**,�
   kind: decision
   summary: "① E2E 搬回本地真机(tools/aitest/local.sh),删掉 e2e.yml —— 私有仓 Actions 计费且已欠费,而 E2E 本来就不是发布闸门(与 release 并行无依赖);本机无 /dev/kvm 时模拟器 SystemUI 自己 ANR,所以「是不是模拟器」做成会拦人的判据。② 公开渠道一律过 R8(用户「任何版本只要公开就需要混淆」)⇒ 闸门判据从「某个渠道名」改成**「有没有人能从公网拿到这个字节」**。③ 站点显示每条渠道的 sha256 与字节数:这个网络下下载会**静默截断**,而截断的 APK 安装器只给一句「软件包无效」,用户无从分辨"
   source: "2026-10-06 用户三条指令"
+  affects: [branch-and-gate-model]
+
+- time: 2026-10-06T13:55:04
+  kind: evidence
+  summary: "2026-10-06 实测:读闸门退出码时踩了 zsh 的坑 —— 管道首段的退出码是 `$pipestatus[1]`,不是 `${PIPESTATUS[0]}`(那是 bash)。我据此以为 `gate.sh` 在失败时返回 0,复核后真实退出码是 1。闸门本身没问题,**是尺子错了** —— 而这个项目的核心教条正是「判定依据是退出码」。教训:量退出码的那一行本身也要验一次,拿一个已知会失败的命令试一遍(比如 `false | cat`),确认尺子会响"
+  source: "2026-10-06 重构后复核闸门时实测"
   affects: [branch-and-gate-model]
