@@ -1,11 +1,23 @@
 /**
  * 三条下载渠道 —— **全部链接与文件名的唯一来源**。
  *
- * | 渠道 | 站点路径(固定) | 下载文件名 |
- * | --- | --- | --- |
- * | 测试版 | `/media/gaia.apk` | `gaia-ime-v0.7.11.apk` |
- * | 测试版 | `/media/gaia-beta.apk` | `gaia-ime-beta-<hash>.apk` |
- * | 开发版 | `/media/gaia-dev.apk` | `gaia-ime-dev-<hash>.apk` |
+ * | 渠道 | 站点路径(固定) | 下载文件名 | 装到手机上叫什么 |
+ * | --- | --- | --- | --- |
+ * | 测试版(主渠道) | `/media/gaia.apk` | `gaia-ime-v<版本>.apk` | `盖亚输入法` |
+ * | 测试版 β | `/media/gaia-beta.apk` | `gaia-ime-beta-<hash>.apk` | `盖亚输入法 β` |
+ * | 开发版 | `/media/gaia-dev.apk` | `gaia-ime-dev-<hash>.apk` | `盖亚输入法 dev` |
+ *
+ * ## 页面上三条渠道怎么称呼(2026-10-08 定案)
+ *
+ * **主渠道与 β 都叫「测试版」,这两个名字撞了** —— 而撞名的后果不是不好看,
+ * 是**说不清**:发布脚本里那句提示写着「建议改用下面的测试版」,
+ * 而它自己就显示在「下载测试版」这个按钮下面。读者无法判断该点哪个。
+ *
+ * ⇒ 页面上**只用主渠道保留「测试版」这个名字**(它是唯一的默认推荐),
+ *   β 与 dev **改用在系统里看得到的名字称呼**(`盖亚输入法 β` / `盖亚输入法 dev`)。
+ *   这三个标签不是页面发明的,是 `app/src/{main,beta,dev}/res/values/strings.xml`
+ *   里的 `app_name` —— 用户在桌面图标和输入法列表里看到的就是它。
+ *   拿它当渠道名,页面上的称呼和装完之后的称呼**是同一个词**,不会各叫各的。
  *
  * ## 为什么 URL 固定、身份进文件名
  *
@@ -16,8 +28,8 @@
  *
  * ## 三条渠道的身份分别从哪来(别处不要再造一个)
  *
- * - **测试版**:`VITE_APP_VERSION`,由 `deploy.yml` 从 release tag 剥 `v` 注入。
- * - **测试版 / 开发版**:`VITE_BETA_VERSION` / `VITE_DEV_VERSION`,
+ * - **测试版(主渠道)**:`VITE_APP_VERSION`,由 `deploy.yml` 从 release tag 剥 `v` 注入。
+ * - **β / 开发版**:`VITE_BETA_VERSION` / `VITE_DEV_VERSION`,
  *   由 `deploy.yml` **从 release 资产名**读出来 —— 不是从 tag、不是从别处。
  *
  *   资产名是「远端确实存着什么」,是这件事的权威。若改成从 tag 推导,
@@ -71,6 +83,15 @@ const devVersion = import.meta.env.VITE_DEV_VERSION
 
 export const HAS_BETA = import.meta.env.VITE_HAS_BETA === '1' && usable(betaVersion)
 export const HAS_DEV = import.meta.env.VITE_HAS_DEV === '1' && usable(devVersion)
+
+/**
+ * β 与 dev 的**身份**(一个 commit 短 hash)。
+ *
+ * 页面上要把这个号显示出来:这两条渠道没有语义版本号,hash 是它们唯一的标识,
+ * 也是用户装完之后唯一能拿回来问「我装的是哪一个」的东西。
+ */
+export const BETA_VERSION = HAS_BETA ? betaVersion.trim() : ''
+export const DEV_VERSION = HAS_DEV ? devVersion.trim() : ''
 
 /**
  * beta/dev 的文件名 —— **hash 在前、渠道名在后**。

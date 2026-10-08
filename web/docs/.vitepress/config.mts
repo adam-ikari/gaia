@@ -94,7 +94,7 @@ export default defineConfig({
     },
   },
   title: '盖亚输入法',
-  description: '给 Unihertz Titan 2 做的拼音输入法。翻页动画滑到一半也能停。',
+  description: '给 Unihertz Titan 2 做的拼音输入法。跟手的动画，翻页滑到一半也能停。',
   lastUpdated: false,
   cleanUrls: true,
 

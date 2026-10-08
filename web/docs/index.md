@@ -4,7 +4,7 @@ title: 盖亚输入法
 tagline: 专为全键盘设计。
 note: 只为 Unihertz Titan 2
 actions:
-  - text: 下载
+  - text: 下载测试版
     link: /media/gaia.apk
     primary: true
     # 必须有:不带 download 时 VitePress 会把站内 .apk 链接当网页路由接管,点击 → 404 页
@@ -15,42 +15,44 @@ actions:
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>每页五个，空格上屏。</h2>
 <p>第一个词占住正中间，空格就是它；另外四个分别在 Shift、Sym、Ctrl、Alt 上。在键盘上往上滑也能上屏。</p>
+<p>Ctrl 那一格靠的是键盘上的 Fn 键，得先在系统设置里把它改成 Ctrl。</p>
 </div>
 :::
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
+<h2>下载。</h2>
+<Downloads />
 <AltDownloads />
 </div>
 :::
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
-<h2>随时能停。</h2>
-<p>翻页时整页跟着手指走，滑到一半也能中断，退回原来那页，不会一下跳回去。</p>
-<p>收回来那一段是从当前位置接着算的，不是重新播一遍。</p>
+<h2>跟手。</h2>
+<p>翻页时整页跟着手指走。滑到一半也能中断，退回原来那页，不会一下跳回去 —— 收回来那一段是从当前位置接着算的，不是重新播一遍。</p>
 </div>
 :::
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>键盘分三层。</h2>
-<p>字母、符号、编程。Alt 和 Sym 换层：按一下用一次，双击锁住，连按三次在三层之间轮着切。</p>
-<p>Titan 2 没有独立数字行，符号得换层才打得出。</p>
+<p>字母、符号数字、编程。Alt 和 Sym 换层：按一下用一次，双击锁住，锁着再敲一下就解开。</p>
+<p>Titan 2 没有独立数字行，符号得换层才打得出。中英切换按 Shift 加空格，锁着哪一层都管用。</p>
 </div>
 :::
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>输入框不同，中间那排跟着换。</h2>
-<p>网址框里换成网址开头的键，邮箱框换成 @ 和常用后缀；数字框里，数字直接锁上。</p>
+<p>网址框里换成网址开头的键，邮箱框里换成 .com、@qq.com 这些常用的结尾；数字框里，数字直接锁上。</p>
 </div>
 :::
 
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
-<h2>内置 34.8 万个词。</h2>
-<p>用得多的词会往前挪。懒得打全拼就敲首字母：nh 就是「你好」。</p>
+<h2>内置四万多个词条。</h2>
+<p>一个词有几种读法就收几条，读法加起来七万多条。懒得打全拼就敲首字母：nh 就是「你好」。</p>
 </div>
 :::
 
@@ -64,7 +66,7 @@ actions:
 ::: band
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>快慢有三档。</h2>
-<p>上滑选字要滑多远、左右划要划多远，都有三档：灵敏、标准、保守。觉得划页的方向别扭，可以反过来。震动也能关掉。</p>
+<p>上滑选字要滑多远、左右划要划多远，都有三档：灵敏、标准、保守。用方向键翻页时，方向也可以反过来。震动也能关掉。</p>
 </div>
 :::
 
@@ -73,6 +75,4 @@ actions:
 <h2>只为 Titan 2 做的。</h2>
 <p>别的全键盘机型没测过，键位可能对不上。系统的输入法随时能切回来。</p>
 </div>
-
-<Downloads />
 :::
