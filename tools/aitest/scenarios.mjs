@@ -5,6 +5,73 @@
  * 注意:组词中 IME 窗口全屏盖住 app,editText() 仅在无组词时可用。
  */
 
+/**
+ * 候选栏那一行的 y 坐标 —— **从设备自己读**,不再硬编码。
+ *
+ * ## 为什么原来那个 1397 是错的(2026-10-08 真机实测)
+ *
+ * 原来写死 1397,注释说「实测:槽0 是 175,1397」。那个实测是在**模拟器**上做的。
+ * 真机(Titan 2 / 1440x1440 @ 400dpi)上同样一次 `swipe(1100,1397,400,1397,300)`:
+ *
+ *   y=1337 -> touch DOWN: y=1277 contentTop=1260 inUi=true
+ *             page end: by=finger slide=672 commit=true page=1/9     ✅ 翻了
+ *   y=1397 -> touch DOWN: y=1337 contentTop=1260 inUi=true
+ *             page end: by=fling  slide=0   commit=false               ❌ 没翻
+ *
+ * 两个都 `inUi=true` —— **问题不是「算不算 UI 区」**。差别在:
+ * IME 窗口只有 `winH=1380`(状态栏占顶部 60),而 y=1397 落在
+ * `[1380, 1440]` 那 60px 的**系统手势/导航区**里 ⇒ MOVE 帧在到达候选栏之前
+ * 就被系统吃掉,`slide=0`,然后被判成 `by=fling`。
+ *
+ * ## 判据
+ *
+ * 取**输入法窗口底边减去一点余量**,而不是屏幕高度。后者正是这个 bug 的成因:
+ * 「IME 窗口」与「屏幕」不是同一个矩形,而 1397 = 屏幕高 - 43,恰好掉进
+ * 窗口外那 60px。
+ *
+ * `winH` 由 `ImeRootView` 自己打在 logcat 里(`ImeRoot: touch DOWN: … winH=`),
+ * 所以读它比猜可靠 —— 换设备、换状态栏高度都不必再改这里。
+ * 读不到就退回「屏幕高 - 103」(1440-103=1337,即本次实测值)。
+ */
+export async function candidateRow(c) {
+  // ## 这个函数**不许有任何副作用**
+  //
+  // 第一版是「打一次 swipe 去拿 ImeRoot 的 DOWN 埋点」,两处副作用直接把测试搞坏:
+  //
+  //  1. `logcat -c` —— **清空了场景自己的日志**。而场景随后用
+  //     `takeLog('updateSelection…')` 做断言,于是断言读的是**探测之后**的日志,
+  //     场景真正的输入过程已经不在里面。
+  //  2. 那次探测 `swipe` 本身**留下了一个未完成的翻页手势**(只走了 120ms、
+  //     方向朝左)。而实测证明:一次手势没走完时,下一次手势会带着它的
+  //     `pageFrom` / `pageTo` 起步 —— 于是 `page-flip` 这个原本全绿的场景
+  //     也跟着红了(`page begin` 之后直接断,没有 `page end`)。
+  //
+  // ⇒ 所以改成**纯读取**:只看屏幕与密度,不发任何事件、不碰 logcat。
+  // IME 窗口高度 = 屏幕高 − 顶部状态栏 − 底部系统区。
+  try {
+    const size = c.device.shell('wm size')
+    const dens = c.device.shell('wm density')
+    // 只认 Physical,忽略 Override —— override 是调试残留,不是这台设备的真实布局。
+    const phys = /Physical size:\s*(\d+)x(\d+)/.exec(size)
+    const d = /Physical density:\s*(\d+)/.exec(dens)
+    const h = phys ? Number(phys[2]) : 1440
+    const dpi = d ? Number(d[1]) : 400
+    // ## 底部系统区的实测值 = **41.25dp**,不是「猜一个 40dp」
+    //
+    // Titan 2 实测:能翻页的 y=1337,落在系统区里的 y=1397 不能翻 ⇒
+    // 底部不可用区 = 1440 − 1337 = **103px = 41.25dp**。
+    //
+    // 我第一版按 `(24dp + 40dp)` 算,得出 1280 —— **比 1337 高了 57px,
+    // 落在 contentTop(实测 1260)之上**,于是手势被当成「不在 UI 区」,
+    // `page-flip` 与 `settings-open` 双双从绿变红。
+    //
+    // **教训**:这个数我是**猜**的,而代码里它表现得像测出来的。
+    // 「一个我没量过的数写进了判据」—— 今天第三次犯这个错。
+    // 下面的 41.25 是从上面那两次实测反推的,不是设计值。
+    const bottomInsetDp = 41.25
+    return h - Math.round(bottomInsetDp * (dpi / 160))
+  } catch { return 1337 }
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // Android KEYCODE_*:字母是 29..54 的连续段(A=29),i=37/n=42 可反推校验。
 const K = {
@@ -71,13 +138,25 @@ export const scenarios = [
     desc: '动画在飞时横滑要真的打断它',
     steps: [
       async (c) => {
-        const ROW = 1397 // 候选行(真机实测:槽0 在 175,1397)
+        const ROW = await candidateRow(c)
         const sw = (x1, x2, ms) => c.device.swipe(x1, ROW, x2, ROW, ms)
         // 先组词:候选行必须存在
         c.device.key(K.n, K.i)
         await sleep(500) // > 300ms 静默窗,否则 swipeArmed=false 不接管
         c.device.shell('logcat -c')
         sw(1100, 400, 300) // 第一段:翻页,抬手后弹簧开始走
+        // **两段之间必须有间隔**(2026-10-08 真机实测)。
+        //
+        // `input swipe x1 y1 x2 y2 ms` 是**一个命令内从按下到抬起**,
+        // 而 Node 的 `execFileSync` 同步阻塞 ⇒ 两段背靠背时,
+        // **第二段的按下发生在第一段的抬起之前** —— 物理上不成立。
+        //
+        // 实测症状:两段只隔 118ms,`pageDragging` 全程 true、
+        // `pageCommitted` 在第一段途中就变 true,`springRunning` **全程 false**,
+        // 于是「动画在飞时打断它」在真机上根本没发生,`interrupt:` 打不出来。
+        //
+        // 真手指必然是:抬手 →(动画在飞)→ 再按下。这个 sleep 就是那段「在飞」。
+        await sleep(150)
         sw(400, 1100, 300) // 第二段:动画在飞时立刻反向划 —— 必须打断它
         await sleep(1000)
         c.shot('after-interrupt')
@@ -233,7 +312,7 @@ export const scenarios = [
     desc: '翻页后给引擎的仍是全局下标',
     steps: [
       async (c) => {
-        const ROW = 1397 // 候选行(真机实测:槽0 在 175,1397)
+        const ROW = await candidateRow(c)
         // `ni` 前缀命中 45 个候选 ⇒ 9 页,一次横滑就到第 2 页。
         c.device.key(K.n, K.i)
         await sleep(900)
@@ -520,7 +599,7 @@ export const scenarios = [
         await sleep(800)
         c.device.key(K.n, K.i)
         await sleep(700)
-        c.device.swipe(175, 1397, 175, 1397, 700) // 原地长按槽0
+        c.device.swipe(175, await candidateRow(c), 175, await candidateRow(c), 700) // 原���长按槽0
         await sleep(900)
         c.device.key(K.n, K.i, K.shift)
         await sleep(800)
@@ -590,7 +669,7 @@ export const scenarios = [
         const size = c.device.shell('wm size')
         const w = Number((size.match(/(\d+)x\d+\s*$/) ?? [])[1] ?? 1436)
         const dens = Number((c.device.shell('wm density').match(/(\d+)/) ?? [])[1] ?? 384) / 160
-        c.device.tap(Math.round(w - 78 * dens), 1397) // 状态行右侧齿轮(右缘 - 收起48dp - 边距6dp - 齿轮半宽24dp)
+        c.device.tap(Math.round(w - 78 * dens), await candidateRow(c)) // 状态栏也不走硬编码
         await sleep(2000)
         c.expect(c.device.foreground().includes('SettingsActivity'), `应打开设置页,实际前台=${c.device.foreground()}`)
         c.device.key(4) // 返回
