@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-05T09:34:16"
+updated: "2026-10-08T18:16:09"
 ---
 
 <!-- compiled_truth -->
@@ -259,3 +259,9 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   summary: "2026-10-05 翻页提交链的完整时序(pageStep 埋点后拿到):begin# 打 8 次(一次手势!),rolesSet 从 false 变 true 后其余全是「同向+正在拖」的空操作;pageCommitted 在 slide=303 过 thr=302 那一刻才变 true ⇒ setPageDrag 的当帧提交生效 ⇒ onPage(1) ⇒ pageStep 0→1;抬手时 willSend=false 是**正确**的,它防的正是同一次手势提交两遍(page 会 0→1→2)。上一轮那次 page 停在 0 不是 end 的锅,而是那一轮当帧提交压根没发生。"
   source: "2026-10-05 E2E run 37289078764 真机 full.log"
   affects: [paging-feel, e2e-capture]
+
+- time: 2026-10-08T18:16:09
+  kind: evidence
+  summary: "2026-10-08 真机实测:翻页 settle 在 ζ=1.0(临界阻尼,理论上不振荡)下仍超调 33px(ring 第1次 value=1393.15 target=1360),PAGE_TARGET_SPEED 已从 1800 降到 1500(response 455→530ms)仍不够。真正的变量是 entryV —— response 只按剩余行程算,没算抬手速度,而「距离短+速度快」正是最易过冲的组合。page-interrupt 场景断言「每段最多穿过目标 1 次」实测 3 次。⇒ response 的公式缺速度项,这是 v0.7.4 调 ζ 之后没人验过的组合。"
+  source: "2026-10-08 Titan 2 page-interrupt 实测"
+  affects: [paging-feel, spring-damping-direction]

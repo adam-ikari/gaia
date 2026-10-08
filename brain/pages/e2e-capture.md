@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [e2e, ci, emulator, media, capture]
 created: "2026-10-01T05:09:58"
-updated: "2026-10-05T09:34:37"
+updated: "2026-10-08T18:15:43"
 ---
 
 <!-- compiled_truth -->
@@ -240,4 +240,16 @@ FATAL | Not enough space to create userdata partition.
   kind: decision
   summary: "「静默的字段」比「错的字段」更难识破:page end / page begin 里的 page= 读的是 CandidateBarView 自己那份字段,由 setState 从 state.page 同步,而 render 经 RenderPump 延后 ⇒ 那些行**不能**当作 state.page 的证据。我上一轮差点拿它当权威值,于是把 page=0/9 读成了「没翻页」,其实 view 的 page 本来就滞后。判据:埋点答哪个问题要与该问题的**权威来源**对齐,权威在 state 侧就只有 state 侧的埋点(pageStep)算数。"
   source: "2026-10-05 查 select-global-index 失败现场时走错方向"
+  affects: [e2e-capture]
+
+- time: 2026-10-08T18:15:43
+  kind: evidence
+  summary: "2026-10-08 首次在真机(Titan 2)跑 librime:引擎出候选 n=45 pages=9、繁简转换生效(diu→丢 shei→谁)、crash 0。此前只有模拟器证据。13 个确定性场景 10 PASS,三个红的失败点都在断言之前或环境层(一个在第 1 条前置就红),且单跑与连跑结果不同 ⇒ 指向共享状态或环境不稳定,不是三处独立缺陷。明天应先做环境归位,稳定的 10/13 才有诊断价值。"
+  source: "tools/aitest/harness.mjs run all @ TTANCN2100002663"
+  affects: [windows-native-build, e2e-capture]
+
+- time: 2026-10-08T18:15:43
+  kind: reversal
+  summary: "「page begin 该不该打」我连着栽了三次,三次都是判据选错了量:最早每帧都打(2026-10-05 修过「没打」那版)、2026-10-08 第一版用 pageFrom.isEmpty() 导致打断弹簧接管那条路径一次都不打(page-flip 从绿变红,功能却是好的)。正确判据是 rolesSet/方向,即「这次调用算不算新意图」。⇒ 埋点的判据必须是**那个问题自己的权威量**,不是某个相邻的内部状态。"
+  source: "2026-10-08 page-flip 回归"
   affects: [e2e-capture]

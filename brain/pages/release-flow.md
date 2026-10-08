@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-08T01:17:15"
+updated: "2026-10-08T18:15:57"
 ---
 
 <!-- compiled_truth -->
@@ -204,4 +204,10 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   kind: decision
   summary: "站点同步改为两条本地脚本;判据是脚本退出码,不是 CI 状态"
   source: "2026-10-08 monorepo 化"
+  affects: [release-flow]
+
+- time: 2026-10-08T18:15:57
+  kind: evidence
+  summary: "2026-10-08 实测:gradlew.bat 不能直接透传含点的 -P 属性(-Pandroid.injected.build.abi=arm64-v8a 被拆成任务名,报 Task '.injected.build.abi=arm64-v8a' not found),要加引号。而它对「只编一个 ABI 省时间」这条正是致命的:buildType 里的 abiFilters 仍写着两个 ABI,只编一个 ⇒ packageDebug 打印 'There are no .so files available to package in the APK for x86_64' 并**跳过整个打包**,而构建报 BUILD SUCCESSFUL 且退出码 0。⇒ 本机只编一个 ABI 时必须同时收窄 abiFilters,否则是静默无产物。"
+  source: 2026-10-08 assembleDebug
   affects: [release-flow]

@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-08T01:17:15.821Z._
+_Auto-generated. Last updated 2026-10-08T10:16:42.833Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [e2e-capture](pages/e2e-capture.md) — category: project | tags: [e2e, ci, emulator, media, capture] | ## 当前状态(2026-10-03,v0.7.0)
@@ -9,7 +9,7 @@ _Auto-generated. Last updated 2026-10-08T01:17:15.821Z._
 - [ime-strategy-registry](pages/ime-strategy-registry.md) — category: decision | tags: [策略, 注册表, L4, 扩展性] | # 策略注册表与 L4 上下文键位
 - [librime-android-build](pages/librime-android-build.md) — category: project | tags: [librime, android, ndk, cmake, jni, rime] | ## 结论先行
 - [paging-feel](pages/paging-feel.md) — category: decision | tags: [gesture, animation, paging] | ---
-- [pinyin-dict-strategy](pages/pinyin-dict-strategy.md) — category: decision | tags: [pinyin, dict] | 自带词库走 librime，用户词频由 librime 自动学习（2026-10-03 换引擎，旧 jieba 管线整体删除）。
+- [pinyin-dict-strategy](pages/pinyin-dict-strategy.md) — category: decision | tags: [pinyin, dict] | 自带"中等词库"，并提供导入通道扩容（用户已确认该路线）。
 - [project-licensing](pages/project-licensing.md) — category: decision | tags: [license, proprietary, distribution] | 盖亚输入法(Gaia)是**闭源专有软件**:专有许可证保留所有权利;源码仓库 `adam-ikari/hwkbd_ime` 为
 - [reference-cocoime](pages/reference-cocoime.md) — category: reference | tags: [ime, reference, cocoime] | 「可可拼音输入法」（COCOZQ，`com.cocozq.inputmethod.pinyin`）是本项目的模仿对象：基于早期 Android `LatinIME`，服务黑莓 Priv/KEYone/KEY2、Unihertz Titan 系列、Titan 2、Minimal P
 - [release-flow](pages/release-flow.md) — category: project | tags: [release, ci, tooling] | ## 发版前:同一个检查在两个环境跑通,不代表它对
@@ -25,3 +25,5 @@ _Auto-generated. Last updated 2026-10-08T01:17:15.821Z._
 - [site-voice](pages/site-voice.md) — category: decision | tags: [naming, voice, content] | 站点的**产品名只有一个写法：盖亚输入法**。
 - [spring-damping-direction](pages/spring-damping-direction.md) — category: decision | tags: [animation, physics, spring, damping] | ## 「过冲」先怀疑拖动阶段,不要先怀疑弹簧(2026-10-04 v0.7.9)
 - [tt2-hardware-constraints](pages/tt2-hardware-constraints.md) — category: project | tags: [titan2, hardware, gesture] | Titan 2（Android 15）的物理键盘既是输入设备也是一块电容触摸面，但**输入法拿不到它的触摸轨迹**，因此一切依赖"键盘滑动"的交互都必须换成系统事件或屏幕手势。
+- [unverified-as-fact](pages/unverified-as-fact.md) — category: decision | tags: [lessons, method, verification, e2e] | 2026-10-08 ????(Titan 2):????,???????**?????????**??????????? ?? ????? bug ???,??????????????
+- [windows-native-build](pages/windows-native-build.md) — category: project | tags: [librime, windows, cmake, ndk, toolchain, build] | ## ????
