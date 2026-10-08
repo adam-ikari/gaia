@@ -1,9 +1,9 @@
 <template>
   <div class="gi-alt">
     <p class="gi-alt-lead">
-      测试版在第一个 band 的按钮上。下面两个是<strong>另外装的两个应用</strong>，
+      测试版是首屏那个下载按钮。下面两个是<strong>另外装的两个应用</strong>，
       跟测试版<strong>并存、互不覆盖</strong>，数据和设置各自分开 ——
-      所以你可以一边用着现在这个测试版，一边试新的，出问题随时切回去。
+      所以你可以一边用着现在这个测试版，一边试新的，出问题随时切回来。
     </p>
     <p class="gi-alt-chips">
       <span class="gi-chip">盖亚输入法</span>
@@ -46,8 +46,7 @@
     </p>
 
     <p v-if="HAS_DEV" class="gi-alt-note">
-      开发版是 master 的最新构建，<strong>不做任何保证</strong>：不过混淆、
-      没跑过端到端测试，可能有还没修的问题。
+      开发版是最新一次提交的构建，不是发布版，不做任何保证：可能有还没修的问题。
     </p>
   </div>
 </template>
