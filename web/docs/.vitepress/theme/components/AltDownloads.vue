@@ -105,7 +105,6 @@ import {
   DEV_VERSION,
   HAS_BETA,
   HAS_DEV,
-  STABLE_STATUS,
 } from '../../download'
 
 interface Channel {
@@ -120,16 +119,18 @@ interface Channel {
 }
 
 /**
- * 「上面那个包有已知问题」这件事由发布的人写(`STABLE_STATUS`),
- * 所以「修复在哪一条线上」也只有在那个状态下才说 ——
- * 主渠道恢复正常时这句自动消失,不需要谁记得回来删。
+ * **这一节不说「修复在哪条线上」**(2026-10-08 定案)。
  *
- * **只挂在 dev 上**。dev 是 master HEAD 的构建,「修复在这条线上」对它成立;
- * β 是「发出来给人先试」的那个 prerelease,它含不含这次修复**没有判据**,
- * 所以那句话不能顺着渠道复制一遍。
+ * 第一版给 dev 挂了一句「上面那个包的已知问题，修复在这一条线上」。
+ * 它当时就不成立:页面上那个 dev 包是 `c271426`,而修复 `cd04b5a` 在它**之后**
+ * —— CI 还没重新出过 dev 包。「这条线」有修复、「这个包」没有,
+ * 而用户装的是**包**。
+ *
+ * 页面也不该自己去推「现在这个包含不含某个修复」:那要读 commit 关系,
+ * 而站点是纯静态、构建期只拿到一个 hash。
+ * ⇒ 「哪个包带上了什么」是**发布的人**在该发布的时候说的话,
+ *   它的入口是 `STABLE_NOTE`(见 `tools/release/publish-site.sh`)。
  */
-const FIX_HINT = '上面那个包的已知问题，修复在这一条线上。'
-
 const channels = computed<Channel[]>(() => {
   const list: Channel[] = []
   if (HAS_BETA) {
@@ -148,7 +149,7 @@ const channels = computed<Channel[]>(() => {
     list.push({
       app: '盖亚输入法 dev',
       ver: DEV_VERSION,
-      desc: `最新一次提交的构建，没在真机上验证过，不做任何保证。${STABLE_STATUS === 'withdrawn' ? FIX_HINT : ''}`,
+      desc: '最新一次提交的构建，没在真机上验证过，不做任何保证。',
       button: '下载 dev 版',
       url: DEV_DOWNLOAD_URL,
       filename: DEV_FILENAME,
