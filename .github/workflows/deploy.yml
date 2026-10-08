@@ -1,5 +1,32 @@
 name: Deploy site
 
+# ## 这个仓里没有站点源码
+#
+# 站点源码与构建在私有仓 `adam-ikari/hwkbd_ime` 的 `web/`,由那里的
+# `tools/release/publish-site.sh` 构建并把**产物**推进本仓的 `main`。
+#
+# 所以这个 workflow **不跑 npm、不构建** —— 它只做两件事:
+#   1. 验产物自洽(下面「验什么」)
+#   2. 把产物原样交给 Pages
+#
+# ## 为什么要保留这个 workflow,而不是让 Pages 直接从 main 分支发布
+#
+# (2026-10-08 的一个来回:先改成从分支直接发布,又改回来。理由如下。)
+#
+# 从分支发布**能工作**,但它有两个坏处:
+#
+# 1. **构建失败只有推的人看得见,而且看的地方很远。** Pages 从分支发布时,
+#    构建失败只写在仓库的 Pages 设置页里,不在任何一次 workflow run 上 ——
+#    于是「推了但站点没更新」和「推了且站点更新了」在 git 历史里长得**一模一样**。
+# 2. **没有地方放产物自洽的检查。** 检查要么塞回应用仓的脚本(那就回到
+#    「推之前验、失败只在本地可见」),要么就没了。
+#
+# 而这个仓里的 workflow 拿的是**本仓 GITHUB_TOKEN**,不需要任何 secret ——
+# 这正是它当年能一直存在的原因:产物是提交进来的,不需要凭据去别处取。
+#
+# ⇒ 保留 workflow:它不构建,但它是「这次推送到底有没有把站点更新掉」的
+# **可见记录**,以及产物自洽的落点。
+
 on:
   push:
     branches: [main]
@@ -10,268 +37,163 @@ permissions:
   pages: write
   id-token: write
 
+# **cancel-in-progress: false** —— 不打断进行中的部署。
+# Pages 一次只接受一个部署;打断会让中间那次白跑,而日志上留下两个
+# 「cancelled」和一个 success,看起来像 flaky。
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  build:
+  verify-and-deploy:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      # ---------------------------------------------------------------- APK 镜像
-      # 把本仓库最新 release 的正式包取到 docs/public/media/,让 VitePress 拷进产物。
+      # ======================================================================
+      # 验什么,以及为什么不验什么
       #
-      # ## 为什么不让站点直接链 GitHub 的 release 下载链接
+      # ## 「缺」与「坏」是两件事,致命性不同
       #
-      # 原来链的是 `github.com/<repo>/releases/latest/download/app-release.apk`,
-      # 那条链要跳两次:github.com →(302)release-assets.githubusercontent.com →(200)。
-      # 在 Titan 2 的浏览器上点它,直接落到 Chrome 的
-      # 「网页可能暂时无法连接,或者它已永久性地移动到了新网址」错误页 —— 真机上复现,
-      # 同一台机器 curl 却是 200。跨域 + 两跳 + 那个域默认 HTTP/3,是手机浏览器最容易
-      # 处理失败的一种下载形态。
+      # **缺**可选渠道 —— 不 fatal。与 `publish-site.sh` 里同一条规则:
+      # 「还没发过 beta」只是一个渠道没上线,不该让**主渠道也更新不了**,
+      # 于是站点停在上一次。一个可选功能能弄挂生产,这是最坏的形状。
       #
-      # 改成由 Pages 自己发这个文件后:同源、一次 200、零跳转,走 Pages 的 CDN。
+      # **坏**(存在但截断/不完整)—— **fatal,三条渠道一视同仁**。
+      # 这里的不对称不是按渠道重要性分的,是按「这字节要不要发出去」分的:
+      # 我们**明知**有一份坏字节要发布却让它上线,用户点开发版下载只会得到
+      # 「软件包无效」—— 正是 2026-10-06 那次报障的症状。
+      # 而「缺」的时候页面上根本没有那个按钮(可用性由构建期 flag 决定),
+      # 不存在「点到一个坏包」这种可能。
       #
-      # ## URL 固定,文件名带版本
+      # ⇒ 判据不是「这条渠道重不重要」,是「我们是否明知故犯地发一份坏字节」。
       #
-      # 落盘名固定叫 `gaia.apk` —— 站点链接 `/media/gaia.apk` 因此**永远指向最新版**,
-      # 发版不用改任何 md。而用户存下来的文件名是 `gaia-ime-v<版本>.apk`,
-      # 由 `<a download>` 给出(见 `docs/.vitepress/download.ts`)。
-      # 为什么不把版本塞进 URL:那就要每发一版改一次 index.md,漏改就 404 或下不到新版。
+      # ## 为什么不验「sha256 与远端 release 一致」
       #
-      # ## 为什么不需要任何 secret
+      # 因为那件事**已经在推之前验过了**,而且验的是更有权威的东西:
+      # 公开站点上那份与本地产物逐字节一致(`publish-site.sh` 最后一步)。
+      # 在这里再验一遍 release 的资产,验的是同一件事的一个**副本**,
+      # 而且这个仓的 GITHUB_TOKEN 读不到私有仓的 release。
       #
-      # 这个 job 跑在**本仓库**里,内置的 GITHUB_TOKEN 对本仓库的 release 有读权限 ——
-      # 不需要跨仓库 PAT(应用仓库那个 WEB_RELEASE_TOKEN 在这里用不上)。
-      #
-      # ## 为什么不把 APK 提交进 git
-      #
-      # 6.2MB 一份,每次发版都进历史,仓库很快就几十 MB。放进 public/ 但只在 CI 里写,
-      # git 完全看不见它。
-      # ---------------------------------------------------------------- 三条渠道
-      #
-      # stable / beta / dev 三份字节,落到三个**固定**路径上。文件名(用户存下来的
-      # 那个)带渠道与身份,URL 不带 —— 见 `docs/.vitepress/download.ts` 的注释。
-      #
-      # ## 致命性不对称,这是这一段最要紧的一行
-      #
-      # stable **致命**,beta/dev **非致命**。
-      #
-      # 照抄 stable 那句 `test -s ... || exit 1` 给 beta/dev 的话,
-      # 「还没发过 beta」就会让整个部署失败 ⇒ **正式版也更新不了、站点停在上一次**。
-      # 一个可选功能能弄挂生产,这是最坏的形状。
-      #
-      # 代价对称性决定方向:缺 stable 是**发布流程断了**(该 fail);
-      # 缺 beta 只是「这个渠道还没上线」(不该 fail)。
-      - name: 取三条渠道的 APK 放进 public
-        id: apk
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # ⇒ 这里只验**产物内部的自洽**:页面承诺的与产物实际发的是同一份字节。
+      - name: 验产物
         run: |
           set -uo pipefail
-          mkdir -p docs/public/media
-          R="$GITHUB_REPOSITORY"
+          fail() { echo "::error::$1"; exit 1; }
 
-          # ---- stable:最新的正式 release(latest 不含 prerelease)----
-          tag=$(gh release view --repo "$R" --json tagName -q .tagName)
-          echo "stable: $tag"
-          gh release download "$tag" --repo "$R" -p app-release.apk -D docs/public/media
-          mv docs/public/media/app-release.apk docs/public/media/gaia.apk
-          test -s docs/public/media/gaia.apk || {
-            echo "::error::stable APK 没取到 —— 发布流程断了,这是致命的"; exit 1; }
-          # **tag 带 v,文件名里不带**:`v0.7.11` → `0.7.11`
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          # 同上:正式版的 sha256 / 字节数也要上页面
-          sha_s=$(sha256sum docs/public/media/gaia.apk | cut -d" " -f1)
-          bytes_s=$(stat -c%s docs/public/media/gaia.apk)
-          echo "SHA256=$sha_s" >> "$GITHUB_OUTPUT"
-          echo "SIZE=$bytes_s" >> "$GITHUB_OUTPUT"
-          echo "stable: $tag, $bytes_s 字节, sha256 ${sha_s:0:12}…"
+          # ---- 主渠道:缺了就致命 ----
+          [ -s dist/index.html ] || fail "dist/index.html 不存在或为空 —— 站点会是一片空白"
+          [ -s dist/media/gaia.apk ] || fail "dist/media/gaia.apk 不存在 —— 主下载按钮会 404"
+          echo "✓ 主渠道 APK 在产物里($(stat -c%s dist/media/gaia.apk) 字节)"
 
-          # ---- 正式版的**状态**。这一段是给人看的,不是给机器推断的 ----
+          # ---- 每条渠道:是完整的 APK,不是下载截断的半截 ----
           #
-          # 为什么状态要显式写在这儿,而不是从 release 的属性推:推不出来。
-          # GitHub 上没有「这个版本是经流水线发的」这种标记 —— v0.7.10 是在
-          # 应用仓 Actions 账单锁定时**手工**发的(见 hwkbd_ime 的 tag message),
-          # 而它现在正被站点当正式版推。所以「这个包可不可信」这件事
-          # **只有发布的人知道**,必须由发布的人写下来。
+          # ## 为什么必须验这个
+          # 2026-10-06 用户从站点下到装不上的包,安装器只给一句「软件包无效」。
+          # 查下来线上那份是好的 —— 是**这个网络下下载会静默截断**。
           #
-          # 取值:
-          #   official   —— 正常发版,可作正式版
-          #   withdrawn  —— 有已知问题,**不该当正式版推**;NOTE 会显示在按钮下面
+          # 而截断的 APK 有个特点:`unzip -l` 照样能列出前面一部分条目,
+          # 所以「清单里有 AndroidManifest.xml」这种检查**会漏掉它**。
+          # 实测:3MB/6.6MB 的截断包里关键条目数是 **0**
+          # (zip 的中央目录在文件末尾,截断后整个没了)⇒ 这条抓得住。
+          # 退出码也要看:截断包 `unzip -t` 回 **9**,完好的回 0。
           #
-          # 2026-10-06:标 withdrawn。v0.7.10 有一个已知缺陷 ——
-          # 「拼音部分消费后,剩余拼音没有候选」(nihao 选「你」之后 hao 出不来),
-          # 用户当场报障,而它从没跑过 E2E(账单锁定)。
-          # 那个缺陷的修复在 beta/dev 里,但**同样没在真机上验证过**。
-          # ⇒ 站点不该把任何一个说成「正式版」。
-          STABLE_STATUS=withdrawn
-          STABLE_NOTE="0.7.10 有一个已知问题:拼音被部分消费后,剩余拼音没有候选(例如 nihao 选「你」之后 hao 的候选不出现)。已撤回,不建议使用。"
-          echo "stable_status=$STABLE_STATUS" >> "$GITHUB_OUTPUT"
-          echo "stable_note=$STABLE_NOTE" >> "$GITHUB_OUTPUT"
-          echo "::warning::正式版 $tag 状态 = $STABLE_STATUS —— 站点会照此标注"
-
-          # ---- 取一个可选渠道;取不到只 warning,不算失败 ----
+          # ## 清单必须**先落文件再 grep**,不能 `unzip -l | grep -q`
           #
-          # `$2` = **release 引用**(tag),`$3` = 资产名前缀,`$4` = 落地路径,
-          # `$5` = 输出的变量名前缀。
+          # `grep -q` 找到第一个匹配就退出 ⇒ 上游 `unzip` 收到 SIGPIPE(141)。
+          # 而这个 step 开着 `pipefail` ⇒ **整条管道的退出码变成 141**,
+          # 于是「清单里有 AndroidManifest.xml」被判成「没有」。
           #
-          # ## release 引用必须**显式传**,不能用 latest
+          # 实测(2026-10-08 本地跑真实产物):完好的 6.6MB APK 报
+          #   ::error::gaia.apk 里没有 AndroidManifest.xml
+          # 而直接 `grep AndroidManifest` 那份清单看得到那个条目。
           #
-          # 2026-10-06 实测踩到:第一版签名里没有它,函数体用
-          # `gh release view "$R"`(不带 tag = **latest**)。而 dev 的资产在
-          # `dev-latest` 里,`dev-latest` 又是 prerelease ⇒ latest 指向 `v0.7.10`
-          # ⇒ 在 v0.7.10 里找 `app-dev-*` 找不到 ⇒ **dev 渠道静悄悄没上线**,
-          # 日志里只有一行 warning,而站点部署是 success。
-          #
-          # 这个 bug 之所以难发现,正因为它**非致命**:降级逻辑按设计工作,
-          # 「少一个渠道」被当成「这个渠道还没上线」。
-          # ⇒ 三条渠道的 release 引用一律显式传,不留「默认取 latest」这条捷径。
-          #
-          # **身份(hash)从资产名读**,不从 tag 推导 —— 资产名是「远端确实存着
-          # 什么」,是这件事的权威。改成从 tag 推导就会多出一个可能漂移的来源,
-          # 不一致的表现是「文件名说 A、装完设置页写 B」。
-          take_optional() {
-            local label=$1 ref=$2 prefix=$3 dest=$4 var=$5
-            local asset ver
-            asset=$(gh release view "$ref" --json assets -q \
-              "[.assets[].name | select(startswith(\"$prefix\"))] | last // \"\"" 2>/dev/null || true)
-            if [ -z "$asset" ]; then
-              echo "::warning::$label 没有找到 $prefix* 资产,这个渠道本次不上线"
-              return 0
+          # 这是最坏的一类 bug:**闸门对正确的东西报失败**。
+          # 人只会绕过它或关掉它 —— 于是真正该拦的截断包也跟着过去。
+          # ⇒ 一次落盘,再 grep 文件:退出码归 grep,不会牵连 unzip。
+          for f in dist/media/*.apk; do
+            [ -e "$f" ] || continue
+            name=$(basename "$f")
+            if ! unzip -tqq "$f" >/dev/null 2>&1; then
+              fail "$name 不是完整的 APK(unzip 校验失败)—— 用户会看到「软件包无效」"
             fi
-            ver="${asset#$prefix-}"; ver="${ver%.apk}"
-            if [ -z "$ver" ]; then
-              echo "::warning::$label($ref) 资产名 $asset 里解析不出身份,跳过(总比给出错的强)"
-              return 0
+            unzip -l "$f" > /tmp/apk-list.txt 2>/dev/null
+            if ! grep -q 'AndroidManifest\.xml' /tmp/apk-list.txt; then
+              fail "$name 里没有 AndroidManifest.xml —— 它不是个能装的 APK"
             fi
-            if ! gh release download "$ref" -p "$asset" -D docs/public/media; then
-              echo "::warning::$label($ref) 下载 $asset 失败,这个渠道本次不上线"
-              rm -f "docs/public/media/$asset"
-              return 0
+            if ! grep -qE 'classes[0-9]*\.dex' /tmp/apk-list.txt; then
+              fail "$name 里没有 dex —— 它不是个能装的 APK"
             fi
-            mv "docs/public/media/$asset" "$dest"
-            if [ ! -s "$dest" ]; then
-              echo "::warning::$label 落地后 $dest 是空的,这个渠道本次不上线"
-              rm -f "$dest"; return 0
-            fi
-            echo "$var=$ver" >> "$GITHUB_OUTPUT"
-            echo "has_${var}=1" >> "$GITHUB_OUTPUT"
-            # **把 sha256 与字节数一并输出**,页面上要显示它们。
-            #
-            # 为什么必须有:这个网络下下载**会静默截断**(2026-10-06 实测:
-            # 有一次 curl 连文件都没落下来,页面本身却是好的)。
-            # 而截断的 APK 装上去,安装器只给一句「软件包无效」——
-            # 用户无从知道是包坏了还是自己网络的问题。
-            #
-            # 有了页面上这两个数,用户能自己分辨「没下全」与「包有问题」。
-            # 这与 `sync-apk-to-site.sh` 里那个「只判存在不判完整」的 bug
-            # 是同一件事的两端:那边是**我们**不该把截断的包发出去,
-            # 这边是**用户**需要能验证自己拿到的包。
-            sha=$(sha256sum "$dest" | cut -d" " -f1)
-            bytes=$(stat -c%s "$dest")
-            echo "${var}_SHA256=$sha" >> "$GITHUB_OUTPUT"
-            echo "${var}_SIZE=$bytes" >> "$GITHUB_OUTPUT"
-            echo "$label: $asset → $dest (身份 $ver, $bytes 字节, sha256 ${sha:0:12}…)"
-          }
-
-          # ---- beta:挑一个**真的含有 app-beta-* 资产**的 prerelease ----
-          #
-          # ## dev 为什么必须是 prerelease
-          #
-          # **`dev-latest` 一旦不是 prerelease,GitHub 就把它当成 latest** ——
-          # 2026-10-06 实测踩到过:stable 那步于是去 `dev-latest` 里找
-          # `app-release.apk`,`gh release download` 回
-          # `no assets match the file pattern` ⇒ 部署失败
-          # ⇒ **正式版下载按钮整个挂掉**。
-          # GitHub 的 latest 明确不含 prerelease,标记 prerelease 就切断了这条 hijack。
-          #
-          # ## 于是 beta 不能按「最新的 prerelease」挑
-          #
-          # 因为 dev 也是 prerelease,「最新 prerelease」可能就是 `dev-latest`。
-          # 判据改成「这个 release 的资产里有没有 `app-beta-*`」——
-          # **按内容挑,不按命名约定挑**。这样 beta 与 dev 谁新谁旧都不影响,
-          # 将来多了第四个 prerelease 渠道也不会选错。
-          beta_tag=$(gh api "repos/$R/releases" --paginate --jq \
-            '[.[] | select(.prerelease == true)
-                | {tag: .tag_name,
-                   hasBeta: ([.assets[].name | select(startswith("app-beta-"))] | length > 0)}]
-             | map(select(.hasBeta)) | first | .tag // ""' 2>/dev/null || true)
-          if [ -z "$beta_tag" ]; then
-            echo "::warning::还没有含 app-beta-* 的 prerelease,测试版本次不上线"
-          else
-            echo "beta: $beta_tag"
-            take_optional "beta" "$beta_tag" "app-beta" \
-              "docs/public/media/gaia-beta.apk" "BETA_VERSION"
-          fi
-
-          # ---- dev:固定 tag 的滚动 release ----
-          # dev **不是发布**,它没有版本号(应用仓那边刻意不给语义版本),
-          # 所以每次 master 构建都发一个 release 是刷屏 + 语义撒谎。
-          # ⇒ 固定 tag `dev-latest`,资产 `--clobber` 覆盖,历史靠 git。
-          take_optional "dev" "dev-latest" "app-dev" \
-            "docs/public/media/gaia-dev.apk" "DEV_VERSION"
-
-          ls -la docs/public/media/
-
-      - name: Build site
-        env:
-          # 构建期注入,`download.ts` 读它拼出 `gaia-ime-v<版本>.apk`
-          VITE_APP_VERSION: ${{ steps.apk.outputs.version }}
-          # 正式版的**状态**与**说明文字**。都是**内容**,所以放在这里(可评审、
-          # 可见),逻辑留在 download.ts。
-          VITE_STABLE_STATUS: ${{ steps.apk.outputs.stable_status }}
-          # 校验值:让用户能判断自己下全了没有(下载会静默截断)
-          VITE_STABLE_SHA256: ${{ steps.apk.outputs.SHA256 }}
-          VITE_STABLE_SIZE: ${{ steps.apk.outputs.SIZE }}
-          VITE_BETA_SHA256: ${{ steps.apk.outputs.BETA_VERSION_SHA256 }}
-          VITE_BETA_SIZE: ${{ steps.apk.outputs.BETA_VERSION_SIZE }}
-          VITE_DEV_SHA256: ${{ steps.apk.outputs.DEV_VERSION_SHA256 }}
-          VITE_DEV_SIZE: ${{ steps.apk.outputs.DEV_VERSION_SIZE }}
-          VITE_STABLE_NOTE: ${{ steps.apk.outputs.stable_note }}
-          # beta/dev 的身份,取自**资产名**(见上面 take_optional 的注释)。
-          # `has_*` 决定按钮渲不渲染 —— 取不到就是空,`download.ts` 那个
-          # `usable()` 判据会把空串挡掉,不会拼出 `gaia-ime-beta-.apk`。
-          VITE_BETA_VERSION: ${{ steps.apk.outputs.BETA_VERSION }}
-          VITE_HAS_BETA: ${{ steps.apk.outputs.has_BETA_VERSION }}
-          VITE_DEV_VERSION: ${{ steps.apk.outputs.DEV_VERSION }}
-          VITE_HAS_DEV: ${{ steps.apk.outputs.has_DEV_VERSION }}
-        run: npm run build
-
-      - name: 产物里必须有 stable APK
-        run: |
-          test -s docs/.vitepress/dist/media/gaia.apk || {
-            echo "::error::构建产物里没有 media/gaia.apk,下载链接会 404"; exit 1; }
-          ls -la docs/.vitepress/dist/media/
-          # beta/dev 在 dist 里有没有,都**不致命** —— 它们本来就可能没上线。
-          # 这里只报事实,让「按钮指向 404」这件事在 run 日志里看得见。
-          for f in gaia-beta.apk gaia-dev.apk; do
-            if [ -s "docs/.vitepress/dist/media/$f" ]; then
-              echo "  有 $f"
-            else
-              echo "  无 $f(该渠道本次未上线,对应按钮不渲染)"
-            fi
+            rm -f /tmp/apk-list.txt
+            echo "✓ $name 是完整的 APK($(stat -c%s "$f") 字节)"
           done
 
+          # ---- 页面上给用户的 sha256 必须真的对应产物里的字节 ----
+          #
+          # ## 判据是**前缀**,不是相等
+          # `download.ts` 的 `shortHash()` 只显示 8 位一组的前 **4 组 = 32 位**,
+          # 剩下 32 位不显示(窄屏上折行的校验值最容易被抄错)。
+          # ⇒ 只能比前缀 —— 而前缀相等对「是不是同一份字节」已经足够:
+          # 32 位十六进制撞上的可能性可以忽略。
+          #
+          # 这条检查抓的是**注入值与产物脱节**:构建脚本算的是 A 的 sha,
+          # 页面显示的却是 B 的 sha(抄错变量名、复用了上一版的值)。
+          # 那时用户会拿页面上那个数去校验自己下的包,对不上,
+          # 而唯一合理的动作变成「猜」。
+          #
+          # ## 必须**收回它的退出码** —— 又一次「报错被吞掉」
+          #
+          # 这个 step 只开了 `set -uo pipefail`,**没有 `-e`**(上面的
+          # `test || fail` 之所以有效,是因为失败路径自己调了 `exit`)。
+          # `python3 - <<'PY' … sys.exit(1) … PY` 的非零退出码
+          # **不会**让脚本停下 —— 报错行照打,脚本接着跑完,最后 `exit 0`。
+          #
+          # 实测(2026-10-08 拿真实产物改坏一个 sha 试出来的):
+          #   ::error::页面上的校验值 d922fd17e2c8… 不对应产物里任何一个 APK
+          #   退出码: 0        ← 闸门说了「错」,部署照样发生
+          #
+          # 这是最坏的一种失败:**检查看起来在工作,而它没有**。
+          # ⇒ `|| exit 1` 显式收回退出码。
+          #
+          # 顺带:`::error::` 在这里**只是给人看的**,它不改变任何机器行为 ——
+          # 只有退出码会。所以退出码是这个 step 的全部判据。
+          python3 - <<'PY' || exit 1
+          import hashlib, pathlib, re, sys
+          html = pathlib.Path("dist/index.html").read_text(encoding="utf8")
+          shown = ["".join(m.split()) for m in
+                   re.findall(r'gi-verify-sha"[^>]*>\s*([0-9a-f ]+?)\s*</code>', html)]
+          apks = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in pathlib.Path("dist/media").glob("*.apk")}
+          if not shown:
+              print("::error::页面里没有校验值 —— 用户无从判断自己下全了没有")
+              sys.exit(1)
+          bad = [s for s in shown if not any(v.startswith(s) for v in apks.values())]
+          if bad:
+              for s in bad:
+                  print(f"::error::页面上的校验值 {s[:12]}… 不对应产物里任何一个 APK")
+              sys.exit(1)
+          for name, v in apks.items():
+              if not any(v.startswith(s) for s in shown):
+                  print(f"::warning::{name} 在产物里,但页面上没有它的校验值")
+          print(f"✓ 页面上的 {len(shown)} 个校验值都能对上产物里的 APK")
+          PY
+
+          # ---- 可选渠道:缺了只报事实,不算失败 ----
+          for f in dist/media/gaia-beta.apk dist/media/gaia-dev.apk; do
+            if [ -s "$f" ]; then echo "✓ 有 $(basename "$f")"
+            else echo "::notice::无 $(basename "$f")(该渠道未上线,页面对应按钮不渲染)"; fi
+          done
+
+          echo
+          echo "产物清单:"; find dist -type f | sort | sed 's/^/  /'
+
+      # ---- 发布 ----
+      #
+      # **原样上传,不重新构建。** 这个仓里没有 `package.json`,
+      # 「构建」在这里无从发生 —— 产物是构建好的事实,不是待办。
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: docs/.vitepress/dist
+          path: dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-24.04
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - id: deployment
         uses: actions/deploy-pages@v5
