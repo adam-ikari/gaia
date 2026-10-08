@@ -1,11 +1,7 @@
+# 这个仓只放构建产物。**dist/ 是有意进 git 的**,不要 ignore 它。
+#
+# 产物进版本库是这个仓存在的理由:线上那一份因此可追溯到某个 commit,
+# 而「谁构建的、构建成功没有」不再是只存在于某次 CI run 状态里的事实。
+# (走流水线时,那个状态可以 skipped 且退出码 0 —— v0.4.2/0.4.3/0.4.4/0.4.8 各漏一次。)
 node_modules/
-docs/.vitepress/dist/
-docs/.vitepress/cache/
 *.log
-
-# 下载用的 APK:由 deploy.yml 在 CI 里从本仓库 release 取来放进 public/,
-# 跟着产物发布但**不进 git**。提交它会让仓库历史每次发版胖 6.2MB。
-# 本地想验下载链路的话:`gh release download <tag> -R adam-ikari/gaia
-# -p app-release.apk -D docs/public/media && mv docs/public/media/app-release.apk
-# docs/public/media/gaia.apk`
-docs/public/media/
