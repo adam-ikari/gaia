@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-06T10:21:45"
+updated: "2026-10-08T01:17:15"
 ---
 
 <!-- compiled_truth -->
@@ -74,19 +74,26 @@ APK 打完就删 NDK/CMake/`~/.gradle/caches`,并在 AVD 步骤前打 `df -h`。
 
 **教训:action 的输出前面一堆 INFO 时,先去尾部找 FATAL/ERROR,别顺着读。**
 
-## 站点同步
+## 站点同步:现在是两条手动步骤,判据在脚本退出码里
 
-`publish-site` job 需要 `WEB_RELEASE_TOKEN`(PAT)。**没配就一直 skipped
-且退出码 0** —— 流水线全绿但站点链接停在旧版本。2026-10-02 就这样让 v0.4.2 /
-v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
+发版后站点更新要跑**两次**,都是本机脚本、不需要任何 secret:
 
-所以脚本里在没配 token 时打 `::warning::`,并提示手动跑
-`tools/release/sync-apk-to-site.sh <tag>`。有 `repo` scope 的本机 gh 可以直接跑。
+```bash
+tools/release/sync-apk-to-site.sh v0.7.10   # 把包挂到 gaia 的同名 Release
+tools/release/publish-site.sh               # 构建站点 + 推产物 + 验线上字节
+```
 
-验收方式(不只看文件名):匿名下载 `releases/latest/download/app-release.apk`
-与 release 附件**逐字节 sha256 对比**,再从 APK 里读 manifest 版本号 +
-确认 `lib/arm64-v8a/librime_jni.so` 在包里。Pages 部署完后
-`https://adam-ikari.github.io/gaia/media/gaia.apk` 也要同样核对一遍。
+`release.yml` 里那个等价的 `publish-site` job 仍然需要 `WEB_RELEASE_TOKEN`,
+**没配就一直 skipped 且退出码 0** —— 流水线全绿但站点停在旧版本。
+2026-10-02 就这样让 v0.4.2 / v0.4.3 只存在于私有仓库。
+现在多一条 `::warning::` 说明这件事,但**判据仍然是脚本的退出码,不是 CI 的状态**。
+
+验收不只看文件名:匿名下载 `releases/latest/download/app-release.apk` 与
+release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
+`lib/arm64-v8a/librime_jni.so` 在包里。Pages 那份同样要逐字节核对
+(`publish-site.sh` 最后一步自动做)。
+
+站点源码、产物布局、三道判据与「缺 vs 坏」的规则见 [[site-repo-topology]]。
 
 
 ## Timeline
@@ -191,4 +198,10 @@ v0.4.3 只存在于私有仓库,而 CI 全程显示成功。
   kind: evidence
   summary: "2026-10-06 发 c271426 时实测:publish-dev.sh 删旧资产**失败**(旧的 app-dev-43af8e8 留在远端),而脚本把 stderr 吞掉、只打 warning、**照样触发了站点部署** —— 拿一个有两份 dev 资产的 release 去构建。这次站点碰巧取对了(`take_optional` 用 `| last`,GitHub 按创建序返回,last=最新那份),但那是**依赖顺序的巧合**不是判据;手动重删即成功。已改成:删除重试 5 次、错误不再吞、**收敛不到恰好一份就不触发部署并 exit 1**。判据的不对称:「渠道缺失」非致命(它可能真还没上线,`take_optional` 本就设计成非致命),「渠道歧义」致命(站点会挑错字节且没人会响)—— 与 sync-apk-to-site 那条不矛盾,那是缺失,这是歧义"
   source: "2026-10-06 发 c271426 实测 + 手动重删成功"
+  affects: [release-flow]
+
+- time: 2026-10-08T01:17:15
+  kind: decision
+  summary: "站点同步改为两条本地脚本;判据是脚本退出码,不是 CI 状态"
+  source: "2026-10-08 monorepo 化"
   affects: [release-flow]

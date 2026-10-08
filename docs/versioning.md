@@ -83,13 +83,18 @@ tools/release/gate.sh --release    # 七步,含单测 / 构建 / JNI 闸门 / E2
 # 3. 打 tag 并推 —— 这一推才真的发版
 git tag -a v0.5.2 -m "v0.5.2" && git push origin v0.5.2
 # 4. 等流水线：单测 → assembleRelease/Debug → GitHub Release
-# 5. 同步到站点(CI 的 publish-site 需要 WEB_RELEASE_TOKEN,未配则手动)
-#    脚本自己会等 Deploy site 跑完,并逐字节核对 Pages 上的 gaia.apk
+# 5. 同步到站点(把包挂到公开仓 gaia 的 release)
 tools/release/sync-apk-to-site.sh v0.5.2
+# 6. 构建站点并推产物。判据是**公开站点上那份与本地产物逐字节一致**
+tools/release/publish-site.sh
 ```
 
 第 5 步的 `publish-site` 任务在没配 `WEB_RELEASE_TOKEN` 时是 **skipped 且退出码 0** ——
 会伪装成成功。`v0.4.2`/`0.4.3`/`0.4.4`/`0.4.8` 都漏过这一步,站点停在旧版本而没人发现。
+
+第 6 步(`publish-site.sh`)是 2026-10-08 站点 monorepo 化之后的一步:站点源码在
+本仓库 `web/`,构建在这里,产物推进公开仓 `adam-ikari/gaia`,Pages 从那个仓的
+`main` 分支发布。**公开仓里没有源码,只有产物**。
 
 ## 一次真实的漂移(2026-10-05,写这条规则的原因)
 
@@ -114,19 +119,21 @@ tools/release/sync-apk-to-site.sh v0.5.2
 > `build.gradle.kts`」,结果把「顺手修了个 typo」也算成一次 bump。
 > 正确做法是解出 HEAD 与最高 tag 各自的版本号**比值**。
 
-### 第 6 步已经进了脚本(2026-10-05)
+### 第 6 步:验(2026-10-05 写,2026-10-08 换了脚本)
 
 原先是「打印一句提醒人去查」——**提醒不算验证**,所以它被漏过。
-现在 `sync-apk-to-site.sh` 自己做完:
+`publish-site.sh` 自己做完:
 
 | 验什么 | 判据 |
 | --- | --- |
-| Deploy site 真的跑成功 | 轮询到该 run `conclusion=success`（找不到 run 也算失败） |
-| Pages 上的 `gaia.apk` 是这次的包 | 与刚上传的 `app-release.apk` **逐字节**一致 |
+| 公开站点上的 `media/gaia.apk` 是这次的包 | 与本地产物**逐字节**一致（轮询到对为止） |
+| 公开站点的首页是这次的产物 | 与本地产物的 `index.html` 逐字节一致 |
+| 页面上给用户的 sha256 对得上 | 产物里 APK 的 sha256 与注入值一致 |
+| 产物里没有指向 404 的下载链接 | 三条渠道的 APK 要么在产物里、要么按钮不渲染 |
 
-关键区分:**release 资产与 Pages 产物是两个东西**。上传成功就能过
-`releases/latest/download/…` 那道 200,而站点按钮发的是 Pages 上那份,
-它只在站点仓库被触发时才刷新 —— 所以「200」验不到它。
+关键区分:**release 资产、Pages 产物、公开站点上是三个东西**。
+上传成功就能过 `releases/latest/download/…` 那道 200,而站点按钮发的是站点上那份,
+它只在产物推送之后才刷新 —— 所以「200」验不到它。
 
 **比字节而不是比 `versionCode`**:字节相同 ⇒ 版本号必然相同(它就在 APK 里);
 只比版本号会漏掉「同一版本号配不同字节」—— 安卓会拒装升级,

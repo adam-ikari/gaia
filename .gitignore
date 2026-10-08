@@ -18,6 +18,15 @@ local.properties
 # dictgen
 node_modules/
 
+# 站点(web/,VitePress)
+#
+# **APK 不进本仓库的 git**:它每次发版变一次,6.9–28MB,进历史只是让每次
+# diff 都拖着一堆二进制。取包在 publish-site.sh 里做(落到下面这个目录),
+# 构建完只把**产物**推进公开仓。
+web/docs/public/media/
+web/docs/.vitepress/dist/
+web/docs/.vitepress/cache/
+
 # 本机调试临时文件
 .tapfeet/
 .coco/
