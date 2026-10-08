@@ -145,91 +145,115 @@ take_channel() {
   local ID_FROM="$id_from"
   local asset ver want got attempt sha bytes
 
-  if [ ! -s "$dest" ]; then
-    asset=$(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
-      "[.assets[].name | select(startswith(\"$prefix\"))] | last // \"\"" 2>/dev/null || true)
+  # ## 身份**永远**从远端资产名读 —— 包括「文件已在盘上」这条路
+  #
+  # 第一版把「文件已存在」当成完全跳过,身份改从**本地文件名**解析:
+  #     ver=$(basename "$dest" .apk); ver="${ver##*-}"
+  # 而落地路径是 `gaia-dev.apk` ⇒ `${ver##*-}` 得到字面量 **`dev`**。
+  #
+  # 后果(2026-10-08 实测):连续跑两次脚本时,第二次跳过下载,
+  # 页面上的开发版身份从 `c271426` 变成 `dev` ⇒
+  # 用户存下来的文件名变成 `gaia-ime-dev-dev.apk`,
+  # 而**它对应哪个 commit 这件事彻底丢了** —— 那正是用户唯一能拿回来报障的东西。
+  #
+  # 症状很隐蔽:构建成功、APK 字节一致、页面上的 sha256 也对得上
+  # (那个是从盘上文件算的,不受影响),只有文件名里的身份错了。
+  #
+  # 根因是「**权威来源被局部替换**」:同一件事(这个包是谁)在两条路径上
+  # 用了两个来源,而其中一条更方便 ⇒ 两边迟早不一致。
+  # ⇒ 身份只有远端资产名一个来源;「跳过下载」只跳过**取字节**,不跳过**问身份**。
+  asset=$(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
+    "[.assets[].name | select(startswith(\"$prefix\"))] | last // \"\"" 2>/dev/null || true)
+
+  if [ -s "$dest" ]; then
+    # 文件已在盘上:只取身份与校验值,不重新下载。
     if [ -z "$asset" ]; then
       if [ "$fatal" = yes ]; then
-        echo "::error::$label: $SITE_REPO@$ref 上没有 $prefix* 资产 —— 发布流程断了" >&2
+        echo "::error::$label: 盘上有包,但 $SITE_REPO@$ref 上已没有 $prefix* 资产 —— 状态不自洽" >&2
         return 1
       fi
-      echo "::warning::$label: $ref 里没有 $prefix* 资产,这个渠道本次不上线"
+      echo "::warning::$label: 盘上有包,但远端已没有 $prefix* 资产,这个渠道本次不上线"
       return 0
     fi
-    # 主渠道的身份**从 tag 来**,不从资产名 —— 它是 `app-release.apk`,
-    # 没有 hash 尾巴可剥,硬剥会得到字面量 `app-release`。
-    # beta/dev 相反:身份在资产名的 hash 尾巴里,tag 只是滚动/预发的容器。
     case "$ID_FROM" in
       tag)  ver="${ref#v}" ;;
       *)    ver="${asset#$prefix-}"; ver="${ver%.apk}" ;;
     esac
-    if [ -z "$ver" ] || [ "$ver" = "$asset" ] || [ "$ver" = "$prefix" ]; then
-      if [ "$fatal" = yes ]; then
-        echo "::error::$label: 资产名 $asset 里解析不出身份 —— 发布流程断了" >&2
-        return 1
-      fi
-      echo "::warning::$label: 资产名 $asset 解析不出身份,跳过(总比给出错的强)"
-      return 0
-    fi
-
-    # **权威大小**:远端那个资产的字节数。
-    want=$(gh api "repos/$SITE_REPO/releases/tags/$ref" --jq \
-      ".assets[] | select(.name==\"$asset\") | .size" 2>/dev/null | head -1)
-    case "$want" in
-      ''|*[!0-9]*) want=0 ;;
-    esac
-
-    for attempt in 1 2 3 4 5; do
-      # **先删**:上一次失败留下的半截文件就在这儿,不清会被当成这次的结果。
-      rm -f "$dest" "$dest.part"
-      if gh release download "$ref" -R "$SITE_REPO" -p "$asset" --dir "$WORK/dl" >/dev/null 2>&1; then
-        got=$(stat -c%s "$WORK/dl/$asset" 2>/dev/null || echo 0)
-        # 大小对不上就是**截断**,哪怕 gh 回 0。
-        if [ "$want" -gt 0 ] && [ "$got" = "$want" ]; then
-          mv "$WORK/dl/$asset" "$dest"
-          break
-        fi
-        echo "    $label 第 $attempt 次:下了 $got / 期望 $want —— 截断,重下"
-      else
-        echo "    $label 第 $attempt 次下载失败,重试"
-      fi
-      rm -f "$WORK/dl/$asset"
-      sleep $((attempt * 5))
-    done
-    if [ ! -s "$dest" ]; then
-      rm -f "$dest"
-      if [ "$fatal" = yes ]; then
-        echo "::error::$label 连续 5 次取不到完整文件(期望 $want 字节) —— 不许继续" >&2
-        return 1
-      fi
-      echo "::warning::$label 取不到完整文件,这个渠道本次不上线"
-      return 0
-    fi
     sha=$(sha256sum "$dest" | cut -d' ' -f1)
     bytes=$(stat -c%s "$dest")
-    printf -v "${var}_VERSION"     '%s' "$ver"
-    printf -v "${var}_SHA256"     '%s' "$sha"
-    printf -v "${var}_SIZE"       '%s' "$bytes"
-    printf -v "${var}_HAS"        '%s' 1
-    ok "$label: $asset → ${dest#$REPO_ROOT/} (身份 $ver, $bytes 字节, sha256 ${sha:0:12}…)"
-  else
-    # --skip-fetch:用盘上已有的包,但**照样算校验值**并从文件名读身份。
-    # 否则页面上的 sha256 会是空的,而用户正靠它分辨「下全了没有」。
-    # 身份只能从**盘上这个文件名**读 —— 而主渠道那个文件名是 `gaia.apk`,
-    # 没有身份可读。所以 --skip-fetch 时主渠道的身份从远端 latest tag 取,
-    # 取不到就留空(页面退回不带版本号的兜底文件名,一眼看得出没取到)。
-    case "$ID_FROM" in
-      tag)  ver=$(gh release view -R "$SITE_REPO" --json tagName -q .tagName 2>/dev/null || echo "") ;;
-      *)    ver=$(basename "$dest" .apk); ver="${ver##*-}" ;;
-    esac
-    sha=$(sha256sum "$dest" | cut -d' ' -f1)
-    bytes=$(stat -c%s "$dest")
-    printf -v "${var}_VERSION"     '%s' "$ver"
-    printf -v "${var}_SHA256"     '%s' "$sha"
-    printf -v "${var}_SIZE"       '%s' "$bytes"
-    printf -v "${var}_HAS"        '%s' 1
-    ok "$label(--skip-fetch): ${dest#$REPO_ROOT/} (身份 $ver, $bytes 字节)"
+    printf -v "${var}_VERSION" '%s' "$ver"
+    printf -v "${var}_SHA256" '%s' "$sha"
+    printf -v "${var}_SIZE"   '%s' "$bytes"
+    printf -v "${var}_HAS"    '%s' 1
+    ok "$label: 用盘上已有的包,身份 $ver 取自远端资产名 $asset($bytes 字节)"
+    return 0
   fi
+
+  if [ -z "$asset" ]; then
+    if [ "$fatal" = yes ]; then
+      echo "::error::$label: $SITE_REPO@$ref 上没有 $prefix* 资产 —— 发布流程断了" >&2
+      return 1
+    fi
+    echo "::warning::$label: $ref 里没有 $prefix* 资产,这个渠道本次不上线"
+    return 0
+  fi
+
+  # 主渠道的身份**从 tag 来**,不从资产名 —— 它是 `app-release.apk`,
+  # 没有 hash 尾巴可剥,硬剥会得到字面量 `app-release`。
+  # beta/dev 相反:身份在资产名的 hash 尾巴里,tag 只是滚动/预发的容器。
+  case "$ID_FROM" in
+    tag)  ver="${ref#v}" ;;
+    *)    ver="${asset#$prefix-}"; ver="${ver%.apk}" ;;
+  esac
+  if [ -z "$ver" ] || [ "$ver" = "$asset" ] || [ "$ver" = "$prefix" ]; then
+    if [ "$fatal" = yes ]; then
+      echo "::error::$label: 资产名 $asset 里解析不出身份 —— 发布流程断了" >&2
+      return 1
+    fi
+    echo "::warning::$label: 资产名 $asset 解析不出身份,跳过(总比给出错的强)"
+    return 0
+  fi
+
+  # **权威大小**:远端那个资产的字节数。
+  want=$(gh api "repos/$SITE_REPO/releases/tags/$ref" --jq \
+    ".assets[] | select(.name==\"$asset\") | .size" 2>/dev/null | head -1)
+  case "$want" in
+    ''|*[!0-9]*) want=0 ;;
+  esac
+
+  for attempt in 1 2 3 4 5; do
+    # **先删**:上一次失败留下的半截文件就在这儿,不清会被当成这次的结果。
+    rm -f "$dest"
+    if gh release download "$ref" -R "$SITE_REPO" -p "$asset" --dir "$WORK/dl" >/dev/null 2>&1; then
+      got=$(stat -c%s "$WORK/dl/$asset" 2>/dev/null || echo 0)
+      # 大小对不上就是**截断**,哪怕 gh 回 0。
+      if [ "$want" -gt 0 ] && [ "$got" = "$want" ]; then
+        mv "$WORK/dl/$asset" "$dest"
+        break
+      fi
+      echo "    $label 第 $attempt 次:下了 $got / 期望 $want —— 截断,重下"
+    else
+      echo "    $label 第 $attempt 次下载失败,重试"
+    fi
+    rm -f "$WORK/dl/$asset"
+    sleep $((attempt * 5))
+  done
+  if [ ! -s "$dest" ]; then
+    rm -f "$dest"
+    if [ "$fatal" = yes ]; then
+      echo "::error::$label 连续 5 次取不到完整文件(期望 $want 字节) —— 不许继续" >&2
+      return 1
+    fi
+    echo "::warning::$label 取不到完整文件,这个渠道本次不上线"
+    return 0
+  fi
+  sha=$(sha256sum "$dest" | cut -d' ' -f1)
+  bytes=$(stat -c%s "$dest")
+  printf -v "${var}_VERSION" '%s' "$ver"
+  printf -v "${var}_SHA256" '%s' "$sha"
+  printf -v "${var}_SIZE"   '%s' "$bytes"
+  printf -v "${var}_HAS"    '%s' 1
+  ok "$label: $asset → ${dest#$REPO_ROOT/} (身份 $ver, $bytes 字节, sha256 ${sha:0:12}…)"
   return 0
 }
 
@@ -290,7 +314,18 @@ fi
 step "构建站点"
 [ -d "$WEB/node_modules" ] || { cd "$WEB" && npm ci && cd "$REPO_ROOT"; }
 
-BUILD_DIR="$WEB/docs/.vitepress/dist"
+# **绝对路径**。第三步那个 subshell 会 `cd` 进产物仓的克隆,
+# 而这里的相对路径在那儿不成立 —— 2026-10-08 实测:
+# `cp: cannot stat 'web/docs/.vitepress/dist/.': No such file or directory`
+#
+# 更要紧的是那个 `cp` 失败之后脚本**继续往下走**:克隆里 `dist/` 已被
+# `rm -rf` 删空,于是 `git diff --cached --quiet` 判成「逐字节相同」⇒
+# 报「产物无变化,跳过 push」⇒ **exit 3(成功)**。
+# 而线上那份其实还是旧的 —— 一个**成功退出的假成功**。
+#
+# 三处一起修:路径取绝对、复制失败必须致命、「无变化」只能在**确实复制过**
+# 的前提下判。
+BUILD_DIR="$REPO_ROOT/$WEB/docs/.vitepress/dist"
 rm -rf "$BUILD_DIR"
 # `VITE_*` 只在**构建期**注入,产物里是编译好的值 —— 静态站点没有运行时。
 # 变量清单与 `web/docs/.vitepress/download.ts` 顶部的表一一对应。
@@ -380,7 +415,13 @@ gh repo clone "$SITE_REPO" "$SITE_WORK" -- --depth=1 >/dev/null 2>&1 \
   # 清空逻辑应该跟着它清理的那次迁移走一次,不该永久留在脚本里。
   rm -rf dist
   mkdir -p dist
-  cp -a "$BUILD_DIR"/. dist/
+  # **复制失败必须致命。** `set -e` 在 subshell 里是继承的,
+  # 但这一步曾经失败而脚本继续跑完并 exit 0(见上面 BUILD_DIR 那段注释),
+  # 所以不靠继承、显式判。
+  cp -a "$BUILD_DIR"/. dist/ || { echo "::error::复制产物失败" >&2; exit 4; }
+  # 复制之后再确认产物真的在那儿 —— 「命令回 0」不等于「文件在」。
+  [ -s dist/index.html ] || { echo "::error::dist/index.html 复制后不存在" >&2; exit 4; }
+  [ -s dist/media/gaia.apk ] || { echo "::error::dist/media/gaia.apk 复制后不存在" >&2; exit 4; }
   git add -A
   if git diff --cached --quiet; then
     echo "    产物与远端**逐字节相同** —— 这次没有任何要更新的东西"
@@ -395,11 +436,12 @@ tools/release/publish-site.sh 生成。本仓只放产物。"
   git push -q origin HEAD:main
 ) || rc=$?
 rc=${rc:-0}
-if [ "$rc" = 3 ]; then
-  echo "    (产物无变化,跳过 push)"
-elif [ "$rc" != 0 ]; then
-  die "推产物失败 —— 公开站点上的仍是上一次的产物,而本地构建是新的"
-fi
+case "$rc" in
+  3) echo "    (产物无变化,跳过 push)" ;;
+  4) die "复制产物失败 —— 公开站点上的仍是上一次的产物,而本地构建是新的" ;;
+  0) ;;
+  *) die "推产物失败 —— 公开站点上的仍是上一次的产物,而本地构建是新的" ;;
+esac
 
 # ============================================================================
 # 第四步:验 —— 公开站点上的字节 == 本地产物里的字节
