@@ -412,6 +412,20 @@ class CandidateBarView @JvmOverloads constructor(
         // 因为**走哪个分支**完全由它们决定,而那个分支正是当时推不出的那一环:
         // `rolesSet=false` 会重定基线并把 `pageCommitted` 抹成 false,
         // `rolesSet=true && 同向 && 正在拖` 则整个函数是空操作。
+        // ## 这行必须打在**去重判断之后**,而且要打两次
+        //
+        // 原来它在 [beginPageDrag] 开头打印 ⇒ 读到的是**重置之前**的
+        // `pageCommitted`。而 `rolesSet=false` 那条分支在几行之后会把它抹成 false,
+        // 于是日志与真实状态**不一致**。
+        //
+        // 2026-10-08 真机 E2E 就是被这个骗了一轮:看到
+        // `rolesSet=false ... pageCommitted=true` 判定「状态没清干净」,
+        // 而那条路径**本来就会清** —— 真正的现象是那次手势压根没走到 `page end`,
+        // 跟 `pageCommitted` 无关。
+        //
+        // ⇒ 打两行:`begin#` 是**进入时**的快照(含「来之前是什么」),
+        // `begin*` 是**决定之后**的快照。两者不一致本身就是信息
+        // (说明走了重置分支),一致则说明是空操作路径。
         android.util.Log.i(
             TAG,
             "page begin#: dir=$dir rolesSet=$rolesSet pageDragging=$pageDragging " +
@@ -419,12 +433,18 @@ class CandidateBarView @JvmOverloads constructor(
         )
         if (rolesSet && dir == pageDir && pageDragging) {
             // 同向且手指正在驱动 → 空操作:基线与速度都不动,只继续喂样本
+            android.util.Log.i(
+                TAG,
+                "page begin*: dir=$dir rolesSet=$rolesSet noop(同向且正在拖) " +
+                    "pageCommitted=$pageCommitted page=$page/$totalPages"
+            )
             if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
             return
         }
         val full = width.toFloat()
         pageSpeed.reset()
         if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
+        val rebased = !rolesSet
         if (!rolesSet) {
             pageDir = dir
             pageFrom = slots
@@ -452,6 +472,15 @@ class CandidateBarView @JvmOverloads constructor(
         // (换引擎时这里取消的是一个已恒为 null 的 `pageAnim`,弹簧其实还在跑。)
         pageSpring.cancel()
         pageDragging = pageFrom.isNotEmpty() && pageTo.isNotEmpty()
+        // 去重判断之后的快照 —— 见上面那段说明:只有这行里的 `pageCommitted`
+        // 才是**这一帧真正生效**的值,`page begin#` 那行是「来之前是什么」。
+        if (rebased) {
+            android.util.Log.i(
+                TAG,
+                "page begin*: dir=$dir rebased pageDragging=$pageDragging " +
+                    "pageCommitted=$pageCommitted page=$page/$totalPages"
+            )
+        }
         // 旧页当前停在 -pageSlide(方向由 pageDir 带),把基线对齐到这个位移,手指接着走
         pageDragBaseX = x + pageSlide * pageDir
     }
@@ -526,12 +555,55 @@ class CandidateBarView @JvmOverloads constructor(
                 TAG,
                 "takeover: 跟手翻页 dir=$dir springRunning=${pageSpring.isRunning}"
             )
-            // 与 [endPageDrag] 里 `step` 同一套符号约定:dir>0 = 往下一页
-            android.util.Log.i(
-                TAG,
-                "page begin: dir=$dir → 跟手翻页 $page→${page + (if (dir > 0f) 1 else -1)} " +
-                    "(page=$page/$totalPages)"
-            )
+            // ## `page begin` 必须**只在真正起手那一帧**打,不能每帧都打
+            //
+            // [takeOverPageDrag] 是在**每个 MOVE 帧**被调用的(见它的文档),
+            // 而这条日志原来打在 [beginPageDrag] 的**去重判断之前** ⇒
+            // 一次 swipe 打出 N 条 `page begin`,只有第一条对应真正的起手。
+            //
+            // **症状(2026-10-08 真机 E2E 首次跑到):** `select-global-index` 场景
+            // 打印「`page begin# 2` 一次手势起了两次手」,而实际那次 `page end`
+            // 带着 `commit=false` ⇒ 断言判「没翻页」。**引擎与手势链路其实都是通的**
+            // (同批 `page-flip` 场景全绿、页码递增正确),红的是这条日志的次数。
+            //
+            // 为什么以前没暴露:2026-10-05 修过一次**同源**的问题,方向相反 ——
+            // 当时是「一次 swipe **没打** page begin」。同一个判断,两个症状;
+            // 两次都因为「这条日志是去重判断的前哨,而不是结果」。
+            //
+            // ⇒ 判据改成 `beginPageDrag` 内部的去重结论:只有**这一次是起手**
+            // (`rolesSet` 为 false,即 `pageFrom` 还是空的)才打。
+            // ## `page begin` 只打「真正起手」的那一帧,而判据是 **`rolesSet`**
+            //
+            // [takeOverPageDrag] 在**每个 MOVE 帧**被调用,所以不能每帧都打。
+            //
+            // **第一版用 `pageFrom.isEmpty()` 当判据 —— 错了(2026-10-08)。**
+            // 它只在「新基线」时为 true,而**打断弹簧接管**那条路径
+            // (`rolesSet=true`、带着已存在的 `pageFrom`)于是**一次都不打**。
+            // 症状:E2E 的 `page-flip` 从全绿变红,断言「日志应含
+            // `page begin: dir=-1.0`」失败 —— 而那次翻页**功能上是好的**
+            // (`page end: step=-1 … commit=true page=1/9`)。
+            //
+            // 这与 2026-10-05 那次是**同一个 bug 的另一个方向**:
+            // 当时是「该打时没打」,更早是「每帧都打」。三次都因为
+            // **判据选错了量** —— 这次选的是内部状态 `pageFrom`,
+            // 而该问的是「这次调用算不算一次新意图」。
+            //
+            // ⇒ 判据:**没有正在进行的拖动**,或**方向变了** —— 两者都是用户的
+            // 新意图。只有「同向且 `pageDragging` 为真」才是空操作。
+            //
+            // 注意这里**不能**引用 `rolesSet`:它是 [beginPageDrag] 的局部变量,
+            // 而这个判断在它被调用**之前**。`pageDragging` 是同一件事的等价量 ——
+            // 它在 [beginPageDrag] 末尾按 `pageFrom/pageTo` 非空设置,
+            // 而 [takeOverPageDrag] 返回 true 恰好意味着那两个列表非空。
+            val isNewGesture = !pageDragging || dir != pageDir
+            if (isNewGesture) {
+                // 与 [endPageDrag] 里 `step` 同一套符号约定:dir>0 = 往下一页
+                android.util.Log.i(
+                    TAG,
+                    "page begin: dir=$dir → 跟手翻页 $page→${page + (if (dir > 0f) 1 else -1)} " +
+                        "(page=$page/$totalPages)"
+                )
+            }
             beginPageDrag(dir, x, eventTimeMs)
             true
         } else {
