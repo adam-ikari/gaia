@@ -94,7 +94,7 @@ export default defineConfig({
     },
   },
   title: '盖亚输入法',
-  description: '给 Unihertz Titan 2 做的拼音输入法。动画跟手，下一步不用猜。',
+  description: '给 Unihertz Titan 2 做的拼音输入法。翻页动画滑到一半也能停。',
   lastUpdated: false,
   cleanUrls: true,
 
@@ -106,7 +106,7 @@ export default defineConfig({
       'meta',
       {
         property: 'og:description',
-        content: '给 Unihertz Titan 2 做的拼音输入法。动画跟手，操作不用猜。键盘上滑就上屏，左右划翻页。',
+        content: '给 Unihertz Titan 2 做的拼音输入法。翻页动画滑到一半也能停，退回原来那页不跳。键盘上滑就上屏，左右划翻页。',
       },
     ],
     ...umamiHead,
