@@ -23,7 +23,6 @@ actions:
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>下载。</h2>
 <Downloads />
-<AltDownloads />
 </div>
 :::
 

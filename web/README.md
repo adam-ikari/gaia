@@ -24,10 +24,10 @@ npm run preview  # 预览构建结果
 docs/
   .vitepress/
     config.mts            站点配置（base 必须是 /gaia/）
-    download.ts           三条渠道的链接与文件名 —— 唯一来源，两处按钮共用
+    download.ts           三条渠道的链接与文件名 —— 唯一来源，一排按钮共用
     theme/index.ts        扩展默认主题，注册全局组件
     theme/layouts/Home.vue 自定义首页布局（内容全部来自 index.md）
-    theme/components/     Downloads / AltDownloads / VerifyLine
+    theme/components/     Downloads（三条渠道一排按钮）/ VerifyLine
     styles/               apple / home / responsive 三个样式表
   index.md                首页（hero + 各 band）
   public/.nojekyll        跳过 Pages 的 Jekyll 处理

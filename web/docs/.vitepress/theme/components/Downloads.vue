@@ -1,131 +1,170 @@
 <template>
   <div class="gi-dl">
     <!--
-      主渠道是**默认下载**,所以它得先说清「不折腾的人拿哪个」,
-      再让 `AltDownloads` 说「想试新的拿哪个」。两节现在同屏,
-      不再互相指「上面 / 下面」—— 原来那句「建议改用下面的测试版」
-      就是因为两边各在页面一头而写反了。
-    -->
-    <p class="gi-dl-lead">默认下载：最新一次发出去的包。</p>
+      ## 只有一排按钮(2026-10-08 定稿)
 
-    <!--
-      **`download` 属性不能省**(2026-10-02 真机报障:点按钮是 404 页,直接访问同一 URL 却能下载)。
-      VitePress 拦截站内链接交给前端路由,`treatAsHtml` 的已知扩展名表里**没有 apk**
-      —— 扩展名不在表里就算「是网页」,于是点击被 preventDefault() → 前端路由里没有
-      对应页面 → **渲染 404 页**。直接访问是真请求,所以两者表现不一致。
-      `router.js` 留了两个逃逸口:`download` 与 `target`;用前者(后者多开一个标签页)。
-    -->
-    <a
-      class="gi-dl-btn"
-      :class="{ 'gi-dl-btn-withdrawn': withdrawn }"
-      :href="DOWNLOAD_URL"
-      :download="DOWNLOAD_FILENAME"
-    >{{ buttonLabel }}</a>
+      这一节从前到后试过三种形状:三段说明文字 + 一排应用名标签 + 两节互相指
+      「上面/下面」。都不如现在这个:**一条渠道一个按钮,按钮上写清是哪条渠道
+      哪个版本,下面一行校验值**。剩下的话只留一句 —— 主渠道有已知问题时那句。
 
-    <!--
-      渠道名与状态。**三条渠道里测试版排在最前**,因为它是唯一被默认推荐的那个。
-
-      `withdrawn` 时这个块**必须显示**,而且要说清为什么。
-      不是为了合规 —— 用户下载的是**会装到手机上的字节**:
-      把一个已知有缺陷的构建放在主 CTA 上却不说,比不给下载更糟。
-      不给只是没得到;给了却得到坏的、还被告知这是好的。
+      几条被删掉的话,以及为什么本来就不该写:
+        · 「默认下载:最新一次发出去的包」—— 标题就叫「下载」,这是重复。
+        · 「这些构建和上面那个是各自独立的应用,可以一起装着,词库和设置互不影响」
+          —— 装过的人知道,没装过的人不关心;它是在为设计解释,不是在给信息。
+        · 「本站没有正式版:一直以来发出去的都是测试版」—— 按钮上「测试版」三个
+          字已经说了这件事,再补一句是否认一段不存在的误会。
+        · 每条渠道一句说明 —— 同上。渠道之间真正的区别(版本号 vs commit hash)
+          写在按钮上了。
     -->
-    <p class="gi-dl-status">
-      <span class="gi-tag">测试版</span>
-      <span v-if="withdrawn" class="gi-tag gi-tag-bad">有已知问题</span>
-      <span v-else class="gi-tag gi-tag-ok">当前</span>
-      <span v-if="versionLabel" class="gi-dl-ver">{{ versionLabel }}</span>
+    <p class="gi-dl-row">
+      <span v-for="c in channels" :key="c.label" class="gi-dl-cell">
+        <!--
+          **`download` 属性不能省**(2026-10-02 真机报障:点按钮是 404 页,
+          直接访问同一 URL 却能下载)。VitePress 把站内 `.apk` 链接交给前端路由,
+          而 `treatAsHtml` 的已知扩展名表里没有 apk → preventDefault → 404 页。
+          文件名也要给:URL 是固定的 `/media/gaia.apk`,里面没有身份,
+          而「哪个版本、哪个 commit」是用户唯一能拿回来问的东西。
+        -->
+        <a
+          class="gi-dl-btn"
+          :class="{ 'gi-dl-btn-alt': !c.primary, 'gi-dl-btn-withdrawn': c.withdrawn }"
+          :href="c.url"
+          :download="c.filename"
+        >{{ c.label }}</a>
+        <!--
+          校验值紧跟在各自按钮下面,不放页脚:2026-10-06 实测这个网络下下载
+          **会静默截断**,而安装器只给一句「软件包无效」。有大小和 sha256,
+          用户才能自己分辨「没下全」和「包有问题」。
+        -->
+        <VerifyLine v-if="c.sha" :sha="c.sha" :size="c.size" label="校验" />
+      </span>
     </p>
+
+    <!--
+      `withdrawn` 时这句**必须显示**。不是为了合规 —— 用户下载的是会装到手机上的
+      字节,把已知有缺陷的构建放在默认位置上却不说明,比不给更糟。
+      「修复在哪个包里」这里也不写:静态站在构建期只拿到一个 hash,推不出包内容,
+      那句话归发布的人,写进 `STABLE_NOTE`(见 `tools/release/publish-site.sh`)。
+    -->
     <p v-if="withdrawn && STABLE_NOTE" class="gi-dl-note">{{ STABLE_NOTE }}</p>
-    <!--
-      「本站没有正式版」这句必须留着。
-
-      按钮写「下载测试版」,状态标签也写「测试版」,读者很容易读成
-      「还有一个正式版,只是这次被撤了」。事实是**一条正式版线都没有**:
-      这个项目发出去的每一个包都是测试版。
-      ⇒ 这句是防止读者自己脑补出一段不存在的合法性,不是免责声明。
-
-      「修复在哪个包里」这句**页面里谁都不说**:它要读 commit 关系,而静态站
-      在构建期只拿到一个 hash。那句话归发布的人,在发布的时候写进
-      `STABLE_NOTE`(见 `tools/release/publish-site.sh`)。
-    -->
-    <p v-if="withdrawn" class="gi-dl-note">
-      本站没有正式版：一直以来发出去的都是测试版，包括这一个。
-    </p>
-    <VerifyLine v-if="STABLE_SHA256" :sha="STABLE_SHA256" :size="STABLE_SIZE" label="校验" />
   </div>
 </template>
 
 <script setup lang="ts">
+/**
+ * 三条渠道的按钮。URL、文件名、校验值全部来自 `../../download`,这里不写死;
+ * 可用性由构建期 flag 决定 —— 站点是纯静态,没有运行时可探测,
+ * 而一个指向 404 的按钮比没有按钮更糟(它让人以为「点不动是我网络的问题」)。
+ *
+ * ## 只有主渠道叫「测试版」
+ *
+ * 原来主渠道和 β 在页面上都叫测试版,于是提示语「建议改用下面的测试版」
+ * 显示在「下载测试版」按钮下面,读者分不清该点哪个。现在 β/dev 用 β / dev
+ * 这两个短名 —— 它们在手机上就是 `盖亚输入法 β` / `盖亚输入法 dev`
+ * (`app/src/{beta,dev}/res/values/strings.xml`),页面称呼和装完看到的称呼同一个词。
+ *
+ * ## 深浅底色
+ *
+ * 这一节落在 band 轮换出的底色上(现在是 `ink` 深底),所以正文与降级按钮
+ * **不用 `--vp-c-text-*` / `--vp-c-bg-soft`** —— 那些跟的是站点主题,
+ * 深底上会变成深灰字。统一 `color: inherit` + `opacity`。
+ */
 import VerifyLine from './VerifyLine.vue'
 import {
+  BETA_DOWNLOAD_URL,
+  BETA_FILENAME,
+  BETA_SHA256,
+  BETA_SIZE,
+  BETA_VERSION,
+  DEV_DOWNLOAD_URL,
+  DEV_FILENAME,
+  DEV_SHA256,
+  DEV_SIZE,
+  DEV_VERSION,
   DOWNLOAD_URL,
   DOWNLOAD_FILENAME,
+  HAS_BETA,
+  HAS_DEV,
   STABLE_NOTE,
   STABLE_SHA256,
   STABLE_SIZE,
   STABLE_STATUS,
 } from '../../download'
 
-const withdrawn = STABLE_STATUS === 'withdrawn'
-
-/**
- * 按钮文案要说清它是**哪一版、哪条渠道**。
- *
- * 原来一律写「下载安装包」—— 那句话**不区分渠道也不区分版本**,用户点之前
- * 无从知道拿到的是什么。
- *
- * 注意这里写「测试版」而不是「正式版」:这个项目**从来没有正式版**。
- */
-const ver = (import.meta.env.VITE_APP_VERSION || '').trim().replace(/^v+/, '')
-const buttonLabel = ver ? `下载测试版 ${ver}` : '下载测试版'
+interface Channel {
+  label: string
+  url: string
+  filename: string
+  sha: string
+  size: string
+  primary?: boolean
+  withdrawn?: boolean
+}
 
 /** 版本号只用于显示:取不到就空着 —— 空着不误导,有值才可信。 */
-const versionLabel = ver ? `v${ver}` : ''
+const ver = (import.meta.env.VITE_APP_VERSION || '').trim().replace(/^v+/, '')
 
-/**
- * 包由**本站点自己发**,不是链 GitHub 的 release 下载链接。
- *
- * ## 为什么是同源路径
- *
- * 原来是 `releases/latest/download/app-release.apk`,那条链要跳两次
- * (github.com → release-assets.githubusercontent.com)。在 Titan 2 的浏览器上点它
- * 直接落到 Chrome 的「网页可能暂时无法连接…」错误页 —— 真机复现,同一台机器
- * curl 是 200。跨域两跳是手机浏览器最容易下载失败的形态。
- *
- * ## 状态从哪来
- *
- * `STABLE_STATUS` / `STABLE_NOTE` 是**构建期注入**的,理由见
- * `../../download.ts` 末尾:GitHub 上没有「这个版本是经流水线发的」这种标记,
- * 所以「这个包可不可信」**只有发布的人知道**,必须由发布的人写下来。
- */
+const withdrawn = STABLE_STATUS === 'withdrawn'
+
+const channels: Channel[] = [
+  {
+    label: ver ? `测试版 ${ver}` : '测试版',
+    url: DOWNLOAD_URL,
+    filename: DOWNLOAD_FILENAME,
+    sha: STABLE_SHA256,
+    size: STABLE_SIZE,
+    primary: true,
+    withdrawn,
+  },
+  ...(HAS_BETA
+    ? [{ label: `β ${BETA_VERSION}`, url: BETA_DOWNLOAD_URL, filename: BETA_FILENAME, sha: BETA_SHA256, size: BETA_SIZE }]
+    : []),
+  ...(HAS_DEV
+    ? [{ label: `dev ${DEV_VERSION}`, url: DEV_DOWNLOAD_URL, filename: DEV_FILENAME, sha: DEV_SHA256, size: DEV_SIZE }]
+    : []),
+]
 </script>
 
 <style scoped>
 .gi-dl {
   margin: 0 auto;
-  max-width: 560px;
+  max-width: 640px;
+}
+
+.gi-dl-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 14px 12px;
+  margin: 0;
+}
+
+.gi-dl-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /*
- * 这一节现在落在 band 轮换出来的**任意**底色上(当前是 `ink` 深底),
- * 所以正文与按钮**不写死主题变量**:`--vp-c-text-2` 在浅站是深灰字,
- * 放到深底上就读不清了(这正是原来那版的问题)。
- * 统一用 `color: inherit` + `opacity`,深浅两种底色都对。
+ * 校验值那一行在窄屏上会排不下(320px 实测):「校验」两个字被拆成两行,
+ * 而校验值本身折行最容易被抄错。⇒ 标签不许断行,换行让**整段校验值**换一行。
  */
-.gi-dl-lead {
-  margin: 0 0 14px;
-  font-size: 15px;
-  color: inherit;
-  opacity: 0.72;
+.gi-dl-cell :deep(.gi-verify) {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 2px;
+}
+
+.gi-dl-cell :deep(.gi-verify-label) {
+  white-space: nowrap;
 }
 
 .gi-dl-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 满行:整站唯一真正的转化动作 */
-  width: 100%;
+  min-width: 168px;
   min-height: 52px;
   padding: 12px 20px;
   border-radius: 14px;
@@ -149,84 +188,25 @@ const versionLabel = ver ? `v${ver}` : ''
 }
 
 /*
- * 渠道标签与状态。
- *
- * 「测试版」三个渠道里排最前 —— 它是唯一被默认推荐的那个,所以它的名字要
- * 最先被看到;撤回标记紧跟其后,不能藏在版本号后面。
- *
- * **这一段曾经在样式块的结束标签外面**(2026-10-08 截图时才看出来):
- * 从 `.gi-dl-status` 往下所有规则都没进构建产物,于是「有已知问题」那颗
- * 警示胶囊渲染成一行裸文字,而按钮的降级描边也没生效 ——
- * 页面看着「还行」,实际上撤回收告警在视觉上整个没了。
- * ⇒ SFC 里样式块结束标签之后的内容一律不算样式;加完规则要查构建产物里有没有,
- *   不是看页面「大概像」。(顺带一提:CSS 注释里不能写出那个结束标签的字面量,
- *   写出来就地终止样式块 —— 构建直接报 Invalid end tag。)
+ * 非默认渠道:描边。主渠道是唯一的默认推荐,三个并列的实心按钮会把这件事稀释掉。
+ * 描边仍用品牌色,所以认得出一等公民,不是脚注。
  */
-.gi-dl-status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 12px 0 0;
-  font-size: 14px;
+.gi-dl-btn-alt {
+  background: transparent;
+  border: 1px solid var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+  font-size: 15px;
 }
 
-.gi-tag {
-  display: inline-block;
-  padding: 1px 9px;
-  border-radius: 980px;
-  /* 中性半透明:深底浅底都能读,不跟主题变量走 */
-  background: rgba(128, 128, 128, 0.2);
-  color: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.7;
-}
-
-/* 撤回用警示色。选警示色而不是灰色:灰色读起来像「注脚」,
-   而这一条必须读起来像「别装这个」。 */
-.gi-tag-bad {
-  background: rgba(255, 149, 0, 0.16);
-  color: #b25000;
-}
-
-.dark .gi-tag-bad {
-  background: rgba(255, 159, 10, 0.22);
-  color: #ffb340;
-}
-
-.gi-tag-ok {
-  background: rgba(52, 199, 89, 0.15);
-  color: #1a7f37;
-}
-
-.dark .gi-tag-ok {
-  background: rgba(46, 211, 102, 0.2);
-  color: #4fd07a;
-}
-
-.gi-dl-ver {
-  color: inherit;
-  opacity: 0.6;
-  font-size: 13px;
-}
-
-.gi-dl-note {
-  max-width: 30em;
-  margin: 8px auto 0;
-  color: inherit;
-  opacity: 0.72;
-  font-size: 13px;
-  line-height: 1.6;
-  text-align: left;
+.gi-dl-btn-alt:hover {
+  background: var(--vp-c-brand-1);
+  color: #fff;
 }
 
 /*
- * 有已知问题时按钮**降级**:不再用满宽实心主色。
- *
+ * 有已知问题时主渠道**降级**:不再是实心主色。
  * 它仍然是最大的可点区域(那是转化路径,不该消失),但视觉权重降下来 ——
  * 一个「已知有问题」的下载不该长得和「推荐下载」一模一样。
- * 配色同样不跟主题变量走:深底上它是一块略亮的盒子,浅底上是浅灰。
  */
 .gi-dl-btn-withdrawn {
   background: rgba(128, 128, 128, 0.16);
@@ -242,4 +222,13 @@ const versionLabel = ver ? `v${ver}` : ''
   background: rgba(128, 128, 128, 0.16);
 }
 
+.gi-dl-note {
+  max-width: 34em;
+  margin: 18px auto 0;
+  color: inherit;
+  opacity: 0.72;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+}
 </style>
