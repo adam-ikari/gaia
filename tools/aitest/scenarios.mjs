@@ -288,6 +288,42 @@ export const scenarios = [
         )
         // ④ 组词缓冲还在 ⇒ 输入法窗口也还在。
         c.expect(c.device.imeShown(), '选完仍有组词缓冲 ⇒ 输入法窗口应还在')
+
+        // ## 判据(2026-10-09 补):组词必须**活着**
+        //
+        // 原来这条到 `imeShown()` 就结束了,而 **`imeShown()` 量的是「输入法窗口可见」,
+        // 不是「还在组词态」** —— 所以「部分消费后继续生成候选词」整个功能是死的时候,
+        // 它照样是绿的(实测 `winmode: composing=false` 与 `mInputShown=true` 同时成立)。
+        //
+        // 真正的用户判据是:**选完再敲一个字母,拼音要从剩余部分继续长**。
+        //
+        // 而它当时为什么不工作(2026-10-09 定位):`ImeService.onUpdateSelection` 里那段
+        // 「组词区被外力破坏就 abandonComposition」的对账,把我们**自己那一次
+        // `setComposingText` 的回声**当成了破坏。框架对一次写入会连报两条中间态
+        // (`comp=0..1`、`comp=-1..-1`),第三条 `[1,4)` 才是真的 —— 对账在前两条上就自杀了。
+        c.device.shell('logcat -c')
+        c.device.key(kcOf('n'))
+        await sleep(900)
+        const log2 = c.device.takeLog('from=|ABANDON|winmode:')
+        if (after !== undefined) {
+          const after2 = /from=.*?raw="([^"]*)"/.exec(log2)?.[1]
+          c.expect(
+            after2 === after + 'n',
+            `选完再敲一个字母应从剩余拼音继续:期望 ${JSON.stringify(after + 'n')},实际 ${JSON.stringify(after2)}`,
+          )
+        }
+        // 对账不应该再触发 —— 它一触发就是**整个引擎被清掉**。
+        c.expect(
+          !/ABANDON/.test(log2),
+          `组词区对账不该把我们自己写入的回声当成外力破坏(实际: ${JSON.stringify(log2.slice(0, 300))})`,
+        )
+        c.expect(
+          !/composing=false/.test(log2),
+          `选完应仍在组词态(实际: ${JSON.stringify(log2.slice(0, 300))})`,
+        )
+
+        c.device.key(K.del, K.del, K.del, K.del, K.del) // 清掉「剩余 + n」
+        await sleep(300)
       },
     ],
   },

@@ -98,6 +98,46 @@ class ImeService : InputMethodService() {
     private var composing = ""
 
     /**
+     * 我们刚写过一次组词区,正在等框架回报它。
+     *
+     * ## 为什么必须跳过那一次对账(2026-10-09 真机实测)
+     *
+     * 「部分消费后继续生成候选词」当时不工作,根因在这里。真机 `nihao` 选覆盖 `ni` 的那个词:
+     *
+     * ```
+     * consume:        index=3 consumed=2 preview="泥好"
+     * query#9:        from=选词后剩余 raw="hao" n=45
+     * syncComposing:  wrote="hao" len=3 before=泥hao
+     * updateSelection sel=1..1 comp=0..1  raw=hao      ← 框架报的**中间态**
+     * ABANDON:        comp=0..1 expected=3 …           ← 对账把它当成「外力破坏」
+     * updateSelection sel=1..1 comp=-1..-1 raw=
+     * updateSelection sel=4..4 comp=1..4  raw=         ← App 真正的组词区 [1,4),长度 3,对得上
+     * winmode: composing=false                          ← 窗口关了,用户看不到 hao 的候选
+     * ```
+     *
+     * App 侧自始至终是好的(`before=泥hao`、组词区 `[1,4)`),
+     * 只有**第一次**回报是陈旧中间态。而那次回报就是**我们自己那一次 `setComposingText`
+     * 的回声** —— 对账存在的目的是抓第三方改动,把自己写的回声当成破坏,
+     * 等于每次选词后都自杀一次。
+     *
+     * 所以:自己写完之后的那一次回报不对账,之后恢复。
+     * 代价是万一框架没回报(极少数),下一次真正的外部改动会被漏掉一次 ——
+     * 那一次漏判只是不清理组词,而误判的代价是**整个引擎被清掉**,两者不对称。
+     */
+    private var composingAckPending = false
+
+    /**
+     * 把 [composingAckPending] 掐掉:下一个按键 / 生命周期变化开始时调用。
+     *
+     * 「等到对得上才算确认」必须**有界** —— 万一某个 App 从不回报匹配的组词区,
+     * 那个标志会一直挂着,把之后真正的外部改动全放过去。
+     * 一次按键就把等待窗口关掉,是最自然也最保守的界。
+     */
+    private fun expireComposingAck() {
+        composingAckPending = false
+    }
+
+    /**
      * 拼音悬浮条的显示条件:App 自己渲染 composing 区(EditText 类会在
      * onUpdateSelection 里回报组词区)就藏起来,只给 Termux 这类不回报的显示。
      * 组词开始后 [PREEDIT_PROBE_MS] 内没等到回报 → 判定 App 不渲染,本会话放行。
@@ -368,6 +408,8 @@ class ImeService : InputMethodService() {
         // 记在 null 检查之前 —— "有过一次按键"这件事不需要 KeyEvent 才成立。
         keyGate.onKeyEvent()
         event ?: return super.onKeyDown(keyCode, event)
+        // 新一次用户输入开始:上一次写入的确认窗口到此为止(见 [expireComposingAck])。
+        expireComposingAck()
         val consumed = controller.onKeyDown(
             keyCode,
             event.isCtrlPressed,
@@ -402,9 +444,36 @@ class ImeService : InputMethodService() {
             mainHandler.removeCallbacks(preeditProbe)
             preeditProbeArmed = false
         }
+        // 自己那一次写入的回声:**不对账**,直到看到与我们写的对得上的那一条
+        // (见 [composingAckPending] 的完整经过)。
+        if (composingAckPending) {
+            if (candidatesStart >= 0 && candidatesEnd - candidatesStart == composing.length) {
+                composingAckPending = false // 确认到了,恢复对账
+            } else {
+                android.util.Log.i(
+                    TAG,
+                    "updateSelection: 跳过自己写入的中间态 " +
+                        "comp=$candidatesStart..$candidatesEnd want=len(${composing.length}) " +
+                        "raw=$composing"
+                )
+                return
+            }
+        }
         if (controller.state.hasComposition && composing.isNotEmpty()) {
             val expected = candidatesStart + composing.length
             if (candidatesEnd != expected) {
+                // **每次放弃都打一行**,带全部判据。
+                //
+                // 原来这里是一个静默的 `abandonComposition()` —— 2026-10-09 查
+                // 「部分消费后组词被丢弃」时,日志里只看得到 `comp=0..1 raw=hao`,
+                // 看不出是我们写歪了、还是框架回报的与我们写的不是同一件事。
+                // 对账一旦触发,它就是**整个引擎被清掉**,不留痕迹太危险。
+                android.util.Log.i(
+                    TAG,
+                    "ABANDON: comp=$candidatesStart..$candidatesEnd expected=$expected " +
+                        "composing=\"$composing\" stateRaw=\"${controller.state.raw}\" " +
+                        "appRendersComposing=$appRendersComposing"
+                )
                 composing = ""
                 controller.abandonComposition()
             }
@@ -1132,6 +1201,18 @@ class ImeService : InputMethodService() {
                 if (composing.isNotEmpty()) ic.finishComposingText()
             } else {
                 ic.setComposingText(s.raw, 1)
+                // 自己写的这一次,下一次 [onUpdateSelection] 是它的回声 —— 别拿它对账
+                // (见 [composingAckPending] 的完整经过)。
+                composingAckPending = true
+                // 写完之后 App 侧到底有什么:`getComposingRegion` / `getSelectedRegion`
+                // 都是隐藏 API,所以直接读 App 的文本 —— 那是我们唯一真正关心的东西。
+                val before = runCatching { ic.getTextBeforeCursor(200, 0)?.toString() }.getOrNull()
+                val after = runCatching { ic.getTextAfterCursor(200, 0)?.toString() }.getOrNull()
+                android.util.Log.i(
+                    TAG,
+                    "syncComposing: wrote=\"${s.raw}\" len=${s.raw.length} " +
+                        "before=$before after=$after prev=\"$composing\""
+                )
             }
             composing = s.raw
         }
