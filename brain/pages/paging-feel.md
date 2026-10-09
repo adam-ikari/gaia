@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-09T08:53:32"
+updated: "2026-10-09T09:49:08"
 ---
 
 <!-- compiled_truth -->
@@ -276,4 +276,10 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   kind: decision
   summary: "三条补完动画统一走 PageTiming.withResponse(行程 + 进场速度取大);page-interrupt 判据改为振幅单调递减 + 首过 ≤1px;page-interrupt-live 判据改为 takeover 行的 springRunning=true"
   source: "2026-10-09 真机 E2E 13/13"
+  affects: [paging-feel]
+
+- time: 2026-10-09T09:49:08
+  kind: reversal
+  summary: "到头橡皮筋从未生效已修(三处);但同时确认两个未定位缺口:候选行抬手(y=1337,inUi=true)进不了 endPageDrag,而键盘表面(y=1100)正常;以及 page 0-indexed 9 页却停在 page=7/9"
+  source: "2026-10-09 真机,commit c3ec71e"
   affects: [paging-feel]

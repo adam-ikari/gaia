@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [lessons, method, verification, e2e]
 created: "2026-10-08T18:16:42"
-updated: "2026-10-09T08:53:17"
+updated: "2026-10-09T09:49:07"
 ---
 
 <!-- compiled_truth -->
@@ -117,3 +117,9 @@ updated: "2026-10-09T08:53:17"
   summary: "新增第 5 个错判并给出识别特征:一个参数对一个错会伪装成手感问题;纯函数算出来的数字天然好看;判据必须指向从引擎回读的量"
   source: "2026-10-09 commit c928fb8 真机逐帧拟合"
   affects: [unverified-as-fact, spring-damping-direction]
+
+- time: 2026-10-09T09:49:07
+  kind: evidence
+  summary: "第 6 个错判:到头橡皮筋在真机上从来没发生过,而三条现象在日志里都表现为「什么都没有」—— 埋点打在意图上(rubber end 只在 runRubberAnim 里,而它只在 raw>0 时才被调)、ACTION_UP 全是静默 return。加上三个真 bug:归属每帧重判 / 在飞回滚撤销归属 / Landing 落点永远到不了 0"
+  source: "2026-10-09 Titan 2 逐帧埋点与真机复现,commit c3ec71e"
+  affects: [unverified-as-fact, paging-feel, spring-damping-direction]
