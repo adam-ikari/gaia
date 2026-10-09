@@ -215,7 +215,24 @@ class CandidateBarView @JvmOverloads constructor(
      */
     fun isFlyAnimating(): Boolean = flyP >= 0f || flyUp.isRunning || flyBack.isRunning
 
+    /** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
+    private var lastDrawSig = ""
+
+    // ## 埋点:视图**收到**了什么(2026-10-09)
+    //
+    // 与 [onDraw] 里那行「画了什么」配对 —— 用户报「部分消费后 hao 不出候选」,
+    // 控制器侧 45 个候选一路正常,所以要能分清:
+    //   ① 状态就空(上游)  ② 状态到了但 `pageSlots()` 取不到东西(这里)  ③ 画不出来(视图)
+    //
+    // 之前这三者全都没有记录,于是只能靠猜。**每一次 `setState` 都打**,
+    // 因为它本身就是低频事件(按键/生命周期),不像 `onDraw` 那样每帧都来。
     fun setState(state: ImeState) {
+        android.util.Log.i(
+            TAG,
+            "setState: raw=\"${state.raw}\" n=${state.candidates.size} page=${state.page}/" +
+                "${state.totalPages} hl=${state.highlight} slots=${state.pageSlots().size} " +
+                    "nonNull=${state.pageSlots().count { it != null }}"
+        )
         val newSlots = state.pageSlots()
         // 跟手翻页要预览相邻页,先备好(越界为空表 = 那一侧没有页,拖过去也不动)
         pageNextSlots = state.pageSlotsAt(state.page + 1)
@@ -1644,6 +1661,33 @@ private fun onTap(x: Float) {
     }
 
     override fun onDraw(canvas: Canvas) {
+        // ## 埋点:这一帧**真的画了什么**(2026-10-09)
+        //
+        // 用户报「部分消费后 hao 不出候选」,而控制器侧 `state.candidates` 明明是 45 个
+        // (`query#N ... n=45`)。也就是说断点在这两者之间 —— 而这一段此前**一个字都没记**:
+        // 「状态对、画不出」与「状态就空」在 logcat 里完全同形。
+        //
+        // 只在签名变化时打一行,否则每帧都打会把 logcat 冲掉。
+        val drawnKind =
+            when {
+                flyP >= 0f -> "fly"
+                pageFrom.isNotEmpty() && pageTo.isNotEmpty() && pageSlide > 0f -> "pageTurn"
+                rubberDrag.raw > 0f -> "rubber"
+                else -> "slots"
+            }
+        val sig = "$drawnKind|${slots.count { it != null }}|${pageFrom.size}|${pageTo.size}|" +
+            "${pageSlide.toInt()}|${rubberDrag.raw.toInt()}|${width}x$height"
+        if (sig != lastDrawSig) {
+            lastDrawSig = sig
+            android.util.Log.i(
+                TAG,
+                "draw: kind=$drawnKind drawn=${slots.count { it != null }}/${slots.size} " +
+                    "words=${slots.filterNotNull().joinToString("|") { it.word }} " +
+                    "page=$page/$totalPages hl=$highlight flyP=$flyP " +
+                    "turn=${pageFrom.size}/${pageTo.size} slide=${pageSlide.toInt()} " +
+                    "rubber=${rubberDrag.raw.toInt()} size=${width}x$height vis=$visibility"
+            )
+        }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
         // 翻页箭头(到边界置暗)
