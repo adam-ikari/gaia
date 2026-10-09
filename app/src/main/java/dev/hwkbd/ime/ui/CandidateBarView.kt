@@ -1415,8 +1415,31 @@ pageSlide = pageSettleTarget
                     endPageDrag(event.x)
                     return true
                 }
-                // 接管后的反向动画还在播:本次抬手不重复判定
-                if (pageFrom.isNotEmpty()) return true
+// 接管后的反向动画还在播:本次抬手**不重复判定** —— 但只在**本次手势真的接管过**时。
+                //
+                // 2026-10-09:原来这里是 `if (pageFrom.isNotEmpty()) return true`。
+                // 那让**陈旧**的过渡(pair 还挂着)把**每一次**抬手都吃掉,
+                // 而「主人没释放」正是用户报的「划不动」的成因:
+                // 下一笔手势先撞上 [beginPageDrag] 的同向空操作分支什么也不做,
+                // 就算做了,抬手又被这里吞掉 —— 两侧都堵死。
+                //
+                // ⇒ 陈旧的过渡**不许吞抬手**。`pageDragging` 与 `rubberDrag.active`
+                // 的收尾在上面已经 return,所以走到这里的抬手必然**不是**本次手势的,
+                // 必须照常落到点按/轻扫判定里去。
+                //
+                // 埋点:这一行打出来,「抬手被哪个分支吃掉」就不再需要猜。
+                android.util.Log.i(
+                    TAG,
+                    "touch UP: 无主(${pageFrom.size}/${pageTo.size} 残留) 按下槽=$downCell " +
+                        "swipeArmed=$swipeArmed ⇒ 继续走点按/轻扫判定"
+                )
+// 陈旧过渡不许吞抬手(见上面那段)。埋点打出来,「抬手被哪个分支吃掉」不再需要猜。
+                android.util.Log.i(
+                    TAG,
+                    "touch UP: 无主(${pageFrom.size}/${pageTo.size} 残留) downCell=$downCell " +
+                        "swipeArmed=$swipeArmed => 继续走点按/轻扫判定"
+                )
+                // 下面就是点按/长按/轻扫的判定,原样保留。
                 when {
                     longPressFired -> Unit // 长按已在定时器里处理
                     kotlin.math.abs(dx) < touchSlop && kotlin.math.abs(dy) < touchSlop -> onTap(downX)
@@ -1695,39 +1718,54 @@ pageSlide = pageSettleTarget
     /** 当前橡皮筋显示位移(px,已阻尼并封顶)。 */
     private fun rubberShift(): Float = Rubber.shift(rubberDrag.raw, rubberScale(), rubberLimit())
 
-    /**
-     * 越界拉伸的绘制:横向压缩 + 沿越界方向平移一点。
+/**
+     * 越界拉伸的绘制:**只挤压,不平移**。
      *
-     * 压缩是**围绕行中心**的,不是把整行推向某一侧 —— 推向一侧看着像"内容没对齐",
-     * 围绕中心压缩才像"这层被拽住变窄"。平移给出方向:往没有下一页的那侧拉。
+     * 压缩是**围绕行中心**的,不是把整行推向某一侧。
+     *
+     * ## 为什么去掉了横向平移(2026-10-09)
+     *
+     * 原来是「压缩 + 沿越界方向平移」,实测到头一次平移 **93px**
+     * (`rubber end: decide=spring raw=375 shift=93`)。
+     *
+     * 用户把那一下滑读成了**「突然回到上一页」** —— 而且是真的分不出来:
+     * 平移是**横向位移**,而横向位移在��一行里只有一个含义:翻页。
+     * 于是到头时最该说「没有更多了」的那一下,说的却是「翻回去了」。
+     *
+     * **挤压不含混**:横向没动,只是被拽窄了,读作「拽不动/到头了」没有任何歧义。
+     * 这一行里横向位移被保留给翻页**一个**含义,是需求二能成立的前提。
+     *
+     * 需求二要的「到头有橡皮筋动画但不振荡」仍然满足 —— 压缩本身就是动画,
+     * 而且 [Rubber.squash] 的封顶保证幅度小(56dp),不会把 5 个槽挤到认不出。
      */
     private fun drawRubber(canvas: Canvas) {
-        val shift = rubberShift()
         val scale = rubberSquash()
         val savedAlpha = wordPaint.alpha
         val savedColor = wordPaint.color
         // **裁剪在本区域内**(用户「起始动画不要超过边距 …… 不要影响到区域以外」):
-        // 压缩后的行宽比视口窄,平移一点就会露边,露出来的部分直接切掉。
+        // 压缩后的行宽比视口窄,不裁剪会在两侧留白。
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
-        // 围绕中心压缩
+        // 围绕中心压缩。**不 translate** —— 见上面那段。
         canvas.scale(scale, 1f, width / 2f, height / 2f)
-        // 再沿越界方向拉出(方向由 [RubberDrag.dir] 带)
-        canvas.translate(-rubberDrag.dir * shift, 0f)
         drawSlots(canvas, slots, highlight, dividers = true)
         canvas.restore()
         wordPaint.alpha = savedAlpha
         wordPaint.color = savedColor
     }
 
-    /**
-     * 橡皮筋的**形变比例**:横向压缩(1 − 比例)并沿越界方向拉出一点。
+/**
+     * 橡皮筋的**形变比例**:横向压缩(1 − 比例),**只在中心收窄**。
      *
-     * 只压不拉的形变看着像"卡住了被顶回来";配合横向拉伸才有"这层有弹性"的观感 ——
-     * 就像 iOS 列表到底时那样。比例取 [rubberShift] / 行宽,天然很小(封顶 56dp),
-     * 所以形变幅度也小,不会把 5 个槽挤到认不出。
+     * 比例取 [rubberShift] / 行宽,天然很小(封顶 56dp),所以形变幅度也小,
+     * 不会把 5 个槽挤到认不出。
+     *
+     * **不再沿越界方向平移**(2026-10-09):横向位移在这一行里只有一个含义 ——
+     * 翻页。到头时给横向平移,最该说「没有更多了」的那一下说的却是「翻回去了」。
+     * 见 [drawRubber]。
      */
-private fun rubberSquash(): Float = 1f - Rubber.squash(rubberShift(), width.toFloat())
+    private fun rubberSquash(): Float = 1f - Rubber.squash(rubberShift(), width.toFloat())
+
 
 private fun onTap(x: Float) {
         when {
