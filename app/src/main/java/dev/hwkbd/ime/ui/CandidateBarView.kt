@@ -746,29 +746,66 @@ haptics?.confirm()
             // 修法沿用 [RubberDrag.begin] 自己那条规矩(同方向已在拖时是空操作):
             // **这条手势已经归橡皮筋了,就一直是它的** —— 不因为中途 slots 被填回去而反悔。
             val rubberOwns = rubberDrag.tracking && rubberDrag.dir == dir
+
             if (!rubberOwns) {
-                // **反向从翻页接管**:把这次翻页收干净再交给橡皮筋。
-                // 不收的话 [pageDragging] 与 [rubberDrag.active] 会同时为真,
-                // [pageDragMove] 的 when 里橡皮筋优先 —— 翻页那条名义上在拖却吃不到事件,
-                // 抬手又走 [endRubber],于是 pageDragging 永远清不掉,画面卡在中间态。
-                if (pageDragging || pageFrom.isNotEmpty()) {
+                // ## 到头时**不许反转**在飞的翻页(2026-10-09 真机,用户「突然回到上一页」)
+                //
+                // 原来这里是:
+                //
+                // ```
+                // if (pageDragging || pageFrom.isNotEmpty()) { reversePageTurn() }
+                // else if (pageSpring.isRunning) { pageSpring.cancel(); pageSlide = 0f }
+                // ```
+                //
+                // 实测在第 8/9 页连划,每一笔左划前面都有:
+                //
+                // ```
+                // page begin#: dir=1.0 … slide=1355          ← 上一段已经走到 1355/1360
+                // takeover: 反向收回 reversePageTurn springRunning=true
+                // takeover: 到头 dir=1.0 … (page=8/9)
+                // rubber end: raw=270 shift=85
+                // ```
+                //
+                // `reversePageTurn()` 是 `settlePage(0f, PAGE_ROLLBACK)` ——
+                // 把 **1355px 拉回 0**,也就是**整页倒放**,画面从第 8 页退回第 7 页。
+                // 用户看到的就是「突然回到上一页」,接着在末页上左划自然什么也发生不了。
+                //
+                // 下面那条 `cancel(); pageSlide = 0f` 一样:把一段 99.6% 完成的翻页
+                // **砍掉并瞬移回 0**,那一下是 1355px 的跳变,读起来更糟。
+                //
+                // ## 为什么到头根本不该碰翻页
+                //
+                // 「过阈值当帧就翻」之后 controller 的页号**已经变了**(见 [endPageDrag]
+                // 的 `onPage(step)`),那段翻页**代表一次真实的页号变化**。
+                // 反转它的**动画**并不会撤销那次提交 —— 只是放一段与真相相反的画面。
+                //
+                // 而用户此刻在做的,是「往没有页的那一侧继续拉」:橡皮筋就是这句话的
+                // 回答,不是「改主意要回去」。**真要往回翻,走的是 [beginPageDrag] 的
+                // 镜像分支**(`rolesSet` 且 `dir != pageDir`),那条路才是反向动画。
+                //
+                // ⇒ 到头这里只做两件事:① 别让翻页**继续占着**这一笔手势(否则
+                // [pageDragging] 清不掉,抬手走 [endRubber],`pageDragging` 永远为 true
+                // ——「划不动」);② 让在飞的翻页**自己走完**。
+                if (pageDragging) {
+                    // 手指本来在翻页,那一侧现在没有页了 ⇒ 结束这次翻页拖动,
+                    // 把这一笔交给橡皮筋。不复位 `pageCommitted`/`pageSlide`:
+                    // 那段翻页已经提交过,它要走到自己的落点。
+                    pageDragging = false
+                    pageDirMirrored = false
                     android.util.Log.i(
                         TAG,
-                        "takeover: 反向收回 reversePageTurn springRunning=${pageSpring.isRunning}"
+                        "takeover: 到头,交出翻页拖动(不回滚已提交的翻页) slide=${pageSlide.toInt()}"
                     )
-                    reversePageTurn()
-                } else if (pageSpring.isRunning) {
-                    // **弹簧在跑、但既不是跟手拖动也不是翻页回收** ⇒ 手指抢过来的是橡皮筋。
-                    // 原先这里什么都不做,于是 [beginRubber] 起橡皮筋的同时
-                    // pageSpring 还在写 pageSlide —— **两支动画同时动同一行**,
-                    // 读作「滑动没有打断动画」,而抬手时 [pageDragEnd] 只走 endRubber,
-                    // pageSpring 没人管,自己跑完。
-                    //
-                    // 这里显式取消并把位移落回 0(取消会把弹簧停在半路,不落定就是错位的画面)。
-                    android.util.Log.i(TAG, "takeover: 取消在飞的翻页动画(此前没人管它)")
-                    pageSpring.cancel()
-                    pageSlide = 0f
-                    clearPageTurn()
+                }
+                // 陈旧且**没有弹簧在跑**的过渡:清掉,否则 [onDraw] 会一直画它,
+                // 而它画的那一对不是 controller 当前的页 ——「显示 ≠ 上屏」。
+                if (!pageSpring.isRunning && (pageFrom.isNotEmpty() || pageTo.isNotEmpty())) {
+                    android.util.Log.i(
+                        TAG,
+                        "takeover: 到头,清掉无人驱动的残留过渡 ${pageFrom.size}/${pageTo.size}"
+                    )
+clearPageTurn()
+                    pageCommitted = false
                 }
             }
             val accepted = beginRubber(dir, x)
