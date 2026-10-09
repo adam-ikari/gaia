@@ -834,11 +834,157 @@ if (rings.length === 0) {
         )
         c.device.key(K.del, K.del)
       },
+],
+  },
+
+  {
+    // 「画出来的候选词」与「实际上屏的字」是不是同一个。
+    //
+    // ## 为什么这条要单独存在
+    //
+    // 显示与选字走的是**两条不同的代码路径**:
+    //   - 显示:[CandidateBarView.setState] → `state.pageSlots()`(按页切、按显示序排)
+    //   - 选字:[ImeController.selectCandidate] → `state.currentPageLogical()` +
+    //     `state.displayOrder()`(全局下标 `page*pageSize + li` 喂给引擎)
+    // 两条都读 `state`,但**下标空间不一样**(页内 vs 全局)。页号一旦对不上,
+    // 画的是 A 页的字、点下去上屏的是 B 页的字 —— 界面上完全看不出破绽。
+    //
+    // 之前那条 `select:` 埋点(2026-10-05 用户报「选的候选词和实际上屏不同」时加的)
+    // 只打了**引擎侧**的 `word`,没有跟**画出来的那一格**对齐,所以查不下去。
+    //
+    // ## 三个量,缺一不可
+    //
+    //   ① 画出来的:   `draw: kind=slots … drawn=5/5 words=a|b|c|d|e`
+    //   ② 选字解析出的:`select: … li=… global=… word="X"`
+    //   ③ 真正上屏的:  输入框里的文本(uiautomator dump,与 ① ② 无关的第三方读数)
+    //
+    // 只有三个全等才算通过。② 与 ③ 之间隔着引擎与 InputConnection,
+    // ① 与 ② 之间隔着显示序/页内下标,两处都可能悄悄错开。
+    //
+    // ## 取样
+    //
+    // 三页各点一个**不同**的槽位,并覆盖两个翻页方向 ——
+    // 页号错位只在非 0 页才可能发生(第 0 页页内下标 == 全局下标),
+    // 所以只测第 0 页的场景天然全绿。
+    name: 'display-vs-commit',
+    desc: '画出来的候选词 === 选字解析出的 === 真正上屏的',
+    steps: [
+      async (c) => {
+        const PREFIX = /^\d\d-\d\d \d\d:\d\d:\d\d\.\d+\s+\d+\s+\d+\s+[VDIWEF]\s+\S+:\s*/
+        const KEY = /(?<![A-Za-z0-9_])[A-Za-z][A-Za-z0-9_]*=/g
+        const fields = (body) => {
+          const hits = []
+          KEY.lastIndex = 0
+          let m
+          while ((m = KEY.exec(body))) hits.push({ name: m[0].slice(0, -1), vs: m.index + m[0].length, ks: m.index })
+          const out = {}
+          hits.forEach((h, i) => {
+            out[h.name] = body.slice(h.vs, i + 1 < hits.length ? hits[i + 1].ks : body.length).trim()
+          })
+          return out
+        }
+        const lastDraw = (log) => {
+          const hit = [...log.split('\n')].reverse().find((l) => /draw: kind=slots/.test(l))
+          return hit ? fields(hit.replace(PREFIX, '')) : null
+        }
+        const lastPage = (log) => {
+          const hit = [...log.split('\n')].reverse().find((l) => /setState: /.test(l))
+          return hit ? fields(hit.replace(PREFIX, '')) : null
+        }
+const selOf = (log) => {
+          // **`fly select:` 也含 `select: `**,而它出现在 `select:` 之前 ——
+          // 用 `/select: /` 会先命中它,于是 word 取空、global/li 全 undefined,
+          // 看起来像「显示与上屏不一致」,其实只是读错了行。
+          // 所以锚定 `select: zone=`(那是 [ImeController.selectCandidate] 的那条)。
+          const hit = log.split('\n').find((l) => /[^y] select: zone=/.test(l))
+          if (!hit) return null
+          const body = hit.replace(PREFIX, '')
+          const f = fields(body)
+          f.word = (body.match(/word="([^"]*)"/) ?? [])[1] ?? ''
+          return f
+        }
+
+        // dir=+1 = 手指向左 = 往下一页(见 CandidateBarView 的方向约定)
+        const CASES = [
+          { want: 0, slot: 2, swipes: [] },
+          { want: 1, slot: 0, swipes: [1] },
+          { want: 2, slot: 4, swipes: [1, 1] },
+          { want: 1, slot: 3, swipes: [1, 1, -1] }, // 往回翻也要对
+        ]
+
+        const report = []
+        for (const cs of CASES) {
+          c.device.clearField()
+          c.device.key(K.n, K.i)
+          await sleep(900)
+          for (const d of cs.swipes) {
+            if (d > 0) c.device.swipe(1200, 1100, 800, 1100, 250)
+            else c.device.swipe(800, 1100, 1200, 1100, 250)
+            await sleep(1300)
+          }
+          await sleep(500)
+
+// ① 先把「这一页应该显示什么」记下来(controller 侧的权威值)。
+          //    takeLog 会清空 logcat,所以这一步必须在选字之前。
+          const before = c.device.takeLog('(setState:|draw: kind=slots)')
+          const st = lastPage(before)
+
+          c.expect(st != null, `page=${cs.want} 没有 setState: 记录`)
+          c.expect(st != null && st.page === `${cs.want}/9`,
+            `翻页没到位:期望 page=${cs.want}/9,实际 ${JSON.stringify(st?.page)}`)
+          if (!st || st.page !== `${cs.want}/9`) continue
+
+          // ## 「显示」这一侧读 `setState: words=`,不读 `draw:`
+          //
+          // `draw: kind=slots` 只在**落定**那几帧出现,而落定分支还要求
+          // `flyP < 0`(不在上滑态)。一旦有一次上滑没正常收尾、`flyP` 卡在 ≥0,
+          // 候选行就一直走 `kind=fly`,`kind=slots` **再也不出现** ——
+          // 2026-10-09 真机实测到过 `draw: kind=fly … flyP=1.0` 之后没有 slots 帧。
+          //
+          // 而 `setState: words=` 就是 `state.pageSlots()`,**就是**
+          // `drawSlots(slots)` 要画的那些词,只是早了几帧。
+          // 「画的 === controller 说的」由 `page-words-match` 单独钉住,这里不重复依赖。
+          const slots = String(st.words || '').split('|')
+          c.expect(slots.length === 5,
+            `第 ${cs.want} 页只有 ${slots.length} 个非空槽位,槽位下标与显示序对不上,不能按位置比`)
+          if (slots.length !== 5) continue
+          const expect = slots[cs.slot]
+          c.expect(!!expect, `第 ${cs.want} 页槽 ${cs.slot} 没有词(整行=${st.words})`)
+
+          // ## 选字走**键盘面上滑**,不点候选行
+          //
+          // 点候选行在这个环境里收不到事件(2026-10-09 实测:`input tap 680 1337`
+          // 之后 CandidateBar 一条日志都没有,与已知的「候选行抬手进不了 endPageDrag」
+          // 是同一处)。键盘面上滑是 `fly-select` 一直在走、且真机通过的路,
+          // 所以量测走它 —— 量测要挂在**确定能触发**的路径上。
+          //
+          // 槽位是按**按下点的 x** 分区的(floor(x / 键盘宽/5),见 ImeService
+          // 的 FlyDetector),所以起点取槽心即可。
+          const phys = /Physical size:\s*(\d+)x(\d+)/.exec(c.device.shell('wm size'))
+          const kbdW = phys ? Number(phys[1]) : 1440
+          const zx = Math.round((kbdW * (cs.slot + 0.5)) / 5)
+
+          c.device.shell('logcat -c')
+          c.device.swipe(zx, 1199, zx, 632, 250)
+          await sleep(1000)
+          const after = c.device.takeLog('(select:|fly select:)')
+          const sel = selOf(after)
+          const landed = c.device.editText().trim()
+
+          report.push(`page=${cs.want} slot=${cs.slot} 画=${expect} 选=${sel?.word} 上屏=${landed}`)
+          c.expect(sel != null, `page=${cs.want} slot=${cs.slot} 上滑选字没有任何 select: 记录`)
+          c.expect(sel && sel.word === expect,
+            `page=${cs.want} slot=${cs.slot} 画的是「${expect}」,选字解析出的是「${sel?.word}」` +
+            `(li=${sel?.li} global=${sel?.global} order=${sel?.order})`)
+          c.expect(landed === expect,
+            `page=${cs.want} slot=${cs.slot} 画的是「${expect}」,真正上屏的是「${landed}」`)
+        }
+        console.log('    · ' + report.join('\n    · '))
+      },
     ],
   },
 
-
-  {
+{
     name: 'fly-select',
     desc: '键盘面上滑飞字(槽位选字,动画)',
     steps: [
