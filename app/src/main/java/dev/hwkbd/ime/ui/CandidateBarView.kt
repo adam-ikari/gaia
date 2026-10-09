@@ -215,30 +215,7 @@ class CandidateBarView @JvmOverloads constructor(
      */
     fun isFlyAnimating(): Boolean = flyP >= 0f || flyUp.isRunning || flyBack.isRunning
 
-/**
-     * 下一次 [onPageIndexChanged] 要撤销回哪一页(`-1` = 没有待处理的撤销)。
-     *
-     * 2026-10-09 真机实测:「拉回线以下松手」明明走了取消分支,画面却补了一整页动画 ——
-     * 详见 [onPageIndexChanged] 开头那段。
-     *
-     * ## 这里存的是**页号**而不是布尔
-     *
-     * 第一版用 `Boolean pendingRollback`,结果把下一次**真正的翻页**也吞掉了
-     * (`select-global-index` 当场变红:pageStep 一次没调、page 停在 0)。
-     * 原因是那次 `onPage(-step)` **不一定**真的产生页号变化(比如中途那次提交
-     * 其实没发出去),标记就留在那儿等着吞下一次翻页。
-     *
-     * ⇒ [onPageIndexChanged] 只在 `newPage` **正好等于它**时才当撤销;
-     * 否则一律当普通翻页,并顺手清掉。
-     */
-    private var pendingRollbackTo = -1
 
-    /**
-     * 本次拖动**起手时**的页号 —— 撤销要回到的就是它。
-     *
-     * 不能用抬手那一刻的 [page]:中途那次提交之后它可能已经变成新页了。
-     */
-    private var pageDragOriginPage = 0
 
     /** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
     private var lastDrawSig = 0
@@ -257,9 +234,12 @@ class CandidateBarView @JvmOverloads constructor(
     fun setState(state: ImeState) {
         android.util.Log.i(
             TAG,
-            "setState: raw=\"${state.raw}\" n=${state.candidates.size} page=${state.page}/" +
-                "${state.totalPages} hl=${state.highlight} slots=${state.pageSlots().size} " +
-                    "nonNull=${state.pageSlots().count { it != null }}"
+            "setState: page=${state.page}/${state.totalPages} raw=\"${state.raw}\" " +
+                "n=${state.candidates.size} hl=${state.highlight} " +
+                // **词表也打出来**:这是「这一页应该显示什么」的权威值。
+                // 有了它,「画出来的词」与「controller 说的那一页的词」才能被自动比对,
+                // 而不是靠人眼看截图 —— 见 scenarios.mjs 的 `page-words-match`。
+                "words=${state.pageSlots().filterNotNull().joinToString("|") { it.word }}"
         )
         val newSlots = state.pageSlots()
         // 跟手翻页要预览相邻页,先备好(越界为空表 = 那一侧没有页,拖过去也不动)
@@ -270,29 +250,16 @@ class CandidateBarView @JvmOverloads constructor(
         lastPage = state.page
         // 变化动画要在 slots 换掉**之前**算:要对比新旧每一槽是不是同一个词
         if (!pageTurned) startSwapAnim(slots, newSlots)
-        // ## 拖动中那次提交是**暂定**的,`slots` 不能跟着换(2026-10-09 真机)
+        // `slots` 的定义只有一条:**就是 controller 那一页的词**。
+        // 拖动中也不例外。
         //
-        // 「过阈值当帧就翻」意味着拖到一半 controller 的页号就变了,于是这一行会把
-        // **下一页的候选词**换成当前页。但那次提交还可能被撤销(拉回线以下松手),
-        // 于是:
-        //
-        // ```
-        // 拖过线 → 提交 → 渲染 → slots = 下一页
-        // 拉回来 → pageSlide 归 0 → showPageTurn 变假 → drawSlots(slots) = 下一页  ← 跳变
-        // 松手取消 → controller 回本页 → 渲染 → slots 又变回来                    ← 跳回
-        // ```
-        //
-        // 用户原话:「拉回来之后候选词短暂的跳变为下一页后又恢复到当前页」。
-        //
-        // 拖动中那一页的候选在 [pageTo] 里,靠位移滑进来(见 [onPageIndexChanged]
-        // 的「拖动中提交」分支 —— 位移接着走、不起动画)。所以 `slots` 保持起手那一页。
-        //
-        // ## 那提交落定时谁来换?—— [pageSpring] 播完会回调 [onPageSettled]
-        //
-        // 跳过这一行之后,成功翻页会停在旧页上(动画播完 `clearPageTurn()`,
-        // `onDraw` 就只剩 `slots` 可画)。所以收尾必须补一次渲染,
-        // 那一页 `pageDragging` 已是 false,`slots` 自然换成新页。
-        if (!pageDragging) slots = newSlots
+        // (2026-10-09 曾经在这里加过 `if (!pageDragging)` 的例外,理由是
+        //  「中途那次提交是暂定的,换了会短暂跳到下一页」。那个例外是**错的方向**:
+        // 它的后果是成功翻页后 `slots` 永远不换 —— 动画播完停在**上一页**的词。
+        //  实测 `draw: kind=slots words=<第0页> page=1/9`。
+        //  真正的解法不是给 `slots` 加例外,而是让**暂定的页号不进 controller** ——
+        //  那样 `slots` 就不需要任何例外。)
+        slots = newSlots
         highlight = state.highlight
         page = state.page
         totalPages = state.totalPages
@@ -379,54 +346,48 @@ class CandidateBarView @JvmOverloads constructor(
     /** 单槽的入场透明度。 */
     private fun swapAlpha(i: Int): Float = swapSlots[i]?.let { SwapAnim.alpha(it) } ?: 1f
 
-    /**
+/**
      * 页号变了(controller 那边已经改完):把新页接进当前的翻页过渡。
      *
+     * ## 这里只有一个判据:「我是不是已经在滑向这一页的这些词了?」
+     *
+     * 2026-10-09 第一性原理重做。原先这里靠一堆**互相猜**的特判:
+     * 「是不是撤销中途那次提交?」「`pageDragging` 现在是 true 还是 false?」
+     * —— 因为「过阈值当帧就翻」会把**可撤销的页号**写进 controller(唯一的真相),
+     * 于是这个回调既可能是「确认」也可能是「反悔」,下游只能靠额外标记去分辨。
+     * 那一堆标记(`pendingRollbackTo` / `pageDragOriginPage`)反过来又吞掉过一次真翻页。
+     *
+     * 现在暂定的页号**只留在视图里**(见 [setPageDrag]),controller 只在抬手定下来之后
+     * 被通知一次([endPageDrag])。于是本回调回到它本来的语义:
+     * **「controller 说现在该是这一页」** —— 那就让它成为终态。
+     *
      * 三种情形:
-     * - **没有过渡在跑**(箭头点按/方向键/键盘表面横滑):冻结当前页当旧页,整页切过去;
-     * - **过渡在跑且方向反了**(松手提交后又被接管、往回拖到提交线以下又松手):
-     *   把旧页/新页两个角色对调、进度取镜像(1-u)——**画面完全不动**,只是"接下来去哪儿"换了,
+     * - **已经在滑向这一页的这些词**:什么都不用做。跟手翻页的过线切换
+     *   ([setPageDrag])与抬手提交([endPageDrag])都已经把过渡摆好了,
+     *   这里来的只是那个**通知的回音**。原来的分支会把补完动画重起一遍。
+     * - **没有过渡在跑**(箭头点按/方向键):冻结当前页当旧页,整页切过去;
+     * - **过渡在跑但方向反了**(松手提交后又被接管、往回拖):把旧页/新页两个角色
+     *   对调、进度取镜像(1-u)——**画面完全不动**,只是"接下来去哪儿"换了,
      *   然后继续把剩下的位移补完。这正是用户要的「反向滑动可以反向动画」;
      * - 目标对不上(理论上不会发生,页号一次只走 ±1):退回整页切,宁可跳一下也不画错内容。
      */
     private fun onPageIndexChanged(newPage: Int, newSlots: List<dev.hwkbd.ime.engine.Candidate?>) {
         val dir = if (newPage > lastPage) 1f else -1f
-        // ## 撤销中途那次提交:**不是一次新的翻页**(2026-10-09 真机实测)
-        //
-        // 「过阈值当帧就翻」意味着拖动途中已经 `onPage(+1)` 过。用户拉回线以下松手时
-        // [endPageDrag] 会 `onPage(-1)` 撤销 —— 而那个回调是**异步**的,到达时
-        // `pageDragging` 已经是 false,于是走下面「整页重切」那条:
-        //
-        // ```
-        // commit: 过线当帧翻 travel=40 thr=20 dir=1.0 slide=40   ← 中途提交(第3→第4页)
-        // page end: step=1 by=fling slide=0 landing=6 thr=20 v=394 commit=false page=4/9
-        // settle:   from=0 target=1360 thr=448                   ← ★ 撤销后补了整页动画
-        // ```
-        //
-        // `slide=0` 说明用户确实拉回来了(`byFinger`/`byFling` 都为假,走的是取消分支),
-        // 但那一整页补完动画把「取消」顶掉了 —— 用户看到的就是「松手之后还是翻页了」。
-        //
-        // ⇒ 撤销要**就地落定**:不清零、不补完、不重新标记成已提交。
-        // 用户为这次取消付的代价应该是 0(位移本来就被他拉回 0 了)。
-        if (newPage == pendingRollbackTo) {
-            pendingRollbackTo = -1
-            pageCommitted = false
-            pageSlide = 0f
-            pageFrom = emptyList()
-            pageTo = emptyList()
-            pageDragTravel = 0f
-            pageDirMirrored = false
-            android.util.Log.i(
-                TAG,
-                "rollback: 撤销中途那次提交,就地落定 newPage=$newPage 同页=" +
-                    "${newSlots == slots} slide=$pageSlide"
-            )
-            invalidate()
-            return
-        }
-        pendingRollbackTo = -1 // 不是撤销:别让它留给下一次真正的翻页
         pageCommitted = true
         val full = width.toFloat()
+        // 规则一:已经在滑向这一页 ⇒ 沿用现有过渡,只更新标志。
+        // 比较的是**词表本身**而不是页号:词表相同就说明这正是当前过渡的目标页,
+        // 不管它是被谁启动的(跟手过线 / 抬手提交 / 键盘表面横滑)。
+        if (pageFrom.isNotEmpty() && pageTo.isNotEmpty() &&
+            newSlots == pageTo && pageDir == dir
+        ) {
+            android.util.Log.i(
+                TAG,
+                "turn: 已在滑向该页,沿用现有过渡 newPage=$newPage slide=${pageSlide.toInt()}"
+            )
+            return
+        }
+
         // ## 这三处补完动画的时长**也走 [PageTiming] 公式**,不写死
         //
         // 原来它们直接 `settlePage(full, SpringSpec.PAGE_COMMIT)`,而
@@ -565,7 +526,7 @@ class CandidateBarView @JvmOverloads constructor(
         val rebased = !rolesSet
         if (!rolesSet) {
             pageDir = dir
-            pageDragOriginPage = page // 撤销要回到的就是它(见 pendingRollbackTo)
+
             pageFrom = slots
             pageTo = if (dir > 0f) pageNextSlots else pagePrevSlots
             pageSlide = 0f
@@ -628,26 +589,34 @@ class CandidateBarView @JvmOverloads constructor(
         if (!pageCommitted &&
             DragGesture.progress(travel, pageCommitPx(), pageDragDeadPx()) >= 1f
         ) {
-            // 埋点:提交是**当帧**发生的,而 `pageCommitted` 要等 render 回调
-            // ([onPageIndexChanged]) 才置位。这中间如果手指在阈值附近抖动,
-            // 就会重复触发 —— 那是「小幅多次振盪」的另一个候选机制。
-// **必须在这里同步置位**(2026-10-09 用户报「手指在键盘上的抖动也识别了」)
+// ## 「过阈值当帧就翻」是**视图自己的决定**,不通知 controller
             //
-            // 原来只发 `onPage(...)`,指望 [onPageIndexChanged] 回来把标志置上。
-            // 那个回调跨进程异步、外面还套着 renderPump 合并 —— 于是一个 MOVE 帧里
-            // 就能连发好几次 `onPage(±1)`,页码一次跳两三级。
-            // 抖动不需要多大:只要在提交线附近来回,每一次「过线当帧」都成立。
+            // 2026-10-09 第一性原理重做。此前这里发 `onPage(step)`,
+            // 于是**手指还按着的时候 controller 的页号就变了**,而那次提交是**可撤销的**
+            // (拉回线以下松手就是反悔)。一个随时会反悔的值被写进了唯一的真相,
+            // 于是所有下游都得互相猜哪个才是最终值 ——
+            // 于是长出来 `pendingRollbackTo` / `pageDragOriginPage` /
+            // 「`slots` 拖动中不换」/ `onPageSettled` 四个补丁,
+            // 最后症状是「翻完停在上一页的词」。
             //
-            // 置位挪到这里之后,[onPageIndexChanged] 里那句无条件
-            // `pageCommitted = true` 变成幂等的,不必再动。
+            // 现在:**暂定的页号只留在视图里**。下一/上一页的词本来就在本地
+            // (`pageNextSlots` / `pagePrevSlots`,见 [setState]),切换内容不需要问 controller。
+            // 手指抬起、判定定了,才通知 controller 一次([endPageDrag])。
+            //
+            // 于是 `slots` 回到唯一的定义:**永远等于 controller 那一页的词**,没有例外分支。
+            //
+            // `pageCommitted` 仍要**同步**置位:抖动在提交线附近来回时,
+            // 一次手势只能切一次页(原来靠 `onPage` 的异步回调置位,中间能连发好几次)。
             pageCommitted = true
-android.util.Log.i(
+            pageFrom = slots
+            pageTo = if (pageDir > 0f) pageNextSlots else pagePrevSlots
+            android.util.Log.i(
                 TAG,
                 "commit: 过线当帧翻 travel=${travel.toInt()} thr=${pageCommitPx().toInt()} " +
-                    "dir=$pageDir slide=${pageSlide.toInt()}"
+                    "dir=$pageDir slide=${pageSlide.toInt()} " +
+                    "to=${pageTo.filterNotNull().joinToString("|") { it.word }}"
             )
-            onPage?.invoke(if (pageDir > 0f) 1 else -1)
-            haptics?.confirm()
+haptics?.confirm()
         }
     }
 
@@ -817,21 +786,22 @@ android.util.Log.i(
         }
     }
 
-    /**
+/**
      * **打断时的反向收回**(2026-10-02 用户「左右滑动动画打断之后需要反向动画」)。
      *
      * 手势往没有页的那一侧走 = 用户改主意了,这一页不该翻过去。
      * 所以把进行中的过渡**动画收回原页**:既不走完(那是强按用户的意思),
      * 也不瞬移(那一下跳变正是"打断之后没有反向动画"的观感)。
      *
-     * 已提交过的还要把那次提交撤回来,否则 controller 的页号和画面对不上
-     * —— 与 [endPageDrag] 的反向分支同一套做法。
+     * **这里不需要通知 controller**(2026-10-09 第一性原理重做)。
+     * 收回的目标永远是当前这一页,而 [setPageDrag] 的过线切换是**视图本地**的:
+     * controller 压根没被告知过要翻,所以没有「已经翻过去了要撤回来」这回事。
+     * 收回播完 `clearPageTurn()` 之后 `onDraw` 画回 [slots],而 `slots` 从头到尾
+     * 就是这一页 —— 动画归零与内容归位天然一致。
      */
     private fun reversePageTurn() {
-        val wasCommitted = pageCommitted
         pageDragging = false
         pageCommitted = false
-        if (wasCommitted) onPage?.invoke(if (pageDir > 0f) -1 else 1)
         settlePage(0f, SpringSpec.PAGE_ROLLBACK)
     }
 
@@ -976,18 +946,20 @@ android.util.Log.i(
         val byFinger = DragGesture.progress(pageDragTravel, threshold, pageDragDeadPx()) >= 1f
         val byFling = v > 0f && landing >= threshold
         if (byFinger || byFling) {
-            // 埋点:`pageCommitted` 决定要不要发 `onPage`,而它此前**没有**被记录 ——
-            // 于是「发了提交但页码没动」与「压根没发」在 logcat 里同形(2026-10-05)。
-            // `willSend` 是那一行的判据,打出来才能把两种情况分开。
-            android.util.Log.i(
-                TAG,
-                "end: 判定提交 pageCommitted=$pageCommitted willSend=${!pageCommitted} " +
-                    "travel=${pageDragTravel.toInt()} thr=${threshold.toInt()} dead=${pageDragDeadPx().toInt()}"
-            )
-            if (!pageCommitted) {
-                onPage?.invoke(step)
-                haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义
-            }
+// ## 提交:**通知 controller 的唯一一次**
+            //
+            // 2026-10-09 第一性原理重做。此前 [setPageDrag] 过阈值当帧就 `onPage(step)`,
+            // 所以抬手这里只补发「还没发过的那次」(`if (!pageCommitted)`),
+            // 而取消分支要 `onPage(-step)` 把它撤回来 ——
+            // 于是一次手势最多两次跨模块调用、还要靠标记分辨回音是确认还是反悔。
+            //
+            // 现在:过线切换是**视图本地**的([setPageDrag]),controller 只在这里、
+            // 在判定定了之后被通知**一次**。所以提交分支**无条件**发。
+            //
+            // `pageCommitted` 的含义也随之收紧成「**视图已经切到目标页**了」,
+            // 它只决定**还要不要补一次轻震**(过线时已经震过了),不再决定发不发 onPage。
+            onPage?.invoke(step)
+            if (!pageCommitted) haptics?.confirm() // 翻页提交的一次轻震:跟飞字过阈值同一套反馈语义
             pageCommitted = true
             android.util.Log.i(
                 TAG,
@@ -1022,13 +994,16 @@ android.util.Log.i(
             )
             settlePage(t, sp)
         } else {
-            // 撤销上一次提交。**必须先打标记**:那个回调是异步的,到达时
-            // `pageDragging` 已经是 false,不告诉视图「这是撤销」的话,它会当成一次
-            // 新的翻页补一整页动画,把这次取消顶掉(见 [onPageIndexChanged])。
-            if (pageCommitted) {
-                pendingRollbackTo = pageDragOriginPage
-                onPage?.invoke(-step)
-            }
+// **这里没有任何东西要通知 controller**(2026-10-09 第一性原理重做)。
+            //
+            // 原先这里是「撤销中途那次提交」:打标记 + `onPage(-step)`。
+            // 那个撤销之所以必须存在,仅仅因为过阈值当帧就把页号写进了 controller;
+            // 现在那次切换是**视图本地**的([setPageDrag]),controller 压根不知道,
+            // 所以收回只要把位移动画放回 0 就行 —— 内容也跟着回去,
+            // 因为 [slots] 从头到尾就是这一页(见 [setState])。
+            //
+            // 这也正是用户报的那个 bug 的根:原先 `slots` 在中途被换成了下一页,
+            // 收回时才需要「再换回来」,那一来一回就是「短暂跳到下一页又跳回当前页」。
             pageCommitted = false
             android.util.Log.i(
                 TAG,
@@ -1166,15 +1141,9 @@ android.util.Log.i(
             // 被打断时**不能**收尾:新的一段(或手指)马上接管,此刻清过渡会把新状态一起清掉。
             // 这条区分是旧代码反复出问题的根源之一 —— `cancel()` 与 `onAnimationEnd` 混为一谈。
             if (cancelled) return@SpringChannel
-            pageSlide = pageSettleTarget
+pageSlide = pageSettleTarget
             clearPageTurn()
             invalidate()
-            // **必须报收尾**(2026-10-09):[setState] 在拖动中**不**把 `slots` 换成新页
-            // (中途那次提交是暂定的,换了就会「短暂跳到下一页又跳回来」),
-            // 所以成功翻页之后得有人来渲染一趟,那一页 `pageDragging` 已是 false,
-            // `slots` 才会换成新页。不报收尾 = 翻完了停在旧页。
-            // 与 [onFlyFinished] 同一套理由。
-            onPageSettled?.invoke()
         },
     )
 
@@ -1275,13 +1244,6 @@ android.util.Log.i(
      */
     var onFlyFinished: (() -> Unit)? = null
 
-    /**
-     * 翻页补完/收回动画**播完**。
-     *
-     * 存在的理由见 [pageSpring] 的 onFinish 与 [setState] 里那句
-     * 「拖动中那次提交是暂定的」:拖动中不换 slots,所以收尾要有人来渲染一趟。
-     */
-    var onPageSettled: (() -> Unit)? = null
 
     /**
      * 飞字完成段:从当前拖动进度(没拖过则从 0)飞到 flyP=2。

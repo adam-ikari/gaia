@@ -752,6 +752,92 @@ if (rings.length === 0) {
     ],
   },
 
+{
+    // 「候选词显示是否符合预期」—— 这是一条**量测**场景,不是功能开关测试。
+    //
+    // ## 为什么单独有一条
+    //
+    // 用户 2026-10-09 报「无论怎么翻页,动画结束都显示第一页的候选词」。
+    // 之前所有场景断言的都是**事件**(page begin/end、commit、interrupt),
+    // 而事件的正常与异常在 logcat 里常常同形 —— 所以这条 bug 能一路绿灯通过。
+    //
+    // ⇒ 判据必须是**画出来的东西**本身,而不是「有没有走那条分支」。
+    //
+    // ## 判据:画出来的词 === controller 说的那一页的词
+    //
+    // - `setState: page=N … words=a|b|c` —— controller 那一页**应该显示什么**(权威值)
+    // - `draw: kind=slots … words=a|b|c` —— `onDraw` 真的画了什么
+    //
+    // 只比 `kind=slots`:翻页过程中 `onDraw` 画的是 pageFrom/pageTo 按位移插值的结果,
+    // 那本来就不是「当前页」。落定之后 `clearPageTurn()` 走 `drawSlots(slots)`,
+    // 此时画的必须是 `slots`,而 `slots` 的定义只有一条 —— 等于 controller 那一页。
+    //
+    // 解析按 `key=` 定位、值切到下一个 key:`words=` 后面是 CJK 且没有尾随空格,
+    // 按空白切会把 `page=1/9` 一起吞进词表。
+    name: 'page-words-match',
+    desc: '翻页落定后,画出来的候选词 === controller 说的那一页',
+    steps: [
+      async (c) => {
+        c.device.key(K.n, K.i)
+        await sleep(900)
+        c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
+        c.device.shell('logcat -c')
+        // 连翻三页再翻回一页:每一次落定都得对上,包括往回翻
+        for (let i = 0; i < 3; i++) {
+          c.device.swipe(1200, 1100, 800, 1100, 250)
+          await sleep(1200)
+        }
+        c.device.swipe(800, 1100, 1200, 1100, 250)
+        await sleep(1500)
+        // 模式要**收紧**:takeLog 末尾是 `grep -E … | tail -20`,而翻页过程里
+        // `draw: kind=pageTurn` 每帧一条,宽模式会把 20 行全占掉,
+        // 落定那几帧(`kind=slots`)与 `setState` 全被截掉 —— 断言于是读到 0 帧。
+        const log = c.device.takeLog('(setState:|draw: kind=slots)')
+
+        const PREFIX = /^\d\d-\d\d \d\d:\d\d:\d\d\.\d+\s+\d+\s+\d+\s+[VDIWEF]\s+\S+:\s*/
+        const KEY = /(?<![A-Za-z0-9_])[A-Za-z][A-Za-z0-9_]*=/g
+        const fields = (body) => {
+          const hits = []
+          KEY.lastIndex = 0
+          let m
+          while ((m = KEY.exec(body))) hits.push({ name: m[0].slice(0, -1), vs: m.index + m[0].length, ks: m.index })
+          const out = {}
+          hits.forEach((h, i) => {
+            out[h.name] = body.slice(h.vs, i + 1 < hits.length ? hits[i + 1].ks : body.length).trim()
+          })
+          return out
+        }
+
+        let expected = null
+        const rows = []
+        for (const l of log.split('\n')) {
+          if (!/CandidateBar/.test(l)) continue
+          const body = l.replace(PREFIX, '')
+          if (/^setState: /.test(body)) {
+            const f = fields(body)
+            expected = { page: f.page, words: f.words }
+            continue
+          }
+          if (!/^draw: /.test(body)) continue
+          const f = fields(body)
+          if (f.kind !== 'slots' || !expected) continue
+          rows.push({ page: expected.page, drawn: f.words, want: expected.words })
+          expected = null
+        }
+
+        c.expect(rows.length >= 3, `四次翻页后至少应有 3 帧落定画面,实际 ${rows.length} 帧`)
+        const bad = rows.filter((r) => r.drawn !== r.want)
+        c.expect(
+          bad.length === 0,
+          '画出来的词必须等于 controller 说的那一页的词,实际不符:\n    · ' +
+            bad.map((r) => `page=${r.page} 画的=${r.drawn} 应为=${r.want}`).join('\n    · '),
+        )
+        c.device.key(K.del, K.del)
+      },
+    ],
+  },
+
+
   {
     name: 'fly-select',
     desc: '键盘面上滑飞字(槽位选字,动画)',

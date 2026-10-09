@@ -223,12 +223,7 @@ class ImeService : InputMethodService() {
             // 这一句只是兜底,防"动画压根没跑起来"(例如候选行不在屏上)时没人归位。
             mainHandler.postDelayed({ updateUi() }, FLY_SETTLE_MS)
         }
-        // 翻页动画播完也要重渲染一趟:[setState] 在拖动中不把 slots 换成新页
-        // (中途那次提交是暂定的,换了就会「短暂跳到下一页又跳回来」),
-        // 所以收尾必须由这里补一次 —— 不接这个回调,翻完了会停在旧页。
-        candidateBar?.onPageSettled = {
-            mainHandler.post { updateUi() }
-        }
+
         renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
