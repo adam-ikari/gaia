@@ -549,6 +549,105 @@ if (rings.length === 0) {
   },
 
   {
+    name: 'rubber-end',
+    desc: '翻到最后一页再继续滑:要有橡皮筋动画,且弹回不振荡(2026-10-09 补)',
+    steps: [
+      async (c) => {
+        // ## 事件落在哪个 surface 上,这条场景目前只能用键盘表面(2026-10-09)
+        //
+        // 候选行(y=`candidateRow()` = 1337,`inUi=true`)那条路**抬手进不了 `endPageDrag`**:
+        // 一屏 11 个手势,每个抬手都打出
+        // `touch UP: rubber=false pageDragging=true pageFrom=5 springRunning=false`,
+        // 而 `endPageDrag` 无条件会打 `page end:` —— 结果一条都没有。
+        // 于是 `pageFrom` 永远非空,后续手势全被误路由成翻页,橡皮筋一次也没起过。
+        //
+        // 键盘表面(y=1100,`inUi=false`)由 service 直接调 `pageDragEnd`,
+        // 同一套 `beginRubber → endRubber → runRubberAnim` 全链路可跑通
+        // (2026-10-09 实测 `rubber end: raw=255 shift=83 → 弹回`)。
+        //
+        // 所以这条场景先钉键盘表面这条路径。**候选行抬手那条是另一个未定位的缺口**,
+        // 写在这里而不是删掉,免得它被当成不存在。
+        const ROW = 1100
+        c.device.key(K.n, K.i)
+        await sleep(900)
+
+        // ## 「到头」= 滑到**第一页**再继续往前滑
+        //
+        // [takeOverPageDrag] 的判据是「那一侧的邻居页是不是空的」:
+        // 首页 `pagePrevSlots` 必空 ⇒ 必然走 `beginRubber`。
+        // 而末页那条路现在**测不到**:2026-10-09 实测 `page` 0-indexed、候选 45 条 = 9 页,
+        // 但连续前翻 10 次停在 `page=7/9` 且拖动被钳在 `slide=1360`(整页)、
+        // `pageDragging` 仍为 true —— 视图认为还有第 8 页,页码却不前进。
+        // **那是个未定位的疑点,不是这条场景要解决的事**,所以这里取确定可达的那一头。
+        // 两头走的是同一个 `beginRubber` → `endRubber` → `runRubberAnim`,可观测量相同。
+        //
+        // 先真的翻一页再翻回来,这样「到头」是被走到的,不是初始状态。
+        c.device.swipe(1100, ROW, 500, ROW, 200)
+        await sleep(700)
+        // 前置只钉「确实翻过页」这一件事,**不钉页码算术**。
+        //
+        // 原来要求「回到 page=0」,红了 —— 而同一轮里橡皮筋照样触发了。
+        // 原因是页码本身还不可靠:`page` 0-indexed、9 页,但连续前翻停在 `page=7/9`
+        // 且视图认为还有第 8 页(见上面那段)。在那个疑点定位之前,
+        // 拿页号当前置只会让这条场景因为一个无关的 bug 一直红。
+        // 「到没到头」由下一条断言回答 —— 橡皮筋触发本身就是到头的定义。
+        let maxPage = 0
+        for (let i = 0; i < 8; i++) {
+          c.device.swipe(500, ROW, 1100, ROW, 200)
+          await sleep(700)
+          const log = c.device.takeLog('page end:|rubber end:|rubber ring:')
+          for (const m of log.matchAll(/page end:.*page=(\d+)\//g)) {
+            maxPage = Math.max(maxPage, Number(m[1]))
+          }
+          if (/rubber end:/.test(log)) break // 已经到头,回翻不必再继续
+        }
+        c.expect(
+          maxPage >= 1,
+          `前置:应至少真的翻过一页(这样「到头」是被走到的,不是初始状态),实测最大页号=${maxPage}`,
+        )
+
+        // ## 已在第一页,再往前滑 —— 应该进橡皮筋而不是翻页
+        c.device.shell('logcat -c')
+        c.device.swipe(500, ROW, 1100, ROW, 200)
+        await sleep(900)
+        const log = c.device.takeLog('page end:|rubber end:|rubber settle:|rubber ring:')
+
+        // 判据一:**橡皮筋真的产生了位移并弹回**(需求二的前半句「有橡皮筋动画」)
+        //
+        // `rubber end:` 有三种互斥形态,都要能从日志里分出来(2026-10-09 加埋点的原因):
+        // `decide=not-tracking` / `decide=zero-raw` / `decide=spring`。
+        // **判据只用 ASCII 字段** —— logcat 的中文经 adb → 文件会被按 GBK 解一次,
+        // 正则里写 `→` 或中文就再也匹配不上。
+        const raw = Number(/rubber end: decide=spring raw=(\d+)/.exec(log)?.[1])
+        c.expect(
+          Number.isFinite(raw) && raw > 0,
+          `到头继续滑动应产生橡皮筋位移并弹回(实际 raw=${raw}; 日志: ${JSON.stringify(log.slice(0, 400))})`,
+        )
+
+        // 判据二:**弹回不振荡**(后半句)。
+        //
+        // 判据只能是**穿越次数**,不是「有没有越界」——橡皮筋的目标由 `Landing` 给,
+        // 本来就可能在 0 的另一侧(那正是「甩出去」的语义)。
+        // [SpringSpec.RUBBER_BACK] 是过阻尼 ζ=2.4,从静止出发的解单调 ⇒ 期望 0 次。
+        const rings = (log.match(/rubber ring:/g) || []).length
+        c.expect(rings === 0, `橡皮筋弹回应为过阻尼单调收敛,实测穿越目标 ${rings} 次`)
+
+        // 判据三:这一段的引擎参数确实是过阻尼。
+        //
+        // 这是 2026-10-09 那个 bug 的**回归护栏**:曾经 spec 写 ζ=2.4 而引擎实际跑 0.5
+        // (欠阻尼,正好会来回晃),而当时的日志里完全没有这一段。
+        c.expect(
+          /rubber settle:.*engZ=2\.4/.test(log),
+          `橡皮筋这段应把 ζ=2.4 真的交给引擎(实际: ${JSON.stringify(log.slice(0, 400))})`,
+        )
+
+        c.device.key(K.del, K.del)
+        await sleep(300)
+      },
+    ],
+  },
+
+  {
     name: 'five-key-slots',
     desc: '五键选字:Shift/Alt/Ctrl 各选左右候选(相对断言,词随词频漂移)',
     steps: [

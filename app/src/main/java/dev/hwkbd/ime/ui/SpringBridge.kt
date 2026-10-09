@@ -69,7 +69,8 @@ internal class SpringChannel(
      * 2026-10-09 查「报告 ζ=1.0 却实测 ζ≈0.5」时,唯一能区分
      * 「参数没送到」与「引擎有自己的约定」的量就是它。
      */
-    private var force: androidx.dynamicanimation.animation.SpringForce = spec.toOfficial()
+    internal var force: androidx.dynamicanimation.animation.SpringForce = spec.toOfficial()
+        private set
 
     private val animation = SpringAnimation(holder).apply {
         setSpring(force)

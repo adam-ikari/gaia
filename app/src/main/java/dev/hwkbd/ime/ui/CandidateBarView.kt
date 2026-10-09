@@ -559,6 +559,24 @@ class CandidateBarView @JvmOverloads constructor(
         // 所以每次起手都要重新标一遍 —— 不能靠 externalCommitPx != 0 判断,
         // 那个值是常驻的,会顺带把候选行自己的翻页也改成 60px(划一下就翻)。
         externalDrive = external
+        // ## 归属一旦确定就不再重判(2026-10-09)
+        //
+        // 本函数每个 MOVE 帧都被调,而「这一侧还有没有页」这个判据**在一次手势之内会变**:
+        // 到头起手那一帧 `pagePrevSlots` 是空的(橡皮筋拿到了手势),
+        // 紧接着在飞的翻页回滚经 `onPageIndexChanged` 把上一页填回去,
+        // 下一帧 `neighbour.isNotEmpty()` 就又成立 ⇒ 走进 if 分支 ⇒
+        // 里面的 `settleRubberBack()` 把橡皮筋 `stop()` 掉 ⇒ 抬手时 `rubber=false`。
+        //
+        // 真机实测(2026-10-09):`takeover: 到头 … accepted=true` 之后 85ms,
+        // 抬手分流表打出 `rubber=false pageDragging=true pageFrom=5`
+        // —— 橡皮筋一帧都没真正驱动过,需求二在真机上从未发生。
+        //
+        // 所以这条判据必须**在任何邻居查询之前**先问一次:
+        // 「这条手势已经归橡皮筋了吗?」是了就一直是它的。
+        // 与 [RubberDrag.begin]「同方向已在拖时是空操作」是同一条规矩的两半。
+        if (rubberDrag.tracking && rubberDrag.dir == dir) {
+            return beginRubber(dir, x) // 同方向是空操作,返回 true 让调用方继续 [setRubber]
+        }
         val neighbour = if (dir > 0f) pageNextSlots else pagePrevSlots
         // 那一侧有页 → 跟手翻页;没有页 → **橡皮筋拉伸**(到头也有反馈,
         // 此前是整条拖动都不接管,手指在动屏幕纹丝不动,像卡了)
@@ -624,37 +642,66 @@ class CandidateBarView @JvmOverloads constructor(
             beginPageDrag(dir, x, eventTimeMs)
             true
         } else {
-            // **反向从翻页接管**:把这次翻页收干净再交给橡皮筋。
-            // 不收的话 [pageDragging] 与 [rubberDrag.active] 会同时为真,
-            // [pageDragMove] 的 when 里橡皮筋优先 —— 翻页那条名义上在拖却吃不到事件,
-            // 抬手又走 [endRubber],于是 pageDragging 永远清不掉,画面卡在中间态。
-            if (pageDragging || pageFrom.isNotEmpty()) {
-                android.util.Log.i(
-                    TAG,
-                    "takeover: 反向收回 reversePageTurn springRunning=${pageSpring.isRunning}"
-                )
-                reversePageTurn()
-            } else if (pageSpring.isRunning) {
-                // **弹簧在跑、但既不是跟手拖动也不是翻页回收** ⇒ 手指抢过来的是橡皮筋。
-                // 原先这里什么都不做,于是 [beginRubber] 起橡皮筋的同时
-                // pageSpring 还在写 pageSlide —— **两支动画同时动同一行**,
-                // 读作「滑动没有打断动画」,而抬手时 [pageDragEnd] 只走 endRubber,
-                // pageSpring 没人管,自己跑完。
-                //
-                // 这里显式取消并把位移落回 0(取消会把弹簧停在半路,不落定就是错位的画面)。
-                android.util.Log.i(TAG, "takeover: 取消在飞的翻页动画(此前没人管它)")
-                pageSpring.cancel()
-                pageSlide = 0f
-                clearPageTurn()
+            // ## 一次手势只有一个主人:这段清理**只在第一帧跑**(2026-10-09)
+            //
+            // 本函数是在**每个 MOVE 帧**被调的,而这个 else 分支原来也无条件跑。
+            // 一屏 200ms 的滑动里它跑了 12 次,于是:
+            //
+            // 1. `reversePageTurn()` → `settlePage(0, ROLLBACK)`。此刻 `from == target == 0`
+            //    但 `pageFrom` 非空 ⇒ `settlePage` 走**动画**分支而不是早退分支
+            //    ⇒ `clearPageTurn()` 永远不执行(实测一屏 12 条一模一样的
+            //    `settle: from=0 target=0`,而且每条都从 denormal 值重启弹簧:
+            //    `interrupt: from=4.2E-45 v=-1.4E-44`)。
+            // 2. `reversePageTurn()` 把上一页填回 `pagePrevSlots` ⇒ [beginRubber] 的
+            //    `atEnd` 判据随之失败 ⇒ **橡皮筋每一帧都被拒**。
+            //    而「到头走橡皮筋」那条日志在 `beginRubber` **之前**打,
+            //    于是它宣称走了橡皮筋,实际一帧都没走成 —— **日志在说谎**。
+            // 3. `pageFrom` 永不清空 ⇒ ACTION_UP 被下面 `if (pageFrom.isNotEmpty()) return true`
+            //    静默吃掉 ⇒ [endRubber] 一次都不执行。
+            //
+            // 净效果:需求二「到头继续滑动要有橡皮筋动画」**在真机上完全没发生过**,
+            // 而且三条现象在日志里都表现为「什么都没有」。
+            //
+            // 修法沿用 [RubberDrag.begin] 自己那条规矩(同方向已在拖时是空操作):
+            // **这条手势已经归橡皮筋了,就一直是它的** —— 不因为中途 slots 被填回去而反悔。
+            val rubberOwns = rubberDrag.tracking && rubberDrag.dir == dir
+            if (!rubberOwns) {
+                // **反向从翻页接管**:把这次翻页收干净再交给橡皮筋。
+                // 不收的话 [pageDragging] 与 [rubberDrag.active] 会同时为真,
+                // [pageDragMove] 的 when 里橡皮筋优先 —— 翻页那条名义上在拖却吃不到事件,
+                // 抬手又走 [endRubber],于是 pageDragging 永远清不掉,画面卡在中间态。
+                if (pageDragging || pageFrom.isNotEmpty()) {
+                    android.util.Log.i(
+                        TAG,
+                        "takeover: 反向收回 reversePageTurn springRunning=${pageSpring.isRunning}"
+                    )
+                    reversePageTurn()
+                } else if (pageSpring.isRunning) {
+                    // **弹簧在跑、但既不是跟手拖动也不是翻页回收** ⇒ 手指抢过来的是橡皮筋。
+                    // 原先这里什么都不做,于是 [beginRubber] 起橡皮筋的同时
+                    // pageSpring 还在写 pageSlide —— **两支动画同时动同一行**,
+                    // 读作「滑动没有打断动画」,而抬手时 [pageDragEnd] 只走 endRubber,
+                    // pageSpring 没人管,自己跑完。
+                    //
+                    // 这里显式取消并把位移落回 0(取消会把弹簧停在半路,不落定就是错位的画面)。
+                    android.util.Log.i(TAG, "takeover: 取消在飞的翻页动画(此前没人管它)")
+                    pageSpring.cancel()
+                    pageSlide = 0f
+                    clearPageTurn()
+                }
             }
+            val accepted = beginRubber(dir, x)
             // 带上 totalPages:2026-10-03 这个 bug(只有一页 → 恒「到头」)就是靠
             // 「dir 两个方向都到头」推出来的,而**页数**是那条线索的直接证据。
+            //
+            // `accepted` 必须打出来 —— 原来这条日志在 [beginRubber] 之前打,
+            // 于是「宣称走了橡皮筋」与「真的走了橡皮筋」分不开,正是它掩盖了上面那个 bug。
             android.util.Log.i(
                 TAG,
-                "takeover: 到头走橡皮筋 dir=$dir springRunning=${pageSpring.isRunning} " +
-                    "reverse=${pageDragging || pageFrom.isNotEmpty()} (page=$page/$totalPages)"
+                "takeover: 到头 dir=$dir accepted=$accepted rubberOwns=$rubberOwns " +
+                    "springRunning=${pageSpring.isRunning} (page=$page/$totalPages)"
             )
-            beginRubber(dir, x)
+            return accepted
         }
     }
 
@@ -1231,6 +1278,17 @@ class CandidateBarView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPressRunnable)
+                // 抬手的分流表。**必须打**,而且要在任何 return 之前。
+                //
+                // 2026-10-09:需求二查不出来,就是因为这一段全是静默 return ——
+                // 「抬手被哪个分支吃掉了」在日志里只能靠猜。三个 owner 的归属
+                // 一次就能在这里对完账。
+                android.util.Log.i(
+                    TAG,
+                    "touch UP: rubber=${rubberDrag.active} raw=${rubberDrag.raw.toInt()} " +
+                        "pageDragging=$pageDragging pageFrom=${pageFrom.size} dir=$pageDir " +
+                        "springRunning=${pageSpring.isRunning}"
+                )
                 // 拖动过阈值 → 在此提交(松手即飞完);没过 → 淡回原位;正在淡回则忽略本次抬手
                 if (flyP >= 0f) {
                     if (!isFlyAnimating()) {
@@ -1333,7 +1391,16 @@ class CandidateBarView @JvmOverloads constructor(
     /** 开始橡皮筋(方向 dir:+1 拖向下一页方向,-1 上一)。@return 是否真的接管了 */
     private fun beginRubber(dir: Float, x: Float): Boolean {
         val atEnd = (dir > 0f && pageNextSlots.none { it != null }) || (dir < 0f && pagePrevSlots.none { it != null })
-        if (!atEnd) return false
+        // **已经在同一条橡皮筋上就算继续给它**,不看 atEnd。
+        //
+        // 2026-10-09:`reversePageTurn()` 会把上一页填回 `pagePrevSlots`,
+        // 而它就在 [beginRubber] 之前跑(见 [takeOverPageDrag])⇒ 橡皮筋起手的
+        // 那一帧必然 `atEnd == false` ⇒ **一次都起不来**。
+        // 「到头」是这次手势开始时就定下的事实,不该因为中途把 slots 收干净而翻案 ——
+        // 那正是 [RubberDrag.begin]「同方向已在拖时是空操作」那条规矩的另一半:
+        // **归属一旦确定就不再重判**。
+        val owned = rubberDrag.tracking && rubberDrag.dir == dir
+        if (!atEnd && !owned) return false
         // **同方向已在拖时 begin 是空操作**(RubberDrag 保证)。这里可以每帧无条件调 ——
         // 之前就是这里每帧重置基线,把位移清成 0,橡皮筋于是永远画不出来
         rubberDrag.begin(dir, x)
@@ -1349,9 +1416,31 @@ class CandidateBarView @JvmOverloads constructor(
 
     /** 松手:弹回边界。 */
     private fun endRubber() {
-        if (!rubberDrag.tracking) return
+        // ## 这条埋点必须**无条件**打,而且必须在最前面(2026-10-09)
+        //
+        // 原来 `runRubberAnim` 里才有日志,而 `runRubberAnim` 只在 `raw > 0` 时才被调。
+        // 于是三种完全不同的情况在日志里**长得一模一样:什么都没有**:
+        //   ① ACTION_UP 根本没进这个 View
+        //   ② 进了但 `tracking=false`(橡皮筋中途被谁抢走了)
+        //   ③ 进了、`tracking=true`,但 `raw == 0`(拉了一路却一像素都没形变)
+        //
+        // 需求二「到头继续滑动要有橡皮筋动画」当时就是**这样无法验收的** ——
+        // 不是断言写错,是根本没有可观测量。
+        val wasTracking = rubberDrag.tracking
+        val rawAtRelease = rubberDrag.raw
+        if (!wasTracking) {
+            android.util.Log.i(
+                TAG,
+                "rubber end: decide=not-tracking raw=${rawAtRelease.toInt()} dir=${rubberDrag.dir}"
+            )
+            return
+        }
         rubberDrag.stop() // 只停"手指不再驱动",方向与位移留给弹回动画用
         if (rubberDrag.raw <= 0f) {
+            android.util.Log.i(
+                TAG,
+                "rubber end: decide=zero-raw raw=0 dir=${rubberDrag.dir}"
+            )
             rubberDrag.reset()
             invalidate()
             return
@@ -1360,6 +1449,15 @@ class CandidateBarView @JvmOverloads constructor(
         // 回弹时长按**松手速度**给(与翻页/飞字同一套惯性):拉得快弹得快。
         // 速度样本不足时按"拉伸量 ∝ 12"折算,保证拉得越远弹得越慢。
         val v = rubberSpeed.velocity()
+        // **`decide=` 一律用 ASCII**:logcat 的中文经 adb → shell → 文件这条路会被
+        // 按 GBK 解一次,`→` 变成乱码,断言里的正则就再也匹配不上(2026-10-09 栽过)。
+        // 机器读的判据不该依赖编码。
+        android.util.Log.i(
+            TAG,
+            "rubber end: decide=spring raw=${rubberDrag.raw.toInt()} " +
+                "shift=${Rubber.shift(rubberDrag.raw, rubberScale(), rubberLimit()).toInt()} " +
+                "v=${v.toInt()} dir=${rubberDrag.dir}"
+        )
         runRubberAnim(if (kotlin.math.abs(v) >= Landing.MIN_VELOCITY) v else rubberDrag.raw * 12f)
     }
 
@@ -1393,20 +1491,90 @@ class CandidateBarView @JvmOverloads constructor(
     /**
      * 橡皮筋弹回。
      *
-     * **惯性由 [Landing] 算落点,不给弹簧** —— 与翻页同一套分工。橡皮筋的目标恒为 0,
-     * 所以落点就是「手指离开时按摩擦还能退多远」,再由弹簧从静止走完剩下的。
+     * ## 目标恒为 0,这里**不用** [Landing](2026-10-09)
      *
-     * 参数名 `v` 是手指速度;`rubberDrag.raw * 12f` 那两个旧调用点传的是
-     * 「没有速度样本时的兜底」—— 见调用处注释,现已并入 [Landing.MIN_VELOCITY] 判据。
+     * 「落点」那套是为**有另一个合法状态**的运动准备的:翻页可以落到下一页、
+     * 飞字可以落到下一格,`target - from` 是两个合法位置之差。
+     *
+     * 橡皮筋不是这种运动:边界是**绝对的**,拉伸量必须回到 0,没有「越过去」这个状态
+     * —— [Rubber.shift] 对 `raw <= 0` 直接返回 0,越界渲染不出来。
+     *
+     * 而 [Landing.project] 的落点被 `coerceIn(min(from,target), max(from,target))`
+     * **夹在起点与目标之间**,所以 `project(raw, 0f, v)` 的返回值恒在 `[0, raw]` ——
+     * **永远不可能是 0**。真机实测(2026-10-09):
+     *
+     * ```
+     * rubber end:    raw=291 shift=87 v=3500 dir=-1.0 → 弹回
+     * rubber settle: from=291 target=291 v=3500 engZ=2.4
+     * ```
+     *
+     * `from == target` ⇒ 弹簧一帧内就到终点 ⇒ `onFinish` 立刻 `reset()`
+     * ⇒ **松手后橡皮筋是「啪」地消失,没有回弹动画**。
+     * 这正是需求二「有橡皮筋动画」在真机上从来没发生过的原因。
+     *
+     * ⇒ 目标写死 0,让弹簧自己决定怎么走回去。`Landing` 的语义在橡皮筋上不成立,
+     * 硬套进来只会得到一个「什么都不做」的落点。
      */
     private fun runRubberAnim(v: Float) {
-        rubberSpring.settle(rubberDrag.raw, Landing.project(rubberDrag.raw, 0f, v))
+        val from = rubberDrag.raw
+        // 每一段橡皮筋动画重数振铃(埋点,理由与翻页的 `ring:` 一样)
+        rubberRingSide = 0
+        rubberRingCount = 0
+        rubberSettleTarget = 0f
+        // 埋点:把 [Landing] 本来会算出来的落点也打出来,好让「为什么不用它」有据可查:
+        // 它恒在 [0, raw],即**永远到不了 0**。
+        android.util.Log.i(
+            TAG,
+            "rubber settle: from=${from.toInt()} target=0 v=${v.toInt()} " +
+                "landingIfUsed=${Landing.project(from, 0f, v).toInt()} " +
+                "spec=${SpringSpec.RUBBER_BACK} engK=${rubberSpring.force.stiffness} " +
+                "engZ=${rubberSpring.force.dampingRatio}"
+        )
+        rubberSpring.settle(from, 0f)
     }
 
+    /** 橡皮筋这一段动画的目标。振铃判据用的就是这个,不是 `0`。 */
+    private var rubberSettleTarget = 0f
+
+    /** 上一帧落在目标的哪一侧;`0` 表示还没定边。见 [rubberSpring] 里的说明。 */
+    private var rubberRingSide = 0
+
+    /** 这一段橡皮筋动画已经穿过目标几次。 */
+    private var rubberRingCount = 0
+
+    /**
+     * 橡皮筋弹回用的弹簧通道。
+     *
+     * ## 振铃探测:目标恒在动,所以判据只能是「有没有来回穿」
+     *
+     * 翻页那一支的目标是固定的 `full`,而橡皮筋的目标由 [Landing] 给,
+     * **两支的振铃含义不同**:
+     * - 翻页:目标是「这一页的终点」,穿过去 = 视觉上过冲 = bug;
+     * - 橡皮筋:目标是「松手后按摩擦还能退多远」,它**本来就可能在 0 另一侧**
+     *   (那正是"甩出去"的语义),所以不能断言「不越目标」,只能断言**不来回**。
+     *
+     * ⇒ 判据是**穿越次数**而不是「有没有越界」:[RUBBER_BACK] 是过阻尼(ζ=2.4),
+     * 从静止出发的解 `(A+Bt)e^(-ωt)` 是单调的 ⇒ 期望值是 **0 次**。
+     * 真出现 ≥2 次就说明在振荡,那时这条埋点才有价值。
+     */
     private val rubberSpring = SpringChannel(
         from = 0f,
         spec = SpringSpec.RUBBER_BACK,
-        onFrame = { value, _ ->
+        onFrame = { value, velocity ->
+            val side = when {
+                value < rubberSettleTarget -> -1
+                value > rubberSettleTarget -> 1
+                else -> 0
+            }
+            if (side != 0 && rubberRingSide != 0 && side != rubberRingSide) {
+                rubberRingCount++
+                android.util.Log.i(
+                    TAG,
+                    "rubber ring: 第 $rubberRingCount 次穿过目标 value=$value " +
+                        "target=$rubberSettleTarget v=${velocity.toInt()}"
+                )
+            }
+            if (side != 0) rubberRingSide = side
             rubberDrag.animateTo(value)
             invalidate()
         },
