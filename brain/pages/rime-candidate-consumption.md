@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-06T14:27:33"
+updated: "2026-10-09T10:16:34"
 ---
 
 <!-- compiled_truth -->
@@ -184,3 +184,9 @@ consume: index=0 word="妳" consumed=0 preview="null"
   summary: "探针又抓到一个单测里结构性不可见的真 bug:`rawAfterConsuming` 的文档写着「喂进去之前 `'` 被剥掉了」,实现据此数**非撇字符**;而 `normalize` 明确**保留** `'`。引擎实测 `ni'ha'o` 选「你」consumed=3、它自己剩下的输入是 `ha'o` == `slice(3)` —— 下标语义,撇算在坐标里。旧实现在同样输入上给 `a'o`。两种语义只在 raw 没撇时相同,而屏上没有撇键、单测用例恰好同值 ⇒ 单测里结构性不可见。同一形状的第五例(「查不到 ≠ 没有什么」变体:错的**理由**比错的代码活得更久,还会被测试的注释加固)。同时记下撤回:我发明的「剩余没候选就当全吃掉」被自己的探针否掉 —— 拿来举证的 `o` 其实有 7 个候选,真正没候选的 `i` 是合法用户输入,夹取会静默丢字符"
   source: "2026-10-06 tools/rimeprobe 实测(ni'ha'o / zhong'guo)"
   affects: [rime-candidate-consumption]
+
+- time: 2026-10-09T10:16:34
+  kind: reversal
+  summary: "部分消费后继续生成候选词从来没工作过:引擎侧与 App 侧都正确(consumed=2、剩 hao、45 候选、组词区 [1,4) 长度 3),但 onUpdateSelection 的对账把 setComposingText 自己的回声当成外力破坏 —— 一次写入会收到两条中间态(comp=0..1、comp=-1..-1)才轮到真的那条,于是 abandonComposition 自杀"
+  source: "2026-10-09 真机逐条量出,commit ab878f9"
+  affects: [rime-candidate-consumption, unverified-as-fact, paging-feel]

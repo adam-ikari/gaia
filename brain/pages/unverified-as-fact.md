@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [lessons, method, verification, e2e]
 created: "2026-10-08T18:16:42"
-updated: "2026-10-09T09:49:07"
+updated: "2026-10-09T10:16:34"
 ---
 
 <!-- compiled_truth -->
@@ -123,3 +123,9 @@ updated: "2026-10-09T09:49:07"
   summary: "第 6 个错判:到头橡皮筋在真机上从来没发生过,而三条现象在日志里都表现为「什么都没有」—— 埋点打在意图上(rubber end 只在 runRubberAnim 里,而它只在 raw>0 时才被调)、ACTION_UP 全是静默 return。加上三个真 bug:归属每帧重判 / 在飞回滚撤销归属 / Landing 落点永远到不了 0"
   source: "2026-10-09 Titan 2 逐帧埋点与真机复现,commit c3ec71e"
   affects: [unverified-as-fact, paging-feel, spring-damping-direction]
+
+- time: 2026-10-09T10:16:34
+  kind: evidence
+  summary: "第 7 个错判,也是第三种形状:consume-partial 的最后一条是 imeShown(),它量的是「输入法窗口可见」不是「还在组词态」,所以功能整个是死的时候照样绿。三种形状分别是:量的不是这件事 / 量的是相邻量 / 用 spec 声称的值而非引擎收到的值"
+  source: 2026-10-09 commit ab878f9
+  affects: [unverified-as-fact]
