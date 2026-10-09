@@ -84,8 +84,8 @@ android {
         // ⇒ master 承袭已发布版本;0.7.11 由**发版 commit** 引入。
         //   代价是 dev 渠道会显示 `0.7.10-dev.<hash>` —— 而那是**真的**:
         //   它确实是 0.7.10 之后、还没成为任何发布的一版。
-        versionCode = 29
-        versionName = "0.7.10"
+        versionCode = 30
+        versionName = "0.7.11"
 
         // **release 只编 arm64-v8a**(2026-10-03 用户「只需要 arm64 版本」)。
         //
