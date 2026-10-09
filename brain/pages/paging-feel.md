@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-08T18:16:09"
+updated: "2026-10-09T08:53:32"
 ---
 
 <!-- compiled_truth -->
@@ -265,3 +265,15 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   summary: "2026-10-08 真机实测:翻页 settle 在 ζ=1.0(临界阻尼,理论上不振荡)下仍超调 33px(ring 第1次 value=1393.15 target=1360),PAGE_TARGET_SPEED 已从 1800 降到 1500(response 455→530ms)仍不够。真正的变量是 entryV —— response 只按剩余行程算,没算抬手速度,而「距离短+速度快」正是最易过冲的组合。page-interrupt 场景断言「每段最多穿过目标 1 次」实测 3 次。⇒ response 的公式缺速度项,这是 v0.7.4 调 ζ 之后没人验过的组合。"
   source: "2026-10-08 Titan 2 page-interrupt 实测"
   affects: [paging-feel, spring-damping-direction]
+
+- time: 2026-10-09T08:53:32
+  kind: reversal
+  summary: "推翻 2026-10-08 那条:「过冲的唯一变量是 entryV,response 公式缺速度项」不是根因。真正的根因是 spec 的 ζ 从未送到引擎(实际跑 androidx 默认 0.5),所以调 response 与调 ζ 都改不了过冲。修好之后 page-interrupt 的 ring 记录为零穿越"
+  source: "2026-10-09 真机逐帧轨迹拟合 + getDampingRatio() 回读,commit c928fb8"
+  affects: [paging-feel, spring-damping-direction]
+
+- time: 2026-10-09T08:53:32
+  kind: decision
+  summary: "三条补完动画统一走 PageTiming.withResponse(行程 + 进场速度取大);page-interrupt 判据改为振幅单调递减 + 首过 ≤1px;page-interrupt-live 判据改为 takeover 行的 springRunning=true"
+  source: "2026-10-09 真机 E2E 13/13"
+  affects: [paging-feel]

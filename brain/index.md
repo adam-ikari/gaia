@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-08T10:16:42.833Z._
+_Auto-generated. Last updated 2026-10-09T00:53:32.895Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [e2e-capture](pages/e2e-capture.md) — category: project | tags: [e2e, ci, emulator, media, capture] | ## 当前状态(2026-10-03,v0.7.0)
@@ -23,7 +23,7 @@ _Auto-generated. Last updated 2026-10-08T10:16:42.833Z._
 - [site-repo-topology](pages/site-repo-topology.md) — category: decision | tags: [site, monorepo, release, deploy] | 站点源码与构建在本仓库 `web/`,构建产物推到公开仓 `adam-ikari/gaia` 的 `dist/`,
 - [site-style](pages/site-style.md) — category: decision | tags: [Apple 风格:design, theme] | 站点视觉按 **Apple 官网那种语言**做,不是"深色科技风"。
 - [site-voice](pages/site-voice.md) — category: decision | tags: [naming, voice, content] | 站点的**产品名只有一个写法：盖亚输入法**。
-- [spring-damping-direction](pages/spring-damping-direction.md) — category: decision | tags: [animation, physics, spring, damping] | ## 「过冲」先怀疑拖动阶段,不要先怀疑弹簧(2026-10-04 v0.7.9)
+- [spring-damping-direction](pages/spring-damping-direction.md) — category: decision | tags: [animation, physics, spring, damping] | ## 一、ζ 从 0.72→0.9→0.95→1.0 四轮「全白费」的真正原因(2026-10-09 推翻)
 - [tt2-hardware-constraints](pages/tt2-hardware-constraints.md) — category: project | tags: [titan2, hardware, gesture] | Titan 2（Android 15）的物理键盘既是输入设备也是一块电容触摸面，但**输入法拿不到它的触摸轨迹**，因此一切依赖"键盘滑动"的交互都必须换成系统事件或屏幕手势。
-- [unverified-as-fact](pages/unverified-as-fact.md) — category: decision | tags: [lessons, method, verification, e2e] | 2026-10-08 ????(Titan 2):????,???????**?????????**??????????? ?? ????? bug ???,??????????????
+- [unverified-as-fact](pages/unverified-as-fact.md) — category: decision | tags: [lessons, method, verification, e2e] | 2026-10-08 真机首日(Titan 2):测出来的和推断出来的混在一起写成结论,于是**当时自认为已经知道**的东西全是错的 —— 但它们错得很有说服力,因为每一条都能自圆其说。
 - [windows-native-build](pages/windows-native-build.md) — category: project | tags: [librime, windows, cmake, ndk, toolchain, build] | ## ????
