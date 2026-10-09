@@ -215,8 +215,11 @@ class CandidateBarView @JvmOverloads constructor(
      */
     fun isFlyAnimating(): Boolean = flyP >= 0f || flyUp.isRunning || flyBack.isRunning
 
-    /** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
-    private var lastDrawSig = ""
+/** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
+    private var lastDrawSig = 0
+
+    /** 绘制分支的名字,与 [onDraw] 埋点里的 `kind=` 数字一一对应。 */
+    private val KIND_NAME = listOf("slots", "fly", "pageTurn", "rubber")
 
     // ## 埋点:视图**收到**了什么(2026-10-09)
     //
@@ -1661,27 +1664,30 @@ private fun onTap(x: Float) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        // ## 埋点:这一帧**真的画了什么**(2026-10-09)
+        // ## 埋点:这一帧**真的走了哪条绘制分支**(2026-10-09)
         //
-        // 用户报「部分消费后 hao 不出候选」,而控制器侧 `state.candidates` 明明是 45 个
-        // (`query#N ... n=45`)。也就是说断点在这两者之间 —— 而这一段此前**一个字都没记**:
-        // 「状态对、画不出」与「状态就空」在 logcat 里完全同形。
+        // 起因:用户报「部分消费后 hao 不出候选」,而控制器侧一路正常
+        // (`query#N … n=45`、组词区也写对了)。也就是说断点在**状态 → 画面**之间,
+        // 而那一段此前一个字都没记 —— 「状态对、画不出」与「状态就空」在 logcat 里同形。
+        // 这是同一个错第四次:`imeShown()` vs 组词态、`ring:` vs 振幅、
+        // `spec.ζ` vs 引擎收到的值、这一次是**内部状态 vs 用户看到的画面**。
         //
-        // 只在签名变化时打一行,否则每帧都打会把 logcat 冲掉。
-        val drawnKind =
-            when {
-                flyP >= 0f -> "fly"
-                pageFrom.isNotEmpty() && pageTo.isNotEmpty() && pageSlide > 0f -> "pageTurn"
-                rubberDrag.raw > 0f -> "rubber"
-                else -> "slots"
-            }
-        val sig = "$drawnKind|${slots.count { it != null }}|${pageFrom.size}|${pageTo.size}|" +
-            "${pageSlide.toInt()}|${rubberDrag.raw.toInt()}|${width}x$height"
+        // 只在签名变化时打一行,并且签名用 **Int 哈希**而不是字符串:
+        // `onDraw` 每帧都跑,每帧拼一个字符串是白付的分配(动画 600ms 就是几十个)。
+        val nonNull = slots.count { it != null }
+        val kind = when {
+            flyP >= 0f -> 1
+            pageFrom.isNotEmpty() && pageTo.isNotEmpty() && pageSlide > 0f -> 2
+            rubberDrag.raw > 0f -> 3
+            else -> 0
+        }
+        val sig = kind * 31 + nonNull * 17 + pageFrom.size * 13 + pageTo.size * 7 +
+            pageSlide.toInt() * 3 + rubberDrag.raw.toInt() * 5 + width * 11 + height
         if (sig != lastDrawSig) {
             lastDrawSig = sig
             android.util.Log.i(
                 TAG,
-                "draw: kind=$drawnKind drawn=${slots.count { it != null }}/${slots.size} " +
+                "draw: kind=${KIND_NAME[kind]} drawn=$nonNull/${slots.size} " +
                     "words=${slots.filterNotNull().joinToString("|") { it.word }} " +
                     "page=$page/$totalPages hl=$highlight flyP=$flyP " +
                     "turn=${pageFrom.size}/${pageTo.size} slide=${pageSlide.toInt()} " +
