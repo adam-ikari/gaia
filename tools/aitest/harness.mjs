@@ -167,6 +167,51 @@ export class Device {
     this.shell('input keyevent 123') // KEYCODE_MOVE_END
     for (let i = 0; i < 12; i++) this.shell('input keyevent 67') // KEYCODE_DEL
   }
+
+  /**
+   * 把焦点落到实验场的主输入框 `et_playground`,返回落点。
+   *
+   * ## 为什么不能写死坐标(2026-10-09 实测踩坑)
+   *
+   * 原来前置里是 `tap(700, 400)`。**实验场那个 EditText 会滚动** —— 实测它的
+   * frame 从 `[30,354][1410,575]` 变成过 `[30,154][1410,375]`(选中一个字、
+   * 或 IME 窗口顶起布局之后)。写死的 y 于是落在**别的字段**上。
+   *
+   * 落错字段的后果与「输入法坏了」**完全同形**:
+   * - 落�� `et_password` ⇒ [isPasswordField] 为真,输入法**故意不给候选**,
+   *   于是候选行不出现、横滑没反应、[probeIme] 的探针 90s 拿不到候选;
+   * - 落空 ⇒ 焦点根本没进编辑框,按键当普通文本进框。
+   *
+   * ⇒ 所以**先定位、再点、点完验证服务的是哪个 view**。验证不过就重试,
+   * 因为「服务的是不是主输入框」是唯一能区分这两种失败的读数
+   * (`mInputShown=true`、前台窗口、`ime list` 全都是绿的)。
+   */
+  focusMainField(maxTry = 4) {
+    for (let attempt = 1; attempt <= maxTry; attempt++) {
+      let pt = null
+      // ① 首选 IME 自己报告的 frame(它带 field 名,比 UI dump 更贴近真实服务对象)
+      const servedLine = this.shell('dumpsys input_method')
+        .split('\n')
+        .find((l) => /mServedView=.*et_playground/.test(l))
+      const f = servedLine && /(\d+),(\d+)-(\d+),(\d+)/.exec(servedLine)
+      if (f) pt = { x: Math.round((+f[1] + +f[3]) / 2), y: Math.round((+f[2] + +f[4]) / 2) }
+      // ② 退到 UI dump
+      if (!pt) {
+        try {
+          this.shell('uiautomator dump /sdcard/u.xml', 20000)
+          const node = [...this.shell('cat /sdcard/u.xml', 10000).matchAll(/<node[^>]*>/g)]
+            .find((x) => /resource-id="[^"]*\/et_playground"/.test(x[0]))?.[0]
+          const b = node && /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node)
+          if (b) pt = { x: Math.round((+b[1] + +b[3]) / 2), y: Math.round((+b[2] + +b[4]) / 2) }
+        } catch { /* 落到 ③ */ }
+      }
+      if (!pt) break
+      this.tap(pt.x, pt.y)
+      if (/mServedView=.*et_playground/.test(this.shell('dumpsys input_method'))) return pt
+      console.log(`  [focus] 第 ${attempt} 次 tap(${pt.x},${pt.y}) 没落在 et_playground,重试`)
+    }
+    return null
+  }
   /** 前台窗口名。双屏设备(主屏 + subdisplay)每屏各有一个 mCurrentFocus,全取再拼接——只取第一个会永远命中副屏 launcher。 */
   foreground() {
     const all = [...this.shell('dumpsys window').matchAll(/mCurrentFocus=Window\{[^ ]+ ([^}]+)\}/g)].map((m) => m[1])
@@ -258,12 +303,16 @@ async function runScenario(name, device, dir) {
     run: (fn) => fn(ctx), // 自定义步骤
   }
 
-  // 前置:唤醒 + 切回本输入法 + 打开实验场 + **验 IME 真的在处理输入**
+  // 前置:唤醒 + 切回本输入法 + 打开实验场 + **把焦点落到主输入框**
   device.wake()
   device.ime()
   device.shell('am start -n dev.hwkbd.ime/.playground.PlaygroundActivity >/dev/null 2>&1')
   await sleep(2000)
-  device.tap(700, 400)
+  // **不写死坐标**:实验场的 EditText 会滚动,写死的 y 会落到别的字段上 ——
+  // 落到 `et_password` 时输入法故意不给候选,症状与「输入法没反应」完全同形。
+  // 详见 [focusMainField]。
+  const focus = device.focusMainField()
+  if (!focus) throw new Error(`焦点没能落到 et_playground(服务的是别的字段 —— 实验场可能滚动了;见 focusMainField)`)
   await sleep(2500)
   // 探针放这里而不是只在 preflight —— 理由见 [Device.probeIme]。
   // 不通过就让这个场景明确地失败,而不是产出一个「原始字母进了框」的假象。
