@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-09T10:16:34"
+updated: "2026-10-09T11:20:08"
 ---
 
 <!-- compiled_truth -->
@@ -190,3 +190,9 @@ consume: index=0 word="妳" consumed=0 preview="null"
   summary: "部分消费后继续生成候选词从来没工作过:引擎侧与 App 侧都正确(consumed=2、剩 hao、45 候选、组词区 [1,4) 长度 3),但 onUpdateSelection 的对账把 setComposingText 自己的回声当成外力破坏 —— 一次写入会收到两条中间态(comp=0..1、comp=-1..-1)才轮到真的那条,于是 abandonComposition 自杀"
   source: "2026-10-09 真机逐条量出,commit ab878f9"
   affects: [rime-candidate-consumption, unverified-as-fact, paging-feel]
+
+- time: 2026-10-09T11:20:08
+  kind: evidence
+  summary: "用户确认「部分消费后继续出候选已经没有问题」。补的 setState:/draw: 埋点证明视图侧一直正常(n=45 slots=5 nonNull=5,画的是 hao 的新候选),所以那次报告与对账自杀是同一根因"
+  source: "2026-10-09 真机埋点 + 用户确认"
+  affects: [rime-candidate-consumption]

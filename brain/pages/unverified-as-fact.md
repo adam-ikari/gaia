@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [lessons, method, verification, e2e]
 created: "2026-10-08T18:16:42"
-updated: "2026-10-09T10:16:34"
+updated: "2026-10-09T11:20:07"
 ---
 
 <!-- compiled_truth -->
@@ -129,3 +129,9 @@ updated: "2026-10-09T10:16:34"
   summary: "第 7 个错判,也是第三种形状:consume-partial 的最后一条是 imeShown(),它量的是「输入法窗口可见」不是「还在组词态」,所以功能整个是死的时候照样绿。三种形状分别是:量的不是这件事 / 量的是相邻量 / 用 spec 声称的值而非引擎收到的值"
   source: 2026-10-09 commit ab878f9
   affects: [unverified-as-fact]
+
+- time: 2026-10-09T11:20:07
+  kind: reversal
+  summary: "第 8 条:「内部状态对、用户看到的画面不对」是第四种形状(判据量的是上游)。同时否掉一个被否掉的假设:飞字分支画旧页 —— 埋点显示 setState 收到 45 个候选、draw 画的已是 hao 的新候选;真正落地的修复是对账那处"
+  source: "2026-10-09 真机埋点,commit 3c5fa53"
+  affects: [unverified-as-fact, rime-candidate-consumption, paging-feel]
