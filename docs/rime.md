@@ -1,6 +1,6 @@
 # 拼音引擎:librime
 
-2026-10-03 起,拼音内核从自研 [PinyinEngine](旧,已删)换成 **librime**(`adam-ikari/librime`,
+2026-10-03 起,拼音内核从自研 [PinyinEngine](旧,已删)换成 **librime**(`adam-ikari/librime-stl`,
 子模块 `app/src/main/cpp/librime`)。词库来自 `adam-ikari/term-ime-dict`。
 
 ## 为什么换
