@@ -162,7 +162,24 @@ export const scenarios = [
         c.shot('after-interrupt')
         const log = c.device.takeLog('(SpringChannel|takeover): .*')
         c.expect(/start:/.test(log), `第一段应起跑弹簧(实际: ${JSON.stringify(log.slice(0, 300))})`)
-        c.expect(/interrupt:/.test(log), '动画在飞时的第二次手势应打出 interrupt(没有它就是「没有打断」)')
+        // ## 判据:「动画在飞时被手指接管」,不是「SpringChannel 打了 interrupt」
+        //
+        // 原来断言 `interrupt:` —— 那是 [SpringChannel.settle] 的 isRunning 分支,
+        // 而**触摸路径永远走不到那里**:`beginPageDrag` 在手指接管时一定先
+        // `pageSpring.cancel()`(CandidateBarView 第 490 行),取消之后 `isRunning=false`,
+        // 松手时 `settle` 必然走 start 分支。
+        //
+        // 所以 `interrupt:` 在这条场景里是**结构上不可能出现的事件**,
+        // 断言它等于断言一个不存在的东西 —— 红了也不能说明「没有打断」。
+        //
+        // 用户要的「打断」在这里的权威量是 `takeover` 行里的 `springRunning=true`:
+        // **手指落下那一刻动画正在飞**,随后由手指接管、位置不跳变。
+        // 第一段手势的 takeover 一定是 `springRunning=false`(那时还没起跑),
+        // 所以这条断言不可能被第一段蒙混过去。
+        c.expect(
+          /takeover:.*springRunning=true/.test(log),
+          `第二段手势应在弹簧还在飞时接管它(实际: ${JSON.stringify(log.slice(0, 400))})`,
+        )
       },
     ],
   },
@@ -484,16 +501,47 @@ export const scenarios = [
         c.device.swipe(1100, 1100, 500, 1100, 120)
         await sleep(1500)
         const log = c.device.takeLog('ring:|settle:|end:|commit:')
-        // 每次 settle 打印一行,数它就知道有几段动画;每段各自报自己的振铃次数。
-        const rings = log.split('\n').filter((l) => l.includes('ring: 第'))
-        const worst = rings.reduce((m, l) => {
-          const n = Number(/第 (\d+) 次/.exec(l)?.[1] ?? 0)
-          return Math.max(m, n)
-        }, 0)
-        c.expect(
-          rings.length === 0 || worst <= 1,
-          `每段动画最多穿过目标 1 次,实测最多次数=${worst}(共 ${rings.length} 次记录)`,
-        )
+        // ## 判据从「穿越次数」改成「振幅是否收敛且够小」
+        //
+        // 原来断言「每段动画最多穿过目标 1 次」。实测 ζ=1.0(临界阻尼,解是单调的,
+        // **永不过冲**)却打出 3 条 `ring:`:
+        //
+        //   ring: 第 1 次 value=1366.19 target=1360  v=+1991   ← 振幅 6.19px
+        //   ring: 第 2 次 value=1358.16              v=-315    ← 振幅 1.84px
+        //   ring: 第 3 次 value=1360.43              v=+49     ← 振幅 0.43px
+        //
+        // 有 `ring` 记录就说明这不是积分出来的过冲(ζ=1.0 不可能),
+        // 而是**落点判定在目标附近反复穿越**(浮点 + 阈值)。振幅已降到
+        // **亚像素**时,「穿过 3 次」与用户能感知的「震荡」是两件事。
+        //
+        // ⇒ 断言改为两件都能被感知的事:
+        //   ① **振幅单调递减**(真震荡的振幅不收敛)
+        //   ② **首过不超过 1px**(肉眼可辨的过冲)
+        //
+        // 振幅 = |value - target|,从 `ring:` 行取 —— 那是埋点里唯一的权威值。
+        const rings = log
+          .split('\n')
+          .filter((l) => l.includes('ring: 第'))
+          .map((l) => {
+            const v = Number(/value=([\d.]+)/.exec(l)?.[1])
+            const t = Number(/target=([\d.]+)/.exec(l)?.[1])
+            return {
+              n: Number(/第 (\d+) 次/.exec(l)?.[1] ?? 0),
+              amp: Number.isFinite(v) && Number.isFinite(t) ? Math.abs(v - t) : NaN,
+            }
+          })
+          .filter((r) => Number.isFinite(r.amp))
+          .sort((a, b) => a.n - b.n)
+
+if (rings.length === 0) {
+          c.expect(true, '本次没有穿越记录(动画未落回目标附近)')
+        } else {
+          const first = rings[0].amp
+          const mono = rings.every((r, i) => i === 0 || r.amp <= rings[i - 1].amp + 0.01)
+          const seq = rings.map((r) => r.amp.toFixed(2)).join(' → ')
+          c.expect(mono, `振幅应单调递减,实测 ${seq}`)
+          c.expect(first <= 1, `首过振幅应 ≤1px(肉眼不可辨),实测 ${first.toFixed(2)}px`)
+        }
         c.device.key(K.del, K.del)
         await sleep(300)
       },
@@ -599,7 +647,7 @@ export const scenarios = [
         await sleep(800)
         c.device.key(K.n, K.i)
         await sleep(700)
-        c.device.swipe(175, await candidateRow(c), 175, await candidateRow(c), 700) // 原���长按槽0
+        c.device.swipe(175, await candidateRow(c), 175, await candidateRow(c), 700) // 原地长按槽0
         await sleep(900)
         c.device.key(K.n, K.i, K.shift)
         await sleep(800)

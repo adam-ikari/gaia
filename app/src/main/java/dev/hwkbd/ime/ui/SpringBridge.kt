@@ -63,14 +63,25 @@ internal class SpringChannel(
     var target = from
         private set
 
+    /**
+     * 交给引擎的那一份力。**单独存一个字段**,而不是每次 `toOfficial()` 现造 ——
+     * 因为埋点要读**引擎手上那一份**(`getDampingRatio()`),而不是我们自己那份 spec:
+     * 2026-10-09 查「报告 ζ=1.0 却实测 ζ≈0.5」时,唯一能区分
+     * 「参数没送到」与「引擎有自己的约定」的量就是它。
+     */
+    private var force: androidx.dynamicanimation.animation.SpringForce = spec.toOfficial()
+
     private val animation = SpringAnimation(holder).apply {
-        setSpring(spec.toOfficial())
+        setSpring(force)
         addUpdateListener { _, value, velocity ->
             currentVelocity = velocity
             onFrame(value, velocity)
         }
         addEndListener { _, cancelled, _, _ -> onFinish(cancelled) }
     }
+
+    /** 逐帧埋点的行号,见 [TRACE_FRAMES]。 */
+    private var frameNo = 0
 
     /**
      * 从 [from] 朝 [target] 起跑。
@@ -89,7 +100,8 @@ internal class SpringChannel(
         // 换 spec 只在**调用方显式给了不同的**时候做 —— 同一个通道上「提交」与「收回」
         // 走两支弹簧(2026-10-04 用户定),而打断时保留当前 spec 会更连贯,所以只在起跑时对齐。
         if (spec != this.spec) {
-            animation.setSpring(spec.toOfficial())
+            force = spec.toOfficial()
+            animation.setSpring(force)
             this.spec = spec
         }
         if (isRunning) {
@@ -102,7 +114,7 @@ internal class SpringChannel(
             android.util.Log.i(
                 "SpringChannel",
                 "interrupt: $spec ζ=$spec.dampingRatio from=$from target=$target " +
-                    "v=$currentVelocity"
+                    "v=$currentVelocity engK=${force.stiffness} engZ=${force.dampingRatio}"
             )
             animation.animateToFinalPosition(target)
             return
@@ -123,9 +135,15 @@ internal class SpringChannel(
         // 修法就是**分工**:松手时速度只用来算落点,不给弹簧;打断时速度留给弹簧。
         // 这不是调参,是语义:[Landing] 答"落到哪",弹簧答"怎么过去",两者不重复计入。
         // 埋点:起跑(与上面的 interrupt 配对,两条一起看就知道动画是被接管还是被重开)
+        //
+        // **`engK`/`engZ` 是从引擎里回读出来的,不是我们的 spec 抄一遍。**
+        // 2026-10-09:spec 一直写 ζ=1.0,而引擎实际在跑 0.5([toOfficial] 的那个 bug),
+        // 靠的就是这两个数才看出来 —— 只打自己的 spec 的话两边永远"一致"。
+        // 这一行留在代码里当护栏:哪天翻译层又错了,logcat 里立刻能对上账。
         android.util.Log.i(
             "SpringChannel",
-            "start: ζ=$spec.dampingRatio from=$from target=$target v0=0"
+            "start: ζ=$spec.dampingRatio from=$from target=$target v0=0 " +
+                "engK=${force.stiffness} engZ=${force.dampingRatio}"
         )
         animation.cancel()
         holder.value = from
@@ -153,15 +171,61 @@ internal class SpringChannel(
 }
 
 /**
+ * 引擎要的两个数。**不含任何 Android 类型**,所以这一层可 JVM 单测 ——
+ * 上一版把换算直接写在 [toOfficial] 里,于是 JVM 测不到,
+ * 也就没人发现它其实一直是错的(见下面那个 bug)。
+ */
+internal data class SpringForces(val stiffness: Float, val dampingRatio: Float)
+
+/**
+ * [SpringSpec] → 引擎参数。**纯函数**,调试点只钉这一层。
+ *
+ * 官方要 `stiffness` + `dampingRatio`;本项目内部用 `response`(秒)+ `dampingRatio`,
+ * 因为 stiffness 的量纲要人脑换算,调不出"大概多久到"。换算见 [SpringSpec]。
+ */
+internal fun SpringSpec.forces(): SpringForces = SpringForces(stiffness, dampingRatio)
+
+/**
  * [SpringSpec] → 官方 [SpringForce]。**唯一的翻译层**。
  *
- * 官方要的是 `stiffness` + `dampingRatio`;本项目内部用 `response`(秒)+ `dampingRatio`,
- * 因为前者的量纲要人脑换算,调不出"大概多久到"。换算见 [SpringSpec]。
+ * ## 2026-10-09:上一版写的是 `SpringForce(mass).apply { setDampingRatio(dampingRatio) }`
  *
- * **顺序有讲究**:先 mass、再 stiffness、最后 dampingRatio ——
- * `setDampingRatio` 是按当前 stiffness 与 mass 反算阻尼的,放最后才对。
+ * 那个 `dampingRatio` **没写 `this@toOfficial.`**。`SpringForce` 是 Java 类,有
+ * `getDampingRatio()`,Kotlin 把它合成成属性 —— 于是在 `apply` 的作用域里,
+ * 这个裸名字**解析到 receiver 自己的 getter**,即刚 new 出来的 `SpringForce` 的默认值。
+ *
+ * androidx `dynamicanimation:1.1.0` 的 `SpringForce()` 把 `mDampingRatio` 硬编码成 **0.5**:
+ *
+ * ```
+ * SpringForce();  0: invokespecial Object.<init>
+ *                 15: ldc2_w  0.5d
+ *                 18: putfield mDampingRatio
+ * ```
+ *
+ * ⇒ **全项目的弹簧实际都在跑 ζ=0.5,spec 里写的 ζ 一个都没生效。**
+ * 真机实测(整页 1360px 补完,请求 ζ=1.0):
+ *
+ * | 量 | 请求 | 引擎手上(`getDampingRatio()` 回读) | 实测轨迹反解 |
+ * |---|---|---|---|
+ * | stiffness | 109.66 (=ω₀²) | 109.66 ✓ | ω₀=10.58(响应 0.594s)✓ |
+ * | dampingRatio | **1.0** | **0.5** | **ζ=0.50**,过冲 16.3% = 221px |
+ *
+ * 而 `setStiffness` 那行当初写的是 `this@toOfficial.stiffness`(限定了),
+ * 所以刚度是对的 —— **一个对一个错,混在一起看就"像是响应正常只是有点过冲"**,
+ * 于是历史上把 ζ 从 0.72 一路调到 1.0 都没用(那一串 0.1px/2.2px 的数字是纯函数算的,
+ * 不是真机量的)。
+ *
+ * ## 修法不是加限定符,是**不用 apply**
+ *
+ * 加 `this@toOfficial.` 能修好这一处,但同样的错随时可能出现在下一个参数上 ——
+ * 而且它**编译得过、单测看不见**。所以改成:先把两个数算进局部变量
+ * (纯函数 [forces],有单测),再在一个**没有 receiver 作用域**的写法里逐个 setter。
+ * 这样"名字解析到 receiver"这一类错**在结构上不可能发生**。
  */
-internal fun SpringSpec.toOfficial(): SpringForce = SpringForce(mass).apply {
-    setStiffness(this@toOfficial.stiffness)
-    setDampingRatio(dampingRatio)
+internal fun SpringSpec.toOfficial(): SpringForce {
+    val f = forces()
+    val force = SpringForce(mass)
+    force.setStiffness(f.stiffness)
+    force.setDampingRatio(f.dampingRatio)
+    return force
 }

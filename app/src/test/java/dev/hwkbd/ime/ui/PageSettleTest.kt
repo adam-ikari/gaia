@@ -56,6 +56,60 @@ class PageSettleTest {
         assertEquals(PageTiming.PAGE_MAX_RESPONSE, PageTiming.response(4000f), 0f)
     }
 
+    /**
+     * 进场速度必须拉长时长 —— 这是 2026-10-08 真机实测逼出来的那一项。
+     *
+     * 实测:`rem=355px, entryV=6174px/s` 时,只按距离算出的 280ms
+     * 让平均速度只有 1268px/s,而进场 6174px/s 需要时间被阻尼吃掉 ⇒ 首过超调 14px。
+     * 临界阻尼的解是单调的,所以那 14px 不是 ζ 的问题,是**时间不够**。
+     *
+     * ⇒ 判据:同一行程下,速度越大时长不短;且快速度那档要**盖过**距离那档。
+     */
+    @Test
+    fun `进场速度必须拉长时长`() {
+        val rem = 355f
+        val slow = PageTiming.response(rem, entrySpeed = 0f)
+        val fast = PageTiming.response(rem, entrySpeed = 6174f)
+        assertTrue(
+            "同行程下快抬手($fast s)不该比慢抬手($slow s)更短",
+            fast >= slow,
+        )
+        // 那组实测值:355/1500=237ms 被夹到 280ms;而 6174/6000=1029ms 被夹到 600ms。
+        assertEquals(PageTiming.PAGE_MAX_RESPONSE, fast, 0f)
+        // 而速度小的时候不该被速度项顶起来(否则静止松手也会变慢)
+        assertEquals(slow, PageTiming.response(rem, entrySpeed = 10f), 0f)
+    }
+
+    /**
+     * 两项取**大**:慢手势看距离,快手势看速度。
+     *
+     * 这一条钉住「不是简单相加」—— 相加会让每次都变慢。
+     */
+    @Test
+    fun `距离与速度两项取大而不是相加`() {
+        val rem = 820f
+        val byDistance = 820f / PageTiming.PAGE_TARGET_SPEED
+        assertEquals(
+            "820px 且无速度 ⇒ 就是距离那项",
+            byDistance, PageTiming.response(rem, 0f), 0.001f,
+        )
+        // 速度项很小时不应叠加(否则 820px + 一点速度 = 明显变慢)
+        val withTinySpeed = PageTiming.response(rem, 300f)
+        assertEquals(byDistance, withTinySpeed, 0.001f)
+    }
+
+    /**
+     * 负速度取绝对值 —— 方向只影响动画往哪走,不影响「要花多久吃掉它」。
+     */
+    @Test
+    fun `进场速度取绝对值`() {
+        assertEquals(
+            PageTiming.response(355f, 6174f),
+            PageTiming.response(355f, -6174f),
+            0f,
+        )
+    }
+
     /** 实测里出现过的行程都不得快于修复前那个 3042 px/s。 */
     @Test
     fun `实测行程下不许再出现修复前那种速度`() {

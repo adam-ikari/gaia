@@ -326,13 +326,30 @@ class CandidateBarView @JvmOverloads constructor(
         val dir = if (newPage > lastPage) 1f else -1f
         pageCommitted = true
         val full = width.toFloat()
+        // ## 这三处补完动画的时长**也走 [PageTiming] 公式**,不写死
+        //
+        // 原来它们直接 `settlePage(full, SpringSpec.PAGE_COMMIT)`,而
+        // [SpringSpec.PAGE_COMMIT] 的 response 是**写死的 0.45s**。
+        //
+        // 实测(2026-10-08 真机):整页从 0 补完时
+        //   settle: from=0 target=1360 response=450ms rem=1360 speed=3022px/s entryV=0
+        //   ring: 第 1 次 value=1411.72 target=1360   ⇒ **首过超调 51.7px**
+        //
+        // 而走公式的那一档(rem=669, entryV=1586)超调只有 **4.26px**。
+        // 同一个阻尼比、同一个 ζ=1.0,差别只在**时长** ⇒
+        // **又是「时间不够」,不是 ζ 的问题。**
+        //
+        // ⇒ 统一:所有「补完/收回」都经 [PageTiming.withResponse],
+        // 于是「不震荡」由**一个公式**保证,而不是每处各写一个常数。
+        // 这一档起点是 0、没有抬手速度,所以 `entrySpeed` 取 0 ——
+        // 但 `rem=full` 走距离项本身就落在 [PAGE_MAX_RESPONSE]。
         if (pageFrom.isEmpty() || pageTo.isEmpty()) {
             pageFrom = slots
             pageTo = newSlots
             pageDir = dir
             pageSlide = 0f
             if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                settlePage(full, SpringSpec.PAGE_COMMIT)
+                settlePage(full, PageTiming.withResponse(SpringSpec.PAGE_COMMIT, full))
             } else {
                 clearPageTurn()
             }
@@ -345,7 +362,7 @@ class CandidateBarView @JvmOverloads constructor(
             pageTo = f
             pageDir = -pageDir
             pageSlide = full - pageSlide
-            settlePage(full, SpringSpec.PAGE_COMMIT)
+            settlePage(full, PageTiming.withResponse(SpringSpec.PAGE_COMMIT, full))
         } else {
             // 目标对不上:整页重切
             pageFrom = slots
@@ -359,7 +376,7 @@ class CandidateBarView @JvmOverloads constructor(
             } else {
                 pageSlide = 0f
                 if (pageFrom.isNotEmpty() && pageTo.isNotEmpty()) {
-                    settlePage(full, SpringSpec.PAGE_COMMIT)
+                    settlePage(full, PageTiming.withResponse(SpringSpec.PAGE_COMMIT, full))
                 } else {
                     clearPageTurn()
                 }
@@ -834,7 +851,16 @@ class CandidateBarView @JvmOverloads constructor(
             // **分工**:惯性只决定**翻不翻**([byFling]),落点由「走完 / 回原位」决定。
             // 这与 [SpringChannel.settle] 故意不给速度参数是同一个道理:
             // 同一个物理量只在一个地方计入。
-            val (t, sp) = pageSettleFor(committed = true, full = full, from = pageSlide)
+            // `v` 是抬手瞬间沿翻页方向的速度(已按 `pageDir` 归一),
+            // **它决定时长**而不只是落点 —— 见 [PageTiming.response]:
+            // 临界阻尼永不过冲的前提是「给足时间把进场速度吃掉」,
+            // 而真机实测 ζ=1.0 仍首过超调 14px,就是因为时长只按行程算、没算它。
+            val (t, sp) = pageSettleFor(
+                committed = true,
+                full = full,
+                from = pageSlide,
+                entrySpeed = v,
+            )
             settlePage(t, sp)
         } else {
             if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
@@ -846,7 +872,12 @@ class CandidateBarView @JvmOverloads constructor(
                     "page=$page/$totalPages"
             )
             // 同理:收回的落点是 **0**(回原页),不是 `pageSlide - 惯性`。
-            val (t, sp) = pageSettleFor(committed = false, full = full, from = pageSlide)
+            val (t, sp) = pageSettleFor(
+                committed = false,
+                full = full,
+                from = pageSlide,
+                entrySpeed = v,
+            )
             settlePage(t, sp)
         }
         // 这条日志是**必需**的,不是调试残留(2026-10-03 E2E 才发现):
@@ -1752,10 +1783,15 @@ internal fun pageSettleFor(committed: Boolean, full: Float): Pair<Float, SpringS
  * 同上,但行程已知(松手那一刻 `pageSlide` 就是起点)。时长按**剩余行程**算,
  * 而不是按整页 —— 手指已经划了 585px 就只补剩下的 791px,不该再等一整页的时间。
  */
-internal fun pageSettleFor(committed: Boolean, full: Float, from: Float): Pair<Float, SpringSpec> {
+internal fun pageSettleFor(
+    committed: Boolean,
+    full: Float,
+    from: Float,
+    entrySpeed: Float = 0f,
+): Pair<Float, SpringSpec> {
     val base = if (committed) SpringSpec.PAGE_COMMIT else SpringSpec.PAGE_ROLLBACK
     val target = if (committed) full else 0f
-    return target to PageTiming.withResponse(base, target - from)
+    return target to PageTiming.withResponse(base, target - from, entrySpeed)
 }
 
 /** 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。 */
