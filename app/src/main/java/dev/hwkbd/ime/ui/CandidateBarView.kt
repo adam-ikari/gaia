@@ -609,7 +609,17 @@ class CandidateBarView @JvmOverloads constructor(
             // 埋点:提交是**当帧**发生的,而 `pageCommitted` 要等 render 回调
             // ([onPageIndexChanged]) 才置位。这中间如果手指在阈值附近抖动,
             // 就会重复触发 —— 那是「小幅多次振盪」的另一个候选机制。
-            android.util.Log.i(
+// **必须在这里同步置位**(2026-10-09 用户报「手指在键盘上的抖动也识别了」)
+            //
+            // 原来只发 `onPage(...)`,指望 [onPageIndexChanged] 回来把标志置上。
+            // 那个回调跨进程异步、外面还套着 renderPump 合并 —— 于是一个 MOVE 帧里
+            // 就能连发好几次 `onPage(±1)`,页码一次跳两三级。
+            // 抖动不需要多大:只要在提交线附近来回,每一次「过线当帧」都成立。
+            //
+            // 置位挪到这里之后,[onPageIndexChanged] 里那句无条件
+            // `pageCommitted = true` 变成幂等的,不必再动。
+            pageCommitted = true
+android.util.Log.i(
                 TAG,
                 "commit: 过线当帧翻 travel=${travel.toInt()} thr=${pageCommitPx().toInt()} " +
                     "dir=$pageDir slide=${pageSlide.toInt()}"

@@ -367,21 +367,61 @@ class PageSettleTest {
     }
 
     /**
-     * 横滑与上滑的死区**必须是两个不同的常量**(2026-10-04 用户选择拆开)。
+     * 横滑死区的下限由**生理性手抖**决定,不是由「比上滑更灵」决定(2026-10-09 改判)。
      *
-     * 这条不是「记一个数」,是防**合并回去**:2026-10-02 用户要求两者统一,
-     * 而 10-04 又要求「翻页更灵 + 上滑不动」—— 在共用一个常量时这两条是冲突的,
-     * 所以拆开。谁哪天觉得「统一更简洁」把它合回去,横滑就会跟着变慢/变钝。
+     * 原来这条钉的是 `DEAD_DP_SWIPE < DEAD_DP`(横滑必须更小,2026-10-04 用户
+     * 「翻页要更灵 + 上滑不动」)。那个决定在 **4dp** 这个取值下是错的:
      *
-     * 另外守住方向:横滑必须**更小**(翻页要更灵),不是更大。
+     * ```
+     * 4dp × density 2.5(Titan 2 / 400dpi) = 10px ≈ 0.6mm
+     * ```
+     *
+     * **0.6mm 小于指尖静止时的震颤**(约 0.3~1mm),于是「手指放在键盘上」本身
+     * 就跨过死区 —— 用户报「没有死区,手指在键盘上的抖动也识别了」。
+     * 再叠上接管门槛 `死区 + 提交线`,最灵敏那档总行程 ≈18px ≈ **1.1mm**。
+     *
+     * ⇒ 「更灵」与「防抖」是两件事,原来被一个常量同时承担。
+     * 现在**灵敏度归档位**([dev.hwkbd.ime.service.ImeService] 的 PAGE_THRESHOLD_TIERS
+     * 第二列,那是用户真正在调的旋钮),**死区只负责别把抖动当意图**。
+     *
+     * 所以这条断言改成钉**绝对下限**,而不是钉两个常量的相对关系 ——
+     * 相对关系会让人以为「只要比上滑小就行」,而真正的约束是「大于手抖」。
      */
     @Test
-    fun `横滑死区比上滑小且两者不相等`() {
+    fun `横滑死区必须大于生理性手抖`() {
+        // 1mm ≈ 3.9dp @400dpi;取其一半做下限 ⇒ 死区至少要 ~5dp 才拦得住最轻的抖。
+        val minDeadDp = 5f
         assertTrue(
-            "横滑死区 ${DragGesture.DEAD_DP_SWIPE}dp 应小于上滑 ${DragGesture.DEAD_DP}dp",
-            DragGesture.DEAD_DP_SWIPE < DragGesture.DEAD_DP,
+            "横滑死区 ${DragGesture.DEAD_DP_SWIPE}dp 太小,拦不住手指抖动(下限 ${minDeadDp}dp)",
+            DragGesture.DEAD_DP_SWIPE >= minDeadDp,
         )
-        assertTrue("两个常量不许相等,否则等于没拆", DragGesture.DEAD_DP_SWIPE != DragGesture.DEAD_DP)
+        // 在 Titan 2 的密度上折成毫米,让「为什么是这个数」留在断言里。
+        val mm = DragGesture.DEAD_DP_SWIPE * 2.5f / 25.4f
+        assertTrue(
+            "横滑死区在 400dpi 上是 ${"%.2f".format(mm)}mm,应 ≥0.6mm 才能盖住最轻的抖",
+            mm >= 0.5f,
+        )
+    }
+
+    /**
+     * 死区与提交线必须留出余量。
+     *
+     * 键盘表面的接管门槛是 `死区 + 提交线`([FlyDetector] 的
+     * `adx > swipeDeadZone + pageThresholdPx`),而基线定在**跨过门槛那一帧** ——
+     * 所以真正要翻页的总行程 ≈ `2× 死区 + 提交线`。
+     * 死区一大就把这条总行程一起放大,灵敏度档位之间的差异被压扁,
+     * 那正是 2026-10-02 拆开死区/提交线要避免的事(见 PAGE_THRESHOLD_TIERS 的注释)。
+     */
+    @Test
+    fun `死区放大后总行程仍在可用范围内`() {
+        // 死区 8dp = 20px @400dpi;conservative 档提交线 20px。
+        // 总行程 ≈ 20(门槛内的死区) + 20(跨门槛那帧) + 20(提交) = 60px ≈ 24dp。
+        val deadPx = DragGesture.DEAD_DP_SWIPE * 2.5f
+        val totalPx = deadPx * 2 + 20f
+        assertTrue(
+            "最粗档的总行程 ${totalPx.toInt()}px 太长,横滑会划不动(应 ≤120px)",
+            totalPx <= 120f,
+        )
     }
 
     @Test
