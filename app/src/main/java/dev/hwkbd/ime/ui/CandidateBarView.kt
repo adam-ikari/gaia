@@ -215,7 +215,32 @@ class CandidateBarView @JvmOverloads constructor(
      */
     fun isFlyAnimating(): Boolean = flyP >= 0f || flyUp.isRunning || flyBack.isRunning
 
-/** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
+/**
+     * 下一次 [onPageIndexChanged] 要撤销回哪一页(`-1` = 没有待处理的撤销)。
+     *
+     * 2026-10-09 真机实测:「拉回线以下松手」明明走了取消分支,画面却补了一整页动画 ——
+     * 详见 [onPageIndexChanged] 开头那段。
+     *
+     * ## 这里存的是**页号**而不是布尔
+     *
+     * 第一版用 `Boolean pendingRollback`,结果把下一次**真正的翻页**也吞掉了
+     * (`select-global-index` 当场变红:pageStep 一次没调、page 停在 0)。
+     * 原因是那次 `onPage(-step)` **不一定**真的产生页号变化(比如中途那次提交
+     * 其实没发出去),标记就留在那儿等着吞下一次翻页。
+     *
+     * ⇒ [onPageIndexChanged] 只在 `newPage` **正好等于它**时才当撤销;
+     * 否则一律当普通翻页,并顺手清掉。
+     */
+    private var pendingRollbackTo = -1
+
+    /**
+     * 本次拖动**起手时**的页号 —— 撤销要回到的就是它。
+     *
+     * 不能用抬手那一刻的 [page]:中途那次提交之后它可能已经变成新页了。
+     */
+    private var pageDragOriginPage = 0
+
+    /** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
     private var lastDrawSig = 0
 
     /** 绘制分支的名字,与 [onDraw] 埋点里的 `kind=` 数字一一对应。 */
@@ -344,6 +369,40 @@ class CandidateBarView @JvmOverloads constructor(
      */
     private fun onPageIndexChanged(newPage: Int, newSlots: List<dev.hwkbd.ime.engine.Candidate?>) {
         val dir = if (newPage > lastPage) 1f else -1f
+        // ## 撤销中途那次提交:**不是一次新的翻页**(2026-10-09 真机实测)
+        //
+        // 「过阈值当帧就翻」意味着拖动途中已经 `onPage(+1)` 过。用户拉回线以下松手时
+        // [endPageDrag] 会 `onPage(-1)` 撤销 —— 而那个回调是**异步**的,到达时
+        // `pageDragging` 已经是 false,于是走下面「整页重切」那条:
+        //
+        // ```
+        // commit: 过线当帧翻 travel=40 thr=20 dir=1.0 slide=40   ← 中途提交(第3→第4页)
+        // page end: step=1 by=fling slide=0 landing=6 thr=20 v=394 commit=false page=4/9
+        // settle:   from=0 target=1360 thr=448                   ← ★ 撤销后补了整页动画
+        // ```
+        //
+        // `slide=0` 说明用户确实拉回来了(`byFinger`/`byFling` 都为假,走的是取消分支),
+        // 但那一整页补完动画把「取消」顶掉了 —— 用户看到的就是「松手之后还是翻页了」。
+        //
+        // ⇒ 撤销要**就地落定**:不清零、不补完、不重新标记成已提交。
+        // 用户为这次取消付的代价应该是 0(位移本来就被他拉回 0 了)。
+        if (newPage == pendingRollbackTo) {
+            pendingRollbackTo = -1
+            pageCommitted = false
+            pageSlide = 0f
+            pageFrom = emptyList()
+            pageTo = emptyList()
+            pageDragTravel = 0f
+            pageDirMirrored = false
+            android.util.Log.i(
+                TAG,
+                "rollback: 撤销中途那次提交,就地落定 newPage=$newPage 同页=" +
+                    "${newSlots == slots} slide=$pageSlide"
+            )
+            invalidate()
+            return
+        }
+        pendingRollbackTo = -1 // 不是撤销:别让它留给下一次真正的翻页
         pageCommitted = true
         val full = width.toFloat()
         // ## 这三处补完动画的时长**也走 [PageTiming] 公式**,不写死
@@ -484,6 +543,7 @@ class CandidateBarView @JvmOverloads constructor(
         val rebased = !rolesSet
         if (!rolesSet) {
             pageDir = dir
+            pageDragOriginPage = page // 撤销要回到的就是它(见 pendingRollbackTo)
             pageFrom = slots
             pageTo = if (dir > 0f) pageNextSlots else pagePrevSlots
             pageSlide = 0f
@@ -930,7 +990,13 @@ class CandidateBarView @JvmOverloads constructor(
             )
             settlePage(t, sp)
         } else {
-            if (pageCommitted) onPage?.invoke(-step) // 撤销上一次提交
+            // 撤销上一次提交。**必须先打标记**:那个回调是异步的,到达时
+            // `pageDragging` 已经是 false,不告诉视图「这是撤销」的话,它会当成一次
+            // 新的翻页补一整页动画,把这次取消顶掉(见 [onPageIndexChanged])。
+            if (pageCommitted) {
+                pendingRollbackTo = pageDragOriginPage
+                onPage?.invoke(-step)
+            }
             pageCommitted = false
             android.util.Log.i(
                 TAG,
