@@ -270,7 +270,29 @@ class CandidateBarView @JvmOverloads constructor(
         lastPage = state.page
         // 变化动画要在 slots 换掉**之前**算:要对比新旧每一槽是不是同一个词
         if (!pageTurned) startSwapAnim(slots, newSlots)
-        slots = newSlots
+        // ## 拖动中那次提交是**暂定**的,`slots` 不能跟着换(2026-10-09 真机)
+        //
+        // 「过阈值当帧就翻」意味着拖到一半 controller 的页号就变了,于是这一行会把
+        // **下一页的候选词**换成当前页。但那次提交还可能被撤销(拉回线以下松手),
+        // 于是:
+        //
+        // ```
+        // 拖过线 → 提交 → 渲染 → slots = 下一页
+        // 拉回来 → pageSlide 归 0 → showPageTurn 变假 → drawSlots(slots) = 下一页  ← 跳变
+        // 松手取消 → controller 回本页 → 渲染 → slots 又变回来                    ← 跳回
+        // ```
+        //
+        // 用户原话:「拉回来之后候选词短暂的跳变为下一页后又恢复到当前页」。
+        //
+        // 拖动中那一页的候选在 [pageTo] 里,靠位移滑进来(见 [onPageIndexChanged]
+        // 的「拖动中提交」分支 —— 位移接着走、不起动画)。所以 `slots` 保持起手那一页。
+        //
+        // ## 那提交落定时谁来换?—— [pageSpring] 播完会回调 [onPageSettled]
+        //
+        // 跳过这一行之后,成功翻页会停在旧页上(动画播完 `clearPageTurn()`,
+        // `onDraw` 就只剩 `slots` 可画)。所以收尾必须补一次渲染,
+        // 那一页 `pageDragging` 已是 false,`slots` 自然换成新页。
+        if (!pageDragging) slots = newSlots
         highlight = state.highlight
         page = state.page
         totalPages = state.totalPages
@@ -1147,6 +1169,12 @@ android.util.Log.i(
             pageSlide = pageSettleTarget
             clearPageTurn()
             invalidate()
+            // **必须报收尾**(2026-10-09):[setState] 在拖动中**不**把 `slots` 换成新页
+            // (中途那次提交是暂定的,换了就会「短暂跳到下一页又跳回来」),
+            // 所以成功翻页之后得有人来渲染一趟,那一页 `pageDragging` 已是 false,
+            // `slots` 才会换成新页。不报收尾 = 翻完了停在旧页。
+            // 与 [onFlyFinished] 同一套理由。
+            onPageSettled?.invoke()
         },
     )
 
@@ -1246,6 +1274,14 @@ android.util.Log.i(
      * 让动画自己报完成,状态就跟着动画走,不再有"猜早了/猜晚了"这回事。
      */
     var onFlyFinished: (() -> Unit)? = null
+
+    /**
+     * 翻页补完/收回动画**播完**。
+     *
+     * 存在的理由见 [pageSpring] 的 onFinish 与 [setState] 里那句
+     * 「拖动中那次提交是暂定的」:拖动中不换 slots,所以收尾要有人来渲染一趟。
+     */
+    var onPageSettled: (() -> Unit)? = null
 
     /**
      * 飞字完成段:从当前拖动进度(没拖过则从 0)飞到 flyP=2。
