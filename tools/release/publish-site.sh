@@ -173,11 +173,23 @@ take_channel() {
   # 根因是「**权威来源被局部替换**」:同一件事(这个包是谁)在两条路径上
   # 用了两个来源,而其中一条更方便 ⇒ 两边迟早不一致。
   # ⇒ 身份只有远端资产名一个来源;「跳过下载」只跳过**取字节**,不跳过**问身份**。
-  asset=$(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
-    "[.assets[].name | select(startswith(\"$prefix\"))] | last // \"\"" 2>/dev/null || true)
+  # 一次问出「资产名 + 权威大小」。**大小是判据**,后面拿它拦「盘上那份是旧的」。
+  local want_remote
+  read -r asset want_remote < <(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
+    "[.assets[] | select(.name | startswith(\"$prefix\"))] | last // {} | \"\(.name) \(.size)\"" 2>/dev/null || true)
+  case "$want_remote" in ''|*[!0-9]*) want_remote=0 ;; esac
 
   if [ -s "$dest" ]; then
-    # 文件已在盘上:只取身份与校验值,不重新下载。
+    # ## 盘上有包 ≠ 盘上那个包就是**这一次**要发的包(2026-10-10 修,真 bug)
+    #
+    # 原来这条路只「跳过下载、取身份与校验值」,**从没比过字节**。
+    # 后果实测:发 v0.7.11 时 `web/docs/public/media/gaia.apk` 还留着 10-08
+    # 那版(6931568 字节),于是**旧字节被贴上 0.7.11 的标签推上线** ——
+    # 校验值也对,因为那是对着盘上旧文件算的。用户从「测试版 0.7.11」按钮
+    # 下到的是上一版,而页面上的 sha256 自洽,整条链没有一处会报错。
+    #
+    # 判据与下载那条路**同源**:字节数必须等于远端该资产的字节数。
+    # 不等就**当盘上没有**(删掉,走下面的下载),而不是信盘上那份。
     if [ -z "$asset" ]; then
       if [ "$fatal" = yes ]; then
         echo "::error::$label: 盘上有包,但 $SITE_REPO@$ref 上已没有 $prefix* 资产 —— 状态不自洽" >&2
@@ -186,18 +198,22 @@ take_channel() {
       echo "::warning::$label: 盘上有包,但远端已没有 $prefix* 资产,这个渠道本次不上线"
       return 0
     fi
-    case "$ID_FROM" in
-      tag)  ver="${ref#v}" ;;
-      *)    ver="${asset#$prefix-}"; ver="${ver%.apk}" ;;
-    esac
-    sha=$(sha256sum "$dest" | cut -d' ' -f1)
     bytes=$(stat -c%s "$dest")
-    printf -v "${var}_VERSION" '%s' "$ver"
-    printf -v "${var}_SHA256" '%s' "$sha"
-    printf -v "${var}_SIZE"   '%s' "$bytes"
-    printf -v "${var}_HAS"    '%s' 1
-    ok "$label: 用盘上已有的包,身份 $ver 取自远端资产名 $asset($bytes 字节)"
-    return 0
+    if [ "$want_remote" -gt 0 ] && [ "$bytes" = "$want_remote" ]; then
+      case "$ID_FROM" in
+        tag)  ver="${ref#v}" ;;
+        *)    ver="${asset#$prefix-}"; ver="${ver%.apk}" ;;
+      esac
+      sha=$(sha256sum "$dest" | cut -d' ' -f1)
+      printf -v "${var}_VERSION" '%s' "$ver"
+      printf -v "${var}_SHA256" '%s' "$sha"
+      printf -v "${var}_SIZE"   '%s' "$bytes"
+      printf -v "${var}_HAS"    '%s' 1
+      ok "$label: 用盘上已有的包,身份 $ver 取自远端资产名 $asset($bytes 字节,与远端一致)"
+      return 0
+    fi
+    echo "    $label: 盘上那份 $bytes 字节 ≠ 远端 $asset 的 $want_remote 字节 —— 盘上是旧包,重新下载"
+    rm -f "$dest"
   fi
 
   if [ -z "$asset" ]; then

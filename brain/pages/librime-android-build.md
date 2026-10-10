@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-05T00:25:24"
+updated: "2026-10-10T08:48:49"
 ---
 
 <!-- compiled_truth -->
@@ -178,4 +178,15 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   kind: reversal
   summary: "「按实际选词消费」的初版实现从未生效:select_candidate 之后 get_commit 永远是 null"
   source: "2026-10-04 读 librime 源码发现 OnSelect 在段尾走 Forward() 而非 Commit(),commit 队列里什么都没有"
+  affects: [librime-android-build]
+
+- time: 2026-10-09T15:07:29
+  kind: decision
+  summary: "2026-10-09 引擎仓从 adam-ikari/librime 改为 adam-ikari/librime-stl(引擎+词库同仓的 monorepo fork)。子模块 .gitmodules URL 换掉,pin bdbd5764。engine src/ 与 dict 数据在 c32d2e9e..bdbd5764 无变化,编译产物不变。词库随 engine 同 tag 发布,不再有『新词库配旧引擎』。"
+  affects: [librime-android-build]
+
+- time: 2026-10-10T08:48:49
+  kind: evidence
+  summary: "CMakeLists.txt 两处检查 opencc/Opencc.h(大写),而 opencc submodule 里实际是 opencc.h(小写)。Linux 区分大小写 ⇒ **任何全新构建目录 configure 必挂**;靠复用旧 .cxx 缓存才侥幸通过(一次 CI 从没编过的新版因此暴露)。这检查是 9d740aa(10-08)引入的。2026-10-10 发 v0.7.11 时全新建 worktree 编 release 才撞到,修成小写。"
+  source: "2026-10-10 tag worktree 全新 configure 报 opencc 头文件没进 stage"
   affects: [librime-android-build]

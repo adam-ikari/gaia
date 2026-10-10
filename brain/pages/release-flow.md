@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-08T18:15:57"
+updated: "2026-10-10T08:48:44"
 ---
 
 <!-- compiled_truth -->
@@ -211,3 +211,9 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   summary: "2026-10-08 实测:gradlew.bat 不能直接透传含点的 -P 属性(-Pandroid.injected.build.abi=arm64-v8a 被拆成任务名,报 Task '.injected.build.abi=arm64-v8a' not found),要加引号。而它对「只编一个 ABI 省时间」这条正是致命的:buildType 里的 abiFilters 仍写着两个 ABI,只编一个 ⇒ packageDebug 打印 'There are no .so files available to package in the APK for x86_64' 并**跳过整个打包**,而构建报 BUILD SUCCESSFUL 且退出码 0。⇒ 本机只编一个 ABI 时必须同时收窄 abiFilters,否则是静默无产物。"
   source: 2026-10-08 assembleDebug
   affects: [release-flow]
+
+- time: 2026-10-10T08:48:44
+  kind: reversal
+  summary: "publish-site.sh 的「盘上已有包」那条路**从没比过字节**,只跳过下载、拿盘上旧文件算 sha256(所以校验值自洽)。2026-10-10 发 v0.7.11 实测:web/docs/public/media/gaia.apk 还留着 10-08 那版(6931568 字节),旧字节被贴上 0.7.11 标签推上线,站点主按钮「测试版 0.7.11」下到的是上一版,整条链无一处报错。修法:复用前先比盘上字节数 == 远端该资产字节数,不等就当盘上没有、删掉重下(判据与下载那条路同源)。"
+  source: "2026-10-10 发 v0.7.11 实测(站点 gaia.apk 曾是 6931568,修后 6939708)"
+  affects: [release-flow, site-repo-topology]
