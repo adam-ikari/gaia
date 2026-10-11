@@ -173,48 +173,33 @@ take_channel() {
   # 根因是「**权威来源被局部替换**」:同一件事(这个包是谁)在两条路径上
   # 用了两个来源,而其中一条更方便 ⇒ 两边迟早不一致。
   # ⇒ 身份只有远端资产名一个来源;「跳过下载」只跳过**取字节**,不跳过**问身份**。
-  # 一次问出「资产名 + 权威大小」。**大小是判据**,后面拿它拦「盘上那份是旧的」。
-  local want_remote
-  read -r asset want_remote < <(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
-    "[.assets[] | select(.name | startswith(\"$prefix\"))] | last // {} | \"\(.name) \(.size)\"" 2>/dev/null || true)
-  case "$want_remote" in ''|*[!0-9]*) want_remote=0 ;; esac
+  # 一次问出「资产名」。**没有「权威大小」可用** —— GitHub 的资产 API
+  # 只给 name/size,而 size 比不了内容(见下面 2026-10-11 的第三次教训),
+  # 所以身份只有远端资产名一个来源,字节只有下载回来这一个来源。
+  read -r asset < <(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
+    "[.assets[] | select(.name | startswith(\"$prefix\"))] | last | .name // \"\"" 2>/dev/null || true)
 
-  if [ -s "$dest" ]; then
-    # ## 盘上有包 ≠ 盘上那个包就是**这一次**要发的包(2026-10-10 修,真 bug)
-    #
-    # 原来这条路只「跳过下载、取身份与校验值」,**从没比过字节**。
-    # 后果实测:发 v0.7.11 时 `web/docs/public/media/gaia.apk` 还留着 10-08
-    # 那版(6931568 字节),于是**旧字节被贴上 0.7.11 的标签推上线** ——
-    # 校验值也对,因为那是对着盘上旧文件算的。用户从「测试版 0.7.11」按钮
-    # 下到的是上一版,而页面上的 sha256 自洽,整条链没有一处会报错。
-    #
-    # 判据与下载那条路**同源**:字节数必须等于远端该资产的字节数。
-    # 不等就**当盘上没有**(删掉,走下面的下载),而不是信盘上那份。
-    if [ -z "$asset" ]; then
-      if [ "$fatal" = yes ]; then
-        echo "::error::$label: 盘上有包,但 $SITE_REPO@$ref 上已没有 $prefix* 资产 —— 状态不自洽" >&2
-        return 1
-      fi
-      echo "::warning::$label: 盘上有包,但远端已没有 $prefix* 资产,这个渠道本次不上线"
-      return 0
-    fi
-    bytes=$(stat -c%s "$dest")
-    if [ "$want_remote" -gt 0 ] && [ "$bytes" = "$want_remote" ]; then
-      case "$ID_FROM" in
-        tag)  ver="${ref#v}" ;;
-        *)    ver="${asset#$prefix-}"; ver="${ver%.apk}" ;;
-      esac
-      sha=$(sha256sum "$dest" | cut -d' ' -f1)
-      printf -v "${var}_VERSION" '%s' "$ver"
-      printf -v "${var}_SHA256" '%s' "$sha"
-      printf -v "${var}_SIZE"   '%s' "$bytes"
-      printf -v "${var}_HAS"    '%s' 1
-      ok "$label: 用盘上已有的包,身份 $ver 取自远端资产名 $asset($bytes 字节,与远端一致)"
-      return 0
-    fi
-    echo "    $label: 盘上那份 $bytes 字节 ≠ 远端 $asset 的 $want_remote 字节 —— 盘上是旧包,重新下载"
-    rm -f "$dest"
-  fi
+  # ## 「盘上已有包」这条捷径已删掉(2026-10-11 实测,同一个形状的第三次)
+  #
+  # 它原本为省一次 10~22MB 的下载:盘上有包、字节数与远端资产相等就复用。
+  # 2026-10-10 刚把这里的判据从「文件在不在」改成「字节数等不等」,
+  # 理由是对的(截断的包也是文件)。而字节数**同样**不是内容判据:
+  # 两个 APK 可以一样大。
+  #
+  # 实测(发 9582d85):b9b34d8 与 9582d85 只差一个 shell 脚本,
+  # versionName 后缀 `b9b34d8`→`9582d85` 等长 ⇒ 两个包都是 10699199 字节。
+  # 盘上那份旧包于是通过字节数检查被复用,页面显示 `dev 9582d85`
+  # 配的 sha256 却是上一版的字节 —— 旧内容贴新标签推上线,整条链无一处报错。
+  # (连脚本最后的「线上与本地产物逐字节一致」也是真的:那个「本地产物」
+  #  就是从盘上旧包复制来的。判据链每一环都自洽,只是没碰到真正的包。)
+  #
+  # GitHub 的 release 资产 API **不提供 sha256**(只有 name/size),
+  # 所以「盘上那份 == 远端那份」不把字节拿回来就无从判断。
+  # ⇒ 捷径删掉:每次都下载,大小校验通过后从**下载到的字节**算 sha256。
+  #   想用盘上的包,有显式的 `--skip-fetch` —— 那是发布的人明确选的路。
+  #
+  # 与 2026-10-10 那处修法不矛盾:那次把「存在」升级成「大小」是对的,
+  # 这一次是承认大小到头了。判据要比的是**字节**,而只有字节能比字节。
 
   if [ -z "$asset" ]; then
     if [ "$fatal" = yes ]; then
