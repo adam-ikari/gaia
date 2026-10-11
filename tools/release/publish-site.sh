@@ -154,7 +154,7 @@ STABLE_NOTE="${STABLE_NOTE:-0.7.10 有一个已知问题：拼音被部分消费
 take_channel() {
   local label=$1 ref=$2 prefix=$3 dest=$4 var=$5 fatal=$6 id_from=${7:-asset}
   local ID_FROM="$id_from"
-  local asset ver want got attempt sha bytes
+  local asset ver want got attempt sha bytes out q_ok
 
   # ## 身份**永远**从远端资产名读 —— 包括「文件已在盘上」这条路
   #
@@ -176,8 +176,37 @@ take_channel() {
   # 一次问出「资产名」。**没有「权威大小」可用** —— GitHub 的资产 API
   # 只给 name/size,而 size 比不了内容(见下面 2026-10-11 的第三次教训),
   # 所以身份只有远端资产名一个来源,字节只有下载回来这一个来源。
-  read -r asset < <(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
-    "[.assets[] | select(.name | startswith(\"$prefix\"))] | last | .name // \"\"" 2>/dev/null || true)
+  #
+  # ## 这个查询也要**重试**,并且区分「查不到」与「没这东西」(2026-10-11 修)
+  #
+  # 原来是 `read -r asset < <(gh release view … 2>/dev/null || true)`:
+  # 网络抖一下,`|| true` 把失败吞掉、asset 为空,脚本便断定
+  # 「远端没有 app-release* 资产」并**致命退出** —— 实测 2026-10-11:
+  # v0.7.11 的 app-release.apk 好好在那儿,一次抖动就让整个发布中断。
+  #
+  # 与下面大小查询同一个形状(**查询失败 ≠ 结果为空**,今天第二次):
+  #   · gh 退出码非零 ⇒ 查不到,重试;5 次都查不到 ⇒ **不知道**,按 fatal 分流;
+  #   · 退出码 0 而输出为空 ⇒ 真的没有匹配资产(beta 渠道常年如此,非致命)。
+  # 两条路在原来的写法里一模一样 —— 都是 asset 为空。
+  asset=""
+  q_ok=0
+  for attempt in 1 2 3 4 5; do
+    if out=$(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
+        "[.assets[] | select(.name | startswith(\"$prefix\"))] | last | .name // \"\"" 2>/dev/null); then
+      asset=$out
+      q_ok=1
+      break
+    fi
+    sleep $((attempt * 3))
+  done
+  if [ "$q_ok" = 0 ]; then
+    if [ "$fatal" = yes ]; then
+      echo "::error::$label: 连续 5 次取不到 $ref 的资产清单 —— 无从判断有没有 $prefix* 资产,不许继续" >&2
+      return 1
+    fi
+    echo "::warning::$label: 连续 5 次取不到 $ref 的资产清单,这个渠道本次不上线"
+    return 0
+  fi
 
   # ## 「盘上已有包」这条捷径已删掉(2026-10-11 实测,同一个形状的第三次)
   #
@@ -227,11 +256,40 @@ take_channel() {
   fi
 
   # **权威大小**:远端那个资产的字节数。
-  want=$(gh api "repos/$SITE_REPO/releases/tags/$ref" --jq \
-    ".assets[] | select(.name==\"$asset\") | .size" 2>/dev/null | head -1)
-  case "$want" in
-    ''|*[!0-9]*) want=0 ;;
-  esac
+  #
+  # ## 这个查询也要**重试**,而且拿不到就是拿不到(2026-10-11 实测,假失败)
+  #
+  # 第一版只查一次:`gh api` 抖一下(`unexpected EOF` 在这个网络下是常态)返回空,
+  # `case` 把空串归一成 `want=0` —— 于是下面那句
+  #     [ "$want" -gt 0 ] && [ "$got" = "$want" ]
+  # 的**大小校验被静默禁用**:每一次下载其实都完整成功(实测 5 次全是
+  # 10699195 字节),却每次都因为「和 0 比不上」被判成截断,5 次之后
+  # 非致命渠道放弃上线。而**下载重试了、查询没有** —— 重试只保住了
+  # 不重要的那一半,判据的那一半裸奔。
+  #
+  # 与 publish-dev.sh 的 `remote_asset_size()` / `dev_assets()` 同一形状:
+  # **查询失败 ≠ 结果为空**,要用退出码/重试区分,不能归一成 0 假装「没这东西」。
+  #
+  # 拿不到权威大小时**不许放行**:没有它就无从判断截断
+  # (2026-10-05 的教训:gh 退出码非零而文件还在盘上,半截文件是常态)。
+  # ⇒ 重试 5 次仍拿不到,按 fatal 分流,与「取不到完整文件」同等对待。
+  want=0
+  for attempt in 1 2 3 4 5; do
+    q=$(gh api "repos/$SITE_REPO/releases/tags/$ref" --jq \
+      ".assets[] | select(.name==\"$asset\") | .size" 2>/dev/null | head -1)
+    case "$q" in
+      ''|*[!0-9]*) sleep $((attempt * 3)) ;;
+      *) want=$q; break ;;
+    esac
+  done
+  if [ "$want" = 0 ]; then
+    if [ "$fatal" = yes ]; then
+      echo "::error::$label: 连续 5 次取不到 $asset 的权威大小 —— 没有它无法判断下载是否完整,不许继续" >&2
+      return 1
+    fi
+    echo "::warning::$label: 取不到权威大小,无法判断下载完整性,这个渠道本次不上线"
+    return 0
+  fi
 
   for attempt in 1 2 3 4 5; do
     # **先删**:上一次失败留下的半截文件就在这儿,不清会被当成这次的结果。
