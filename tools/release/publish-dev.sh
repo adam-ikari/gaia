@@ -172,10 +172,33 @@ for a in 1 2 3 4 5; do
   sleep $((a * 5))
 done
 
-WANT=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" \
-       --jq ".assets[] | select(.name==\"$ASSET\") | .size" 2>/dev/null | head -1)
-if [ -z "$WANT" ]; then
-  die "远端清单里没有 $ASSET —— 上传没成,站点这次不会有 dev 渠道"
+# ## 这条核对也要**重试** —— 同一个形状的第四个实例(2026-10-11 实测)
+#
+# 下面 `dev_assets()` 已经为「查询失败 vs 结果为空」写了重试,而这条核对上传结果的
+# 查询是**单次** `gh api … 2>/dev/null`。发 `d062fee` 时撞上的正是它:上传成了、
+# 远端确实有 `app-dev-d062fee.apk`(手动 `gh api` 一次就列出来),而脚本 die 说
+# **「远端清单里没有 …… 站点这次不会有 dev 渠道」**。
+#
+# 误报的代价不是噪音,是**假失败**:上面那段注释专门写了「命令失败了不等于东西不在」,
+# 结果这条判据自己就没重试 —— 一次网络抖动就把已经成功的发布报成没成,
+# 发布人要么重跑,要么去做一件本来不需要做的事。
+remote_asset_size() {
+  local out a
+  for a in 1 2 3 4 5; do
+    if out=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq \
+              ".assets[] | select(.name==\"$ASSET\") | .size" 2>/dev/null); then
+      printf '%s\n' "$out" | head -1; return 0      # 查询成功(结果**可能就是空**)
+    fi
+    sleep $((a * 3))
+  done
+  return 1                                          # 五次都取不到 = 不知道,不是没有
+}
+
+if ! WANT=$(remote_asset_size); then
+  die "连续 5 次取不到 $DEV_TAG 的资产清单 —— 这**不代表上传失败**,别说站点没有 dev 渠道。
+     自己核对一次:gh api repos/$SITE_REPO/releases/tags/$DEV_TAG --jq '.assets[].name'"
+elif [ -z "$WANT" ]; then
+  die "远端清单里确实没有 $ASSET(查询成功、结果里没有)—— 上传没成,站点这次不会有 dev 渠道"
 elif [ "$WANT" != "$SIZE" ]; then
   die "远端 $ASSET 是 $WANT 字节,本地是 $SIZE 字节 ⇒ 传输坏了,别当成成功"
 fi
