@@ -41,6 +41,9 @@
         android:textColor="@color/candidate_fg"
         android:textSize="13sp"
         android:visibility="gone" />
+    <!-- 上面 preedit_row 的 textColor 只是 applyPrefs 跑到之前的默认值;**真正的颜色
+         由 ImeService.applyPrefs 按所选主题注入主题 accent** —— 与候选行里匹配拼音的
+         首字母同一个色(2026-10-11 用户「拼音使用主题色 提高可读性」)。换主题即时跟随。 -->
 
     <!--
       L5 虚拟按键层:**状态栏上方**的独立键帽行(2026-09-29 用户定案)。

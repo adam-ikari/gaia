@@ -951,6 +951,13 @@ class ImeService : InputMethodService() {
         candidateBar?.flyThresholdPx = flyThreshold // 候选行内起手的上滑用同一阈值
         theme = dev.hwkbd.ime.ui.ImeTheme.byId(p.getString(PREF_THEME, "obsidian"))
         candidateBar?.setTheme(theme)
+        // 拼音悬浮条用主题 accent(2026-10-11 用户「拼音使用主题色 提高可读性」)。
+        // accent 在这套主题系统里的定义就是「主色(语言状态、匹配拼音)」——
+        // 候选行里匹配拼音的首字母已经用它(见 [dev.hwkbd.ime.ui.CandidateBarView.setTheme]),
+        // 拼音条再用同一个色,读起来是同一族:正在输入的拼音 vs 候选词,
+        // 一眼分得开,不用再靠「位置」猜哪段是拼音。
+        // 主题在设置页换,prefsListener 会再跑一次这里,换色即时生效。
+        preeditRow?.setTextColor(theme.accent)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
         // L5 行是**薄底色**,不是实心:底下 App 的颜色透上来,看起来和应用背景一致
