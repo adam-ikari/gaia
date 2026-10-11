@@ -28,6 +28,7 @@ web/docs/.vitepress/dist/
 web/docs/.vitepress/cache/
 
 # 本机调试临时文件
+.qoder/
 .tapfeet/
 .coco/
 .probe_screen.png
