@@ -270,20 +270,23 @@ if [ "$n_left" != "1" ]; then
 fi
 echo "    $DEV_TAG 上恰好一份 dev 资产"
 
-# ---- 触发部署 ---------------------------------------------------------------
+# ---- 下一步:站点不会自己更新 ----------------------------------------------
 #
-# 站点部署**必须走 CI**:Pages 是 `build_type: workflow`,任何站点改动都要构建。
-# 而 gaia 是公开仓,它的 Actions **不受私有仓的账单限制**(实测 Deploy site 正常)。
-step "触发站点部署(走 CI)"
-for a in 1 2 3; do
-  if gh workflow run deploy.yml -R "$SITE_REPO" --ref main >/dev/null 2>&1; then
-    echo "    已触发"; break
-  fi
-  echo "    第 $a 次触发失败,重试"; sleep $((a * 5))
-done
-
-printf '\n\033[32m已发\033[0m 站点会在 CI 跑完后更新。\n'
-printf '验的时候看这两条:\n'
-printf '  · %s 的 run 是不是 success\n' "$SITE_REPO"
-printf '  · https://adam-ikari.github.io/gaia/media/gaia-dev.apk 是不是 %s 字节\n' "$SIZE"
-printf '    (下下来 sha256 应当是 %s)\n' "$SHA"
+# ## 这里原来写的是「触发 CI 部署,站点会更新」—— **那句是假的**(2026-10-11 实测)
+#
+# `gaia` 的 `deploy.yml` 只 checkout 站点仓里**已提交的产物**再构建,它**不从
+# release 资产取包**。把 `app-dev-<hash>.apk` 放进 `dist/media/gaia-dev.apk`
+# 的是 `tools/release/publish-site.sh`(`take_channel` 那一步)。
+#
+# 实测过:发 `b9b34d8` 时本脚本触发的那个 run **completed success(20s)**,
+# 而 `https://adam-ikari.github.io/gaia/media/gaia-dev.apk` 仍是上一版的
+# 10681507 字节 —— 直到跑了 `publish-site.sh` 才变成 10699199。
+#
+# 后果不是少一步:脚本打印「已发,站点会在 CI 跑完后更新」,人就会去看那个
+# **绿了的** run 然后收工。判据「线上字节 == 本地字节」只在 publish-site.sh 里,
+# 所以这一步只能报**下一步是什么**,不能报**已完成**。
+step "下一步(必做,否则站点上没有这次的文件)"
+printf '    资产已在 %s @ %s(远端清单核对过),但**站点还没拿到它**。\n' "$SITE_REPO" "$DEV_TAG"
+printf '    接着跑:tools/release/publish-site.sh   # 构建站点 + 推产物 + 逐字节验线上\n'
+printf '    验的是:https://adam-ikari.github.io/gaia/media/gaia-dev.apk == %s 字节\n' "$SIZE"
+printf '           下下来 sha256 应当是 %s\n' "$SHA"
