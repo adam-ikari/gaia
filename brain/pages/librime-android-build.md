@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-10T08:48:49"
+updated: "2026-10-11T05:13:07"
 ---
 
 <!-- compiled_truth -->
@@ -189,4 +189,10 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   kind: evidence
   summary: "CMakeLists.txt 两处检查 opencc/Opencc.h(大写),而 opencc submodule 里实际是 opencc.h(小写)。Linux 区分大小写 ⇒ **任何全新构建目录 configure 必挂**;靠复用旧 .cxx 缓存才侥幸通过(一次 CI 从没编过的新版因此暴露)。这检查是 9d740aa(10-08)引入的。2026-10-10 发 v0.7.11 时全新建 worktree 编 release 才撞到,修成小写。"
   source: "2026-10-10 tag worktree 全新 configure 报 opencc 头文件没进 stage"
+  affects: [librime-android-build]
+
+- time: 2026-10-11T05:13:07
+  kind: decision
+  summary: "2026-10-11 更新 librime 两件一起做(用户「更新librime」):①子模块 bdbd576 → d6006f73(fork 主线 8 提交:并入上游 67 提交、regex 走 PCRE 翻译层、插件模块注册从 Boost.PP 编译定义改为 configure 期生成 rime_extra_modules.h);②词典资产同步 —— 应用的 assets/rime/{luna_pinyin.dict.yaml,essay.txt} 此前冻结在 64eda4c7,本次覆盖为 fork dict/ 当前状态(简体化 3fbacf6c + 错音订正 fa3744e3 + 文言读音清理 d6006f73)。同步边界:opencc/ 与 luna_pinyin.schema.yaml 是应用自己维护的,不随子模块走。验证(无真机):NDK 配方编过、JNI 15/15、单测全过、rimeprobe 探针对同一组查询在引擎更新前后逐字节一致、词典同步后 shenme→什么/sheme→色么(文言行已删)/排序随新 essay 变化、consumed 与分段结构不变。dev APK 10699195 → 11633451(+0.93MB,essay raw +2.05MB 但 APK 压缩存储)。"
+  source: "2026-10-11 用户要求更新 librime,范围经确认含词典"
   affects: [librime-android-build]

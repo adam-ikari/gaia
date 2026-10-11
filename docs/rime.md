@@ -1,7 +1,11 @@
 # 拼音引擎:librime
 
 2026-10-03 起,拼音内核从自研 [PinyinEngine](旧,已删)换成 **librime**(`adam-ikari/librime-stl`,
-子模块 `app/src/main/cpp/librime`)。词库来自 `adam-ikari/term-ime-dict`。
+子模块 `app/src/main/cpp/librime`)。**引擎与词库同仓**:词库在子模块的 `dict/` 下,
+应用用的是它的一份快照(`app/src/main/assets/rime/` 的 `luna_pinyin.dict.yaml` +
+`essay.txt`)—— 换 tag / 更新子模块时要把这两个文件重新拷过来,否则就是
+「旧词库配新引擎」。`opencc/` 与 `luna_pinyin.schema.yaml` 是应用自己维护的,
+**不**随子模块同步(见 `assets/rime/opencc/t2s.json` 顶部的说明)。
 
 ## 为什么换
 
