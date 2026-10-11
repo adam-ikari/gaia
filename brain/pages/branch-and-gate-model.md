@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, ci, tooling, workflow]
 created: "2026-10-05T21:00:00"
-updated: "2026-10-06T13:55:04"
+updated: "2026-10-11T04:05:41"
 ---
 
 <!-- compiled_truth -->
@@ -120,4 +120,10 @@ CI 里查它等于稳定误报 —— **会误报的闸门只会被绕过去**,�
   kind: evidence
   summary: "2026-10-06 实测:读闸门退出码时踩了 zsh 的坑 —— 管道首段的退出码是 `$pipestatus[1]`,不是 `${PIPESTATUS[0]}`(那是 bash)。我据此以为 `gate.sh` 在失败时返回 0,复核后真实退出码是 1。闸门本身没问题,**是尺子错了** —— 而这个项目的核心教条正是「判定依据是退出码」。教训:量退出码的那一行本身也要验一次,拿一个已知会失败的命令试一遍(比如 `false | cat`),确认尺子会响"
   source: "2026-10-06 重构后复核闸门时实测"
+  affects: [branch-and-gate-model]
+
+- time: 2026-10-11T04:05:41
+  kind: evidence
+  summary: "2026-10-11 实测确认 dev 与 release 混淆程度等同(用户问「开发版也要做混淆」):两边 mapping.txt 几乎等长(8679888/8679952),dex 里残留可读的 dev/hwkbd 类名各 57 个且列表逐一相同 —— keep 规则三渠道共用,dev 的 APK 大 3.7MB 只因为多编 x86_64。残留类名全部承重(Manifest 组件/XML inflater 的 View/JNI/枚举反射)。另发现疑似**白保**三条:-keep StatusRow 的理由「见 ime_root.xml 的 comment」——StatusRow 在布局里只出现在注释中,非 XML 元素,代码无反射;keymap.** 与 UserDict 的理由是「字符串查表」「JSON 字段名」,但那两个包里搜不到任何反射。收紧它们可让类名真被混淆,代价是运行期 ClassNotFound 风险,需真机逐项验证,用户 2026-10-11 定暂不动。判据仍是产物(mapping/dex),不是配置。"
+  source: "2026-10-11 用户提问后实测 dev vs release 产物"
   affects: [branch-and-gate-model]
