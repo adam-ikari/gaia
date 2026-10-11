@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-10T08:48:44"
+updated: "2026-10-11T02:08:36"
 ---
 
 <!-- compiled_truth -->
@@ -217,3 +217,9 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   summary: "publish-site.sh 的「盘上已有包」那条路**从没比过字节**,只跳过下载、拿盘上旧文件算 sha256(所以校验值自洽)。2026-10-10 发 v0.7.11 实测:web/docs/public/media/gaia.apk 还留着 10-08 那版(6931568 字节),旧字节被贴上 0.7.11 标签推上线,站点主按钮「测试版 0.7.11」下到的是上一版,整条链无一处报错。修法:复用前先比盘上字节数 == 远端该资产字节数,不等就当盘上没有、删掉重下(判据与下载那条路同源)。"
   source: "2026-10-10 发 v0.7.11 实测(站点 gaia.apk 曾是 6931568,修后 6939708)"
   affects: [release-flow, site-repo-topology]
+
+- time: 2026-10-11T02:08:36
+  kind: reversal
+  summary: "2026-10-10 定下的『盘上已有包』复用判据(字节数 == 远端资产字节数)被推翻:字节数比不了内容。发 9582d85 时实测,b9b34d8 与 9582d85 两个包都是 10699199 字节(只差一个 shell 脚本,versionName 后缀 b9b34d8→9582d85 等长),盘上旧包通过大小检查被复用,页面显示 dev 9582d85 配的 sha256 却是上一版字节 —— 旧内容贴新标签上线。连 publish-site.sh 最后的『线上与本地产物逐字节一致』都是真的:那个本地产物就是从盘上旧包复制来的,判据链每一环自洽,但没有一环碰到 publish-dev.sh 真正上传的包。GitHub 资产 API 只有 name/size、不给 sha256 ⇒ 捷径删掉,每次都下载,从下载到的字节算 sha256;想用盘上的包只有显式 --skip-fetch。同一个形状的第三次:存在(10-08)→ 大小(10-10)→ 字节(10-11)。判据要比的是字节,而只有字节能比字节。"
+  source: "2026-10-11 发布 dev 9582d85 实测 + 修复 d47559b"
+  affects: [release-flow]
