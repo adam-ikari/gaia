@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-09T09:49:08"
+updated: "2026-10-11T02:34:07"
 ---
 
 <!-- compiled_truth -->
@@ -282,4 +282,10 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   kind: reversal
   summary: "到头橡皮筋从未生效已修(三处);但同时确认两个未定位缺口:候选行抬手(y=1337,inUi=true)进不了 endPageDrag,而键盘表面(y=1100)正常;以及 page 0-indexed 9 页却停在 page=7/9"
   source: "2026-10-09 真机,commit c3ec71e"
+  affects: [paging-feel]
+
+- time: 2026-10-11T02:34:07
+  kind: reversal
+  summary: "到头橡皮筋的平移去而复回:6d161d6(2026-10-09)为治「突然回到上一页」把 drawRubber 改成只挤压不平移,但那个症状的真根因 20 分钟后就被 0563513 定位在 reversePageTurn() 反转已提交的翻页上 —— 与平移无关且已修,去掉平移防的事不再有东西可防。2026-10-11 用户明确要回方向感:「改回以前根据滑动方向的效果」⇒ 恢复 canvas.translate(-dir*shift),方向由 RubberDrag.dir 带、松手弹回同向。判据上的教训:症状层的处置(让某个读法消失)不等于根因的修复,根因修掉之后要把当时为它让的路还给产品。"
+  source: "2026-10-11 用户要求恢复方向性橡皮筋 + git 6d161d6/0563513 比对"
   affects: [paging-feel]

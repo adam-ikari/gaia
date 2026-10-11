@@ -1763,51 +1763,56 @@ pageSlide = pageSettleTarget
     /** 当前橡皮筋显示位移(px,已阻尼并封顶)。 */
     private fun rubberShift(): Float = Rubber.shift(rubberDrag.raw, rubberScale(), rubberLimit())
 
-/**
-     * 越界拉伸的绘制:**只挤压,不平移**。
+    /**
+     * 越界拉伸的绘制:横向压缩 + 沿越界方向平移。
      *
-     * 压缩是**围绕行中心**的,不是把整行推向某一侧。
+     * 压缩是**围绕行中心**的,不是把整行推向某一侧 —— 推向一侧看着像"内容没对齐",
+     * 围绕中心压缩才像"这层被拽住变窄"。平移给出方向:往没有下一页的那侧拉。
      *
-     * ## 为什么去掉了横向平移(2026-10-09)
+     * ## 平移去而复回(2026-10-11)
      *
-     * 原来是「压缩 + 沿越界方向平移」,实测到头一次平移 **93px**
-     * (`rubber end: decide=spring raw=375 shift=93`)。
+     * 2026-10-09 曾去掉平移(commit `6d161d6`「到头只挤压不平移」),理由是用户
+     * 把那一下读成了**「突然回到上一页」** —— 横向位移在这一行里只有"翻页"
+     * 一个含义,于是最该说「没有更多了」的那一下,说的却是「翻回去了」。
      *
-     * 用户把那一下滑读成了**「突然回到上一页」** —— 而且是真的分不出来:
-     * 平移是**横向位移**,而横向位移在��一行里只有一个含义:翻页。
-     * 于是到头时最该说「没有更多了」的那一下,说的却是「翻回去了」。
+     * 但那个症状的**真根因 20 分钟后就被定位在别处**:橡皮筋分支里的
+     * `reversePageTurn()` 会把**已经提交过**的翻页整页倒放(commit `0563513`)。
+     * 与平移无关,且已修 ⇒ **去掉平移防的那件事不再有东西可防**,
+     * 那一刀是症状层的处置,不是「这一行该长什么样」的答案。
      *
-     * **挤压不含混**:横向没动,只是被拽窄了,读作「拽不动/到头了」没有任何歧义。
-     * 这一行里横向位移被保留给翻页**一个**含义,是需求二能成立的前提。
-     *
-     * 需求二要的「到头有橡皮筋动画但不振荡」仍然满足 —— 压缩本身就是动画,
-     * 而且 [Rubber.squash] 的封顶保证幅度小(56dp),不会把 5 个槽挤到认不出。
+     * 2026-10-11 用户明确要方向感:「改回以前根据滑动方向的效果」。
+     * 方向由 [RubberDrag.dir] 带(+1 = 拖向没有下一页那一侧),松手弹回用的
+     * 也是它(`dir` 松手后仍保留,见 [RubberDrag] 类注释),所以拖动中与
+     * 回弹的方向始终一致。
      */
     private fun drawRubber(canvas: Canvas) {
+        val shift = rubberShift()
         val scale = rubberSquash()
         val savedAlpha = wordPaint.alpha
         val savedColor = wordPaint.color
         // **裁剪在本区域内**(用户「起始动画不要超过边距 …… 不要影响到区域以外」):
-        // 压缩后的行宽比视口窄,不裁剪会在两侧留白。
+        // 压缩后的行宽比视口窄,平移一点还会露边,露出来的部分直接切掉。
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
-        // 围绕中心压缩。**不 translate** —— 见上面那段。
+        // 围绕中心压缩
         canvas.scale(scale, 1f, width / 2f, height / 2f)
+        // 再沿越界方向拉出(方向由 [RubberDrag.dir] 带)
+        canvas.translate(-rubberDrag.dir * shift, 0f)
         drawSlots(canvas, slots, highlight, dividers = true)
         canvas.restore()
         wordPaint.alpha = savedAlpha
         wordPaint.color = savedColor
     }
 
-/**
-     * 橡皮筋的**形变比例**:横向压缩(1 − 比例),**只在中心收窄**。
+    /**
+     * 橡皮筋的**形变比例**:横向压缩(1 − 比例)并沿越界方向拉出一点。
      *
-     * 比例取 [rubberShift] / 行宽,天然很小(封顶 56dp),所以形变幅度也小,
-     * 不会把 5 个槽挤到认不出。
+     * 只压不拉的形变看着像"卡住了被顶回来";配合横向拉伸才有"这层有弹性"的观感 ——
+     * 就像 iOS 列表到底时那样。比例取 [rubberShift] / 行宽,天然很小(封顶 56dp),
+     * 所以形变幅度也小,不会把 5 个槽挤到认不出。
      *
-     * **不再沿越界方向平移**(2026-10-09):横向位移在这一行里只有一个含义 ——
-     * 翻页。到头时给横向平移,最该说「没有更多了」的那一下说的却是「翻回去了」。
-     * 见 [drawRubber]。
+     * 平移 2026-10-09 去掉过(commit `6d161d6`),2026-10-11 按用户要求恢复,
+     * 来龙去脉见 [drawRubber]。
      */
     private fun rubberSquash(): Float = 1f - Rubber.squash(rubberShift(), width.toFloat())
 
