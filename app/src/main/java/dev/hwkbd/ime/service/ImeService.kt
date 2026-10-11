@@ -63,6 +63,9 @@ class ImeService : InputMethodService() {
     /** 本次飞字手势的滑动许可:起手落在静默窗里就整条不接(见 [handleFlyMotion])。 */
     private var flyArmed = true
 
+    /** [warnZoneBasisDrift] 只报一次:漂移是布局属性,不是每笔手势会变的东西。 */
+    private var zoneBasisDriftLogged = false
+
     private var statusRow: View? = null
     private var candidateRow: View? = null
     private var statusMode: TextView? = null
@@ -546,7 +549,21 @@ class ImeService : InputMethodService() {
      * 位移越过阈值立刻提交,剩下的飞字动画由候选栏自己飞完;
      * 松手还没过阈值就把拖出来的效果淡回去。
      */
-    private class FlyDetector(private val listener: Listener) {
+    private class FlyDetector(
+        private val listener: Listener,
+        /**
+         * 分区的**基准宽度**(px),每次手势现取。
+         *
+         * 这里曾是 `var xMax = 1440f`:一个 Titan 2 的物理像素数被钉成字段初值,于是
+         * `applyPrefs()` 还没跑、或将来屏宽不是 1440 时,**1440 会冒充真实屏宽**参与分区
+         * (2026-10-10 用户「飞字区域要根据屏幕宽度计算,不要写死」)。改成一个由宿主提供的
+         * 函数,本类不再有可以过期的字段。
+         *
+         * 5 区按屏宽平分——Titan 2 物理键盘正好 10 列,每区 = 2 个键列,
+         * 分区边界与物理键列对齐(用户 2026-09-29 定案)。
+         */
+        private val zoneBasis: () -> Float,
+    ) {
         interface Listener {
             /** 拖动中:progress = 上移距离/阈值,0..1(词已开始起升)。 */
             fun onFlyDrag(zone: Int, progress: Float)
@@ -621,12 +638,6 @@ class ImeService : InputMethodService() {
          * 所以档位表对两处分别给值。
          */
         var pageThresholdPx = 8f
-
-        /**
-         * 屏宽(服务按 displayMetrics 注入):5 区按屏宽平分——Titan 2 物理键盘正好 10 列,
-         * 每区 = 2 个键列,分区边界与物理键列对齐(用户 2026-09-29 定案)。
-         */
-        var xMax = 1440f
 
         /**
          * 上滑死区:**固定值**,不随 [threshold] 变
@@ -759,7 +770,7 @@ class ImeService : InputMethodService() {
 
         /** 全宽平分 5 区(= 每区 2 个物理键列),返回 downX 落在哪一区。 */
         private fun zoneOf(x: Float): Int {
-            val f = x / xMax * FLY_ZONES
+            val f = x / zoneBasis() * FLY_ZONES
             return (f.toInt()).coerceIn(0, FLY_ZONES - 1)
         }
     }
@@ -777,6 +788,7 @@ class ImeService : InputMethodService() {
                 "fly DOWN: y=${ev.rawY.toInt()} armed=$flyArmed " +
                     "blocked=${keyGate.swipeBlocked()} comp=${controller.state.hasComposition}"
             )
+            warnZoneBasisDrift()
         }
         if (!flyArmed) return true
         val zone = flyDetector.onMotion(ev.actionMasked, ev.rawX, ev.rawY.toInt(), ev.eventTime)
@@ -793,6 +805,29 @@ class ImeService : InputMethodService() {
             }
         }
         return true
+    }
+
+    /**
+     * 上滑分区有两个 owner,而它们**只在布局上相等**:
+     * 候选行内起手按 `candidateBar.width / 5` 分([dev.hwkbd.ime.ui.CandidateBarView.cellWidth]),
+     * 键盘面起手按 `屏宽 / 5` 分([FlyDetector.zoneOf])。2026-10-10 把候选行改成**通栏**才让
+     * 两者重合的(此前差 2×16dp,分区边界逐区漂移,手指落在边界窄带就选中邻词)。
+     *
+     * 这条不变量跨文件、编译期没有任何联系 —— 谁把 `paddingStart` 加回来,旧 bug 会**无声**
+     * 复发(词心照样命中,只有边界附近才错,常规测试场景测不出来)。所以每次飞字起手对一次账,
+     * 只报一次。
+     */
+    private fun warnZoneBasisDrift() {
+        if (zoneBasisDriftLogged) return
+        val bar = candidateBar ?: return
+        val screen = resources.displayMetrics.widthPixels
+        if (bar.width <= 0 || bar.width == screen) return
+        zoneBasisDriftLogged = true
+        android.util.Log.w(
+            TAG,
+            "分区基准漂移:候选栏实测 ${bar.width}px ≠ 屏宽 ${screen}px," +
+                "两套五等分不再重合(候选行必须通栏)"
+        )
     }
 
     private val flyDetector = FlyDetector(object : FlyDetector.Listener {
@@ -835,7 +870,11 @@ class ImeService : InputMethodService() {
         override fun onPageDragCancel() {
             candidateBar?.pageDragCancel()
         }
-    })
+    },
+    // 屏宽由这里现取,不再是在 applyPrefs 里刷新的字段:构造期 IME 还没 attach base context,
+    // 当场取值会抛,而它**每次手势都要被调用**(zoneOf),那时 resources 早已就绪。
+    zoneBasis = { resources.displayMetrics.widthPixels.toFloat() },
+)
 
     /** 越过阈值:先把完成段动画挂上(flyP 置位后 render 才会保持候选行可见),再选字上屏。 */
     private fun commitFly(zone: Int) {
@@ -908,8 +947,7 @@ class ImeService : InputMethodService() {
         // 键盘表面的横滑翻页现在走候选栏那套跟手/橡皮筋,所以把它的提交线也喂进去。
         // 候选行自己翻页仍按行宽比例(pageCommitFrac),两者量纲不同、各按各的。
         candidateBar?.externalCommitPx = pagePx
-        // 屏宽注入:5 区按屏宽平分 = 每区 2 个物理键列(Titan 2 正好 10 列)
-        flyDetector.xMax = resources.displayMetrics.widthPixels.toFloat()
+        // 上滑分区的基准宽度由 FlyDetector 自己现取屏宽(构造处),这里不再注入。
         candidateBar?.flyThresholdPx = flyThreshold // 候选行内起手的上滑用同一阈值
         theme = dev.hwkbd.ime.ui.ImeTheme.byId(p.getString(PREF_THEME, "obsidian"))
         candidateBar?.setTheme(theme)
@@ -1269,7 +1307,7 @@ class ImeService : InputMethodService() {
         /** InputDevice.SOURCE_TOUCHPAD(避免 SDK 版本差异直接用常量)。 */
         private const val SOURCE_TOUCHPAD_MASK = 0x100008
 
-        /** 键盘面平分 5 区上滑选字(每区 = 2 个物理键列,屏宽按 displayMetrics 注入 FlyDetector.xMax)。 */
+        /** 键盘面平分 5 区上滑选字(每区 = 2 个物理键列;基准宽度由 FlyDetector 现取屏宽,见 zoneBasis)。 */
         private const val FLY_ZONES = 5
 
         /** 手势返回码:飞字用区号(>=0),翻页用负数。 */

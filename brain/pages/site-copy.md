@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [按 adamblog 的写作规则去 AI 味, 并对 Titan 2 量身定做的口径:copy, voice, titan2]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-08T01:04:10"
+updated: "2026-10-10T17:43:27"
 ---
 
 <!-- compiled_truth -->
@@ -98,3 +98,15 @@ updated: "2026-10-08T01:04:10"
   summary: "\"首页加两屏(物理动画 / Rime);页脚与设置页署名从 jieba/pinyin-pro 改成 Rime —— 那两个换内核时已删除,留着是错的署名\""
   source: "\"2026-10-04 用户要求说明使用 rime 与基于物理的动画\""
   affects: [site-copy, site-voice]
+
+- time: 2026-10-10T17:42:25
+  kind: reversal
+  summary: "这条事实过期:(xMax=1440) —— 1440 字面量已删,基准由 FlyDetector 现取 displayMetrics.widthPixels;候选行同时改通栏,使候选行内起手与键盘面起手用同一套五等分(见 [[fly-zone-basis]])"
+  source: "2026-10-10 改动"
+  affects: [fly-zone-basis]
+
+- time: 2026-10-10T17:43:27
+  kind: reversal
+  summary: "补上被 shell 吃掉的那半句:过期的公式是 zoneOf(x) = x / xMax * 5"
+  source: "2026-10-10 改动(上一条 entry 的 summary 被 zsh glob 截断)"
+  affects: [fly-zone-basis]

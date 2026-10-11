@@ -326,7 +326,15 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 候选行(组词中):整行候选;左右同状态行留安全区(底部圆角) -->
+        <!--
+          候选行(组词中):整行候选。**通栏,不留左右内缩**——这不是观感选择,是分区基准的前提:
+      上滑选字有两条起手路径,候选行内用 [CandidateBarView] 的实测宽五等分,键盘表面(事件经
+      ImeRootView 转发)用**整块屏宽**五等分(`ImeService` 的 FlyDetector)。这一行只要缩进 1dp,
+      两套分区就错开,手指落在分区边界附近就选中邻词(2026-10-10 定案「改布局而不是改数学」)。
+      状态行的 [dimen/bar_safe_edge] 保留(它不参与分区),所以两行的左端元素**不再垂直对齐**。
+      通栏后被圆角裁到的只有整行底色和槽 0/4 的按压高亮矩形一角;箭头图形靠
+      [CandidateBarView] 自己的 arrowInset 退到离屏幕边缘 24dp,与通栏前位置相同。
+    -->
         <LinearLayout
             android:id="@+id/candidate_row"
             android:layout_width="match_parent"
@@ -334,8 +342,6 @@
             android:background="@color/status_bg"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="@dimen/bar_safe_edge"
-            android:paddingEnd="@dimen/bar_safe_edge"
             android:visibility="gone">
 
             <dev.hwkbd.ime.ui.CandidateBarView

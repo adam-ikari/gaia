@@ -74,14 +74,16 @@ class CandidateBarView @JvmOverloads constructor(
     private val arrowWidth = 26f * density
 
     /**
-     * 箭头**图形中心**到该侧边缘的距离(px):13dp → **8dp**。
+     * 箭头**图形中心**到该侧边缘的距离(px):**24dp**。
      *
-     * 候选行自身已有 `bar_safe_edge`(16dp)左右内边距(避开 Titan 2 底部两角的物理圆角),
-     * 所以箭头中心离**屏幕**边缘 = 16 + 8 = 24dp(此前是 29dp)。
+     * **这个数现在就等于「离屏幕边缘 24dp」**,因为候选行改成通栏了(见 `ime_root.xml` 的 candidate_row)。
+     * 此前行自身有 `bar_safe_edge`(16dp)左右内边距,这里只需 8dp(16 + 8 = 24dp);2026-10-10
+     * 行改通栏的代价就得在这里加回来 —— 否则箭头从离屏 24dp 挪到 8dp,被底部物理圆角裁掉一角。
      *
-     * 没有再往里压是因为字形 `◀`/`▶` 本身约 8dp 宽:中心再靠近,字形就会被行边裁掉一角。
+     * 取值本身不变的是观感:字形 `◀`/`▶` 约 8dp 宽,中心再往外是行边把它裁掉的起点;
+     * 「箭头离屏幕边缘近一些」是 2026-10-02 用户定的,通栏只改分区基准、不改这个观感。
      */
-    private val arrowInset = 8f * density
+    private val arrowInset = 24f * density
     private val touchSlop = 12f * density
 
     /**
@@ -931,7 +933,8 @@ clearPageTurn()
         //
         // 原来它在前面就被清成 false,而 [endPageDrag] 里面才调 [pageCommitPx] ——
         // 于是**松手时的提交线用错了量纲**:键盘表面驱动时读成
-        // `行宽 × pageCommitFrac`(Titan 2 上 302px),而不是档位的「死区外提交距离」(8px)。
+        // `行宽 × pageCommitFrac`(Titan 2 上 302px —— 那是**候选行还缩进 16dp 时**的埋点实测值,
+        // 2026-10-10 改通栏后行宽 1440px、同一比例算出 317px),而不是档位的「死区外提交距离」(8px)。
         //
         // 症状(埋点实测,commit 时 thr=8 而 end/settle 时 thr=302):
         //   1. 手指划过 8px 就**当帧提交**翻页(拖动中的判定是对的);
@@ -1327,6 +1330,11 @@ pageSlide = pageSettleTarget
      * 每槽 = **全宽 / 5**——Titan 2 物理键盘正好 10 列,槽宽 = 2 个键列,
      * 分隔线、词位、点按与上滑触发区都与物理键列对齐(2026-09-29 用户定案)。
      * 两侧翻页箭头占的窄条只挡点按/起手入口([cellIndexAt]),不移动分区边界。
+     *
+     * **这里的全宽必须等于屏宽**(2026-10-10):键盘表面上滑那条路按 `x / 屏宽 × 5` 分区
+     * (见 `ImeService` 的 FlyDetector),本视图按 `width / 5`。候选行原先有 16dp 左右内缩,
+     * 两个基准差 2×16dp,分区边界逐区漂移(内侧边界偏 ±7.7px、外侧偏 ±23px),
+     * 手指落在边界窄带里就选中邻词。正解是**改布局而不是改数学**:候选行通栏。
      */
     private val cellWidth: Float get() = width / 5f
 

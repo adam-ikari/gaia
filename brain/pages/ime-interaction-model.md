@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-09-30T16:55:08"
+updated: "2026-10-10T17:42:25"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -498,3 +498,9 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "'芯片'这个叫法整体退役,改用抽象的 status(用户 2026-09-30「清理代码中芯片的说法 这个说法来自于早期ui的设计 使用抽象的status代替」)。改的是**概念名不是外观**:这一层关心'输入法此刻处于什么状态',与画成方块还是圆无关。ui/StatusChips.kt ⇒ ui/StatusRow.kt(StatusChips.Chip ⇒ StatusRow.Item,present 签名 (state, spec)),ImeService 的 chipMode/chipAlt/... ⇒ statusMode/statusAlt/...,renderChips/paintChips/hideChip/renderChip ⇒ renderStatus/paintStatusItems/hideItem/paintItem,view id chip_row/chip_mode/chip_fullwidth/chip_shift/chip_alt/chip_sym ⇒ status_left/status_mode/...,colors.xml chip_l2/l3 ⇒ status_l2/l3,ImeTheme.chipL2/L3 ⇒ statusL2/L3,drawable chip_lock_underline ⇒ status_lock_underline,Language.chipLabel ⇒ statusLabel、showShiftChip ⇒ showShift,FieldProfile.altChipLabel ⇒ altLabel,StatusChipsTest ⇒ StatusRowTest,全部中文注释'芯片'⇒'状态项/层状态/大写'"
   affects: [ime-interaction-model]
+
+- time: 2026-10-10T17:42:25
+  kind: decision
+  summary: "上滑分区的基准宽度改成运行时现取屏宽(FlyDetector.zoneBasis),候选行改通栏使两条起手路径的五等分重合(见 [[fly-zone-basis]])"
+  source: "2026-10-10 用户「飞字区域要根据屏幕宽度计算 不要写死」"
+  affects: [fly-zone-basis]

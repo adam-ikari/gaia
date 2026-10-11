@@ -904,6 +904,10 @@ const selOf = (log) => {
           return f
         }
 
+        // 屏宽从设备现取(键盘面那套五等分吃的就是这个值),下面的宽度断言与槽心都按它算。
+        const phys = /Physical size:\s*(\d+)x(\d+)/.exec(c.device.shell('wm size'))
+        const kbdW = phys ? Number(phys[1]) : 1440
+
         // dir=+1 = 手指向左 = 往下一页(见 CandidateBarView 的方向约定)
         const CASES = [
           { want: 0, slot: 2, swipes: [] },
@@ -934,6 +938,23 @@ const selOf = (log) => {
             `翻页没到位:期望 page=${cs.want}/9,实际 ${JSON.stringify(st?.page)}`)
           if (!st || st.page !== `${cs.want}/9`) continue
 
+          // ## 候选栏实测宽必须等于屏宽
+          //
+          // 上滑分区有两条起手路径,各自五等分:候选行按自己的实测宽
+          // (`CandidateBarView.cellWidth = width / 5`),键盘面按屏宽(`ImeService` 的 FlyDetector)。
+          // 候选行原先被 `candidate_row` 的 16dp 内缩缩到 1363px,两套边界**逐区错开**
+          // (内侧偏 ±7.7px、外侧偏 ±23px)。词心命中在错位下**一直是对的**,所以按槽心的
+          // 常规用例测不出来;把「实测宽 == 屏宽」单独钉住才测得到(2026-10-10 改通栏)。
+          // `draw:` 只在落定帧出现,拿不到就记一笔,不算失败(见上面「显示读 setState」那条)。
+          const dr = lastDraw(before)
+          if (dr) {
+            const barW = Number(String(dr.size || '').split('x')[0])
+            c.expect(barW === kbdW,
+              `候选栏实测 ${barW}px ≠ 屏宽 ${kbdW}px:两套五等分不再重合,候选行必须通栏`)
+          } else {
+            report.push(`page=${cs.want} 无 draw: kind=slots 帧,跳过实测宽断言`)
+          }
+
           // ## 「显示」这一侧读 `setState: words=`,不读 `draw:`
           //
           // `draw: kind=slots` 只在**落定**那几帧出现,而落定分支还要求
@@ -960,8 +981,6 @@ const selOf = (log) => {
           //
           // 槽位是按**按下点的 x** 分区的(floor(x / 键盘宽/5),见 ImeService
           // 的 FlyDetector),所以起点取槽心即可。
-          const phys = /Physical size:\s*(\d+)x(\d+)/.exec(c.device.shell('wm size'))
-          const kbdW = phys ? Number(phys[1]) : 1440
           const zx = Math.round((kbdW * (cs.slot + 0.5)) / 5)
 
           c.device.shell('logcat -c')
@@ -979,6 +998,43 @@ const selOf = (log) => {
           c.expect(landed === expect,
             `page=${cs.want} slot=${cs.slot} 画的是「${expect}」,真正上屏的是「${landed}」`)
         }
+        // ## 边界探针:手指落在两区之间时,选中的必须是**视觉上那一格**
+        //
+        // 上面那条钉的是几何(实测宽 == 屏宽),这一条钉的是行为。取**第一条分区边界再往右
+        // 12px** 的位置:通栏前候选栏实测 1363px、左偏移 38.6px,槽 0/1 的分割线画在 311px,
+        // 而键盘面的分区边界在 288px —— 这个点视觉上属于槽 0、分区算出来是槽 1,
+        // **旧代码必红**;通栏后分割线也在 288px,两边同属槽 1,新代码必绿。
+        // 四个槽心用例(CASES)全都测不到这件事。
+        {
+          const probeX = Math.floor(kbdW / 5) + 12
+          c.device.clearField()
+          c.device.key(K.n, K.i)
+          await sleep(900)
+          const pb = c.device.takeLog('(setState:|draw: kind=slots)')
+          const pst = lastPage(pb)
+          const pdr = lastDraw(pb)
+          const slots = String(pst?.words || '').split('|')
+          if (!pst || slots.length !== 5 || !pdr) {
+            report.push(`探针跳过: setState/draw 不齐(page=${pst?.page} draw=${pdr ? '有' : '无'})`)
+          } else {
+            const barW = Number(String(pdr.size || '').split('x')[0])
+            const leftOff = (kbdW - barW) / 2 // 候选行通栏 ⇒ 0
+            const visual = Math.floor((probeX - leftOff) / (barW / 5))
+            const zoned = Math.floor(probeX / (kbdW / 5))
+            c.device.shell('logcat -c')
+            c.device.swipe(probeX, 1199, probeX, 632, 250)
+            await sleep(1000)
+            const sel = selOf(c.device.takeLog('(select:|fly select:)'))
+            const landed = c.device.editText().trim()
+            report.push(`探针 x=${probeX}: 视觉槽=${visual} 分区槽=${zoned} ` +
+              `画=${slots[visual]} 选=${sel?.word} 上屏=${landed}`)
+            c.expect(visual === zoned,
+              `x=${probeX} 视觉上属槽 ${visual},键盘面上滑却按分区算成槽 ${zoned}:两套五等分没重合`)
+            c.expect(landed === slots[zoned],
+              `探针应选中分区槽 ${zoned} 的「${slots[zoned]}」,实际「${landed}」`)
+          }
+        }
+
         console.log('    · ' + report.join('\n    · '))
       },
     ],

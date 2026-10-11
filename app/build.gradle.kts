@@ -362,6 +362,17 @@ android {
     }
 }
 
+// **把布局文件登记成单测的输入。**
+//
+// `CandidateRowFullWidthTest` 用 `File` 直接读 `src/main/res/layout/ime_root.xml`,
+// 钉住「候选行通栏」——上滑分区两套五等分重合的唯一前提(见 brain `fly-zone-basis`)。
+// 而 AGP **没有**把 res 算进 `testDebugUnitTest` 的输入:2026-10-10 实测过——手动把
+// `paddingStart` 加回布局再跑,整条任务 UP-TO-DATE、测试一个字都没执行,**假绿**。
+// 显式登记以后,布局文件内容一变这个任务就必跑。
+tasks.withType<Test>().configureEach {
+    inputs.file("src/main/res/layout/ime_root.xml").withPropertyName("imeRootLayout")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
