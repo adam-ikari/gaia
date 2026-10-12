@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [e2e, ci, emulator, media, capture]
 created: "2026-10-01T05:09:58"
-updated: "2026-10-08T18:15:43"
+updated: "2026-10-12T09:38:20"
 ---
 
 <!-- compiled_truth -->
@@ -39,12 +39,18 @@ updated: "2026-10-08T18:15:43"
 在 `CandidateBarView` 加的日志即使写了、跑到了,E2E 永远看不到。
 必须同时把 tag 加进白名单。**新加日志要问「观察它的人能看到吗」。**
 
-### 三、`screencap -d <displayId>` 是 Titan 单屏专用
+### 三、`screencap` 的 displayId:写死会挂、去掉会静默采错屏(2026-10-12 闭环)
 
-`compose-space` / `candidate-center` 报 `Command failed`。
-那个 `-d` 在模拟器上无效。讽刺的是 `tools/aitest/shots.mjs` 的文件头**早就写明
-这件事**并用 `exec-out screencap -p`,只有 `harness.mjs` 没跟上。
-**同一件事两份实现时,先确认两份都跟上了文档。**
+写死 `-d 4627039422300187648`(Titan 主屏)在模拟器上 `Command failed`;
+2026-10-03 于是去掉 `-d` 改 `exec-out screencap -p`,模拟器好了 ——
+但 **Titan 2 是双屏**,副屏 410x502(表盘)的 uniqueId 是 `4627039422300187651`。
+不带 `-d` 时 screencap 按「第一个找到的屏」采,**四张判卷截图全是表盘**,
+字节流开头还混着多屏警告文本,而 report 里它们看起来就是「正常证据」。
+
+修法(`harness.mjs` 与 `shots.mjs` 两份同步):从 `dumpsys display` 解析
+`displayId=0` 的 viewport 拿主屏 id(`mainDisplayId()`),解析不到退回不带 `-d`;
+**产出字节必须过 PNG magic 校验**,不过就抛 ——
+「文件存在、打得开、能读」不等于「证据是那件事」。
 
 ### 四、`editText()` 读错控件,而且返回一个「看起来像内容」的真值
 
@@ -133,7 +139,7 @@ exit 事件本身就要求事件循环先空下来。死锁。
 
 ```
 FATAL | Not enough space to create userdata partition.
- Available: 6725.43 MB, need 7372.80 MB
+ Available: 6725.43 MB, need: 7372.80 MB
 ```
 
 接了 native 之后 E2E 多装 NDK(2.5GB)+ CMake,加上系统镜像与 Gradle 缓存
@@ -252,4 +258,10 @@ FATAL | Not enough space to create userdata partition.
   kind: reversal
   summary: "「page begin 该不该打」我连着栽了三次,三次都是判据选错了量:最早每帧都打(2026-10-05 修过「没打」那版)、2026-10-08 第一版用 pageFrom.isEmpty() 导致打断弹簧接管那条路径一次都不打(page-flip 从绿变红,功能却是好的)。正确判据是 rolesSet/方向,即「这次调用算不算新意图」。⇒ 埋点的判据必须是**那个问题自己的权威量**,不是某个相邻的内部状态。"
   source: "2026-10-08 page-flip 回归"
+  affects: [e2e-capture]
+
+- time: 2026-10-12T09:38:20
+  kind: decision
+  summary: "2026-10-12:screencap display-id 闭环 —— 写死挂模拟器、去掉静默采表盘(Titan 双屏),改成动态解析 displayId=0 + PNG magic 强制校验"
+  source: "2026-10-12 真机全量回归(16/16)+ 截图复核发现四张判卷图全是副屏表盘"
   affects: [e2e-capture]

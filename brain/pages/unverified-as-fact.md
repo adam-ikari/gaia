@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [lessons, method, verification, e2e]
 created: "2026-10-08T18:16:42"
-updated: "2026-10-09T11:20:07"
+updated: "2026-10-12T09:39:37"
 ---
 
 <!-- compiled_truth -->
@@ -135,3 +135,9 @@ updated: "2026-10-09T11:20:07"
   summary: "第 8 条:「内部状态对、用户看到的画面不对」是第四种形状(判据量的是上游)。同时否掉一个被否掉的假设:飞字分支画旧页 —— 埋点显示 setState 收到 45 个候选、draw 画的已是 hao 的新候选;真正落地的修复是对账那处"
   source: "2026-10-09 真机埋点,commit 3c5fa53"
   affects: [unverified-as-fact, rime-candidate-consumption, paging-feel]
+
+- time: 2026-10-12T09:39:37
+  kind: evidence
+  summary: "2026-10-12 第十个错判,第五种形状:证据本体落错对象 —— 四张判卷截图 PNG 存在、能打开,内容是副屏表盘(screencap 不带 -d 落在 displayId 非 0 的屏上);同时 display-vs-commit 的红是环境造的(wm override 1436x1440@358 残留,候选行只能铺 1436,断言拿物理 1440 比)。修 display-id + 清 override 后 16/16 全绿。five-key-slots 的红是断言脆弱:三次查询候选序随词频漂移, Ctrl 选的就是它槽位当时显示的词。判据:清掉 override 再谈红;断言用不变量(zone)别用会漂移的量(互异的词)。"
+  source: "2026-10-12 真机全量回归 TTANCN2100002663(v0.7.11 debug @93f62ba)"
+  affects: [e2e-capture, spring-damping-direction]
