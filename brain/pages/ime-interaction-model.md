@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-10T17:42:25"
+updated: "2026-10-12T11:18:00"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -504,3 +504,9 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   summary: "上滑分区的基准宽度改成运行时现取屏宽(FlyDetector.zoneBasis),候选行改通栏使两条起手路径的五等分重合(见 [[fly-zone-basis]])"
   source: "2026-10-10 用户「飞字区域要根据屏幕宽度计算 不要写死」"
   affects: [fly-zone-basis]
+
+- time: 2026-10-12T11:18:00
+  kind: decision
+  summary: "候选词槽内截断(尾补 …,2026-10-12 用户「候选词过长需要截断」):候选槽 288px、17sp 字号下 6 字全字号已超宽,旧代码只有「>6 字缩 0.7 倍」一道缓解,≥8 字仍会画出槽压到邻词与分割线。判据拆成纯函数 CandidateWordFit.fit(二分裁几点 + 省略号预算,可 JVM 单测),drawSlots/drawFly 共用同一可用宽(槽宽 - 2×4dp),飞字起飞帧与槽内一致。刻意与 L4/L5 走不同的路:键帽不截断、放不下翻页(2026-09-29 定案),候选词长短不可控、翻页治不了一页里某个词太长。真机验证:溴甲烷网站之前(7 字)渲染为 6 字 + …,装得下的词一个字符不动。"
+  source: "2026-10-12 真机 + 单测(候选序随词频漂移,同词两次首选不同)"
+  affects: [e2e-capture]

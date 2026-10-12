@@ -1944,10 +1944,14 @@ private fun onTap(x: Float) {
         // setColor 连 alpha 一起覆盖:先上色、后设透明度,否则完成段的淡出被抹掉
         wordPaint.alpha = ((if (s <= 0f) 1f else 1f - s) * 255).toInt()
         val lift = drag * dip(26) + (if (s <= 0f) 0f else (dip(64) - dip(26)) * s * s)
-        val w = wordPaint.measureText(flyWord)
+        // 飞的字和槽内裁到同一可用宽:起飞那一刻两者必须一致,否则手一滑,
+        // 词在槽里是截断的、飞起来是全的,像换了词(见 [CandidateWordFit])。
+        // 飞行中字号会上浮 20%,逐帧重裁只会让省略号变多,不会画出候选行。
+        val flyShown = CandidateWordFit.fit(flyWord, cellWidth - dip(4) * 2) { s -> wordPaint.measureText(s) }
+        val w = wordPaint.measureText(flyShown)
         val x = (flyX - w / 2f).coerceIn(dip(8), width - w - dip(8))
         val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f - lift
-        canvas.drawText(flyWord, x, y, wordPaint)
+        canvas.drawText(flyShown, x, y, wordPaint)
         wordPaint.color = savedColor
         wordPaint.textSize = base
         wordPaint.alpha = 255
@@ -2001,14 +2005,21 @@ private fun onTap(x: Float) {
                 scale
             // 缩放只改 textSize,measureText 量出的就是缩放后的宽 —— 照常居中即可,
             // 不需要额外补偿(试过"按比例反推中心"的写法,结果是字朝一侧漂)
-            val w = wordPaint.measureText(c.word)
+            //
+            // 槽内截断(2026-10-12 用户「候选词过长需要截断」):可用宽 = 槽宽 - 两侧
+            // 各 4dp 呼吸。4dp 是不让词贴上分割线。0.7 倍缩小之后仍然超宽的词
+            // (≥8 字)以前会直接画出槽、压到邻词与分割线上,由这里兜底。
+            // 纯函数判据见 [CandidateWordFit] —— 字号(含缩小/强调/入场缩放)已在
+            // 上面设好,measured 就是当下的宽。
+            val shown = CandidateWordFit.fit(c.word, cellWidth - dip(4) * 2) { s -> wordPaint.measureText(s) }
+            val w = wordPaint.measureText(shown)
             val x = left + (cellWidth - w) / 2f
             val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f - lift
             wordPaint.color = if (first) accentColor else savedColor
             // setColor 会覆盖 alpha:取"渐隐 × 入场"两者的较小值
             val a = (fadeAlpha * swapAlpha(i)).toInt().coerceIn(0, 255)
             wordPaint.alpha = a
-            canvas.drawText(c.word, x, y, wordPaint)
+            canvas.drawText(shown, x, y, wordPaint)
             wordPaint.textSize = base
         }
         wordPaint.color = savedColor
