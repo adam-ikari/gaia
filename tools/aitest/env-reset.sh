@@ -99,10 +99,21 @@ fi
 sleep 3
 
 # ---- 5. 判布局用 Physical ----------------------------------------------------
+# 有 override 时**停在**这里,不要带着它跑:
+# 2026-10-12 实测,override 1436x1440@358 之下 app 活在逻辑屏里,候选行只能铺
+# 1436,而 display-vs-commit 断言拿 Physical 1440 比 ⇒ 一条**环境造的红**
+# (候选行五等分与键盘面五等分错 4px)。为结果可信,先把 override 去掉:
+#   adb shell wm size reset && adb shell wm density reset
+# （「candidateRow 按 Physical 算所以不受影响」这句话 2026-10-12 被证伪。）
 say "屏幕 Physical $(sh_ wm size    | tr -d '\r' | grep -o 'Physical.*' )"
 say "屏幕 Physical $(sh_ wm density | tr -d '\r' | grep -o 'Physical.*' )"
 ov=$(sh_ wm size | tr -d '\r' | grep -c 'Override' || true)
-[ "$ov" = "0" ] && ok "无 override" || warn "存在 override —— candidateRow 已按 Physical 算,不受影响"
+ovd=$(sh_ wm density | tr -d '\r' | grep -c 'Override' || true)
+if [ "$ov" != "0" ] || [ "$ovd" != "0" ]; then
+  say "当前 override:$(sh_ wm size | tr -d '\r' | grep -o 'Override.*') / $(sh_ wm density | tr -d '\r' | grep -o 'Override.*')"
+  die "存在 override —— 上面两条命令清掉再跑。它造出来的红不是产品的 bug"
+fi
+ok "无 override"
 
 # ---- 6. 判据:IME 显示 + 引擎出候选 ------------------------------------------
 shown=$(sh_ dumpsys input_method 2>/dev/null | tr -d '\r' | grep -o 'mInputShown=[a-z]*' | head -1)

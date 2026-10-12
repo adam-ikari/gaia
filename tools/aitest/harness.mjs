@@ -29,6 +29,9 @@ export function adbPath() {
   return existsSync(local) ? local : 'adb'
 }
 
+/** PNG magic:不给「看起来是证据」的字节放行(见 Device.screenshot)。 */
+const isPng = (b) => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47
+
 export class Device {
   constructor(serial = process.env.AITEST_DEVICE) {
     this.serial = serial
@@ -239,14 +242,44 @@ export class Device {
   }
 
   /**
-   * 截图。原来写的是 `screencap -d 4627039422300187648 -p /sdcard/…` —— 那个 `-d` 是
-   * **Titan 单屏专用的 displayId**,在模拟器上直接 `Command failed`
-   * (2026-10-03:compose-space / candidate-center 两个场景都死在这,看着像场景有问题)。
-   * `tools/aitest/shots.mjs` 里早就写了这件事,这里却没跟上。
-   * 改用 `exec-out screencap -p`:不过 sdcard、不用 pull、字节流直出。
+   * 主屏的 SurfaceFlinger displayId —— **动态解析,不写死**。
+   *
+   * 2026-10-12(Titan 2 两块屏,副屏是表盘):`screencap` 不带 `-d` 时按
+   * 「第一个找到的屏」采,落到**表盘**上 —— 四张判卷截图全是表盘,
+   * 而在 report 里它们看起来就是「正常证据」。上一个形态(写死
+   * `-d 4627039422300187648`)在模拟器上直接 Command failed,
+   * 2026-10-03 挂过 compose-space / candidate-center 两个场景。
+   * 所以从 viewport 里挑 `displayId=0` 那块;解析不到就退回不带 `-d`
+   * (模拟器单屏的旧行为)。
+   */
+  mainDisplayId() {
+    if (this._displayId !== undefined) return this._displayId
+    try {
+      const d = this.shell('dumpsys display 2>/dev/null')
+      const m = d.match(/DisplayViewport\{[^}]*displayId=0,[^}]*uniqueId='local:(\d+)'/)
+      this._displayId = m ? m[1] : null
+    } catch {
+      this._displayId = null
+    }
+    return this._displayId
+  }
+
+  /**
+   * 截图。
+   *
+   * 多屏设备必须指定主屏 id(见 mainDisplayId);写死 id 在模拟器上会挂,
+   * 所以解析 + 失败退回。**产出的字节必须过 PNG magic 校验** ——
+   * 2026-10-12 之前 screencap 的多屏警告("[Warning] Multiple displays …")
+   * 会原样写进 .png,文件存在、能提交、内容却是表盘。
    */
   screenshot(file) {
-    const buf = execFileSync(this.adb, [...this.args, 'exec-out', 'screencap', '-p'], { timeout: 20000, maxBuffer: 64 * 1024 * 1024 })
+    const id = this.mainDisplayId()
+    const grab = (extra) => execFileSync(this.adb, [...this.args, 'exec-out', 'screencap', '-p', ...extra], { timeout: 20000, maxBuffer: 64 * 1024 * 1024 })
+    let buf = id ? grab(['-d', id]) : grab([])
+    if (!isPng(buf) && id) buf = grab([]) // 带 -d 失败过(设备/模拟器 id 形态不同)
+    if (!isPng(buf)) {
+      throw new Error(`screencap 没有产出 PNG(前 80 字节: ${JSON.stringify(buf.slice(0, 80).toString('latin1'))})`)
+    }
     writeFileSync(file, buf)
   }
 

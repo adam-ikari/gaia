@@ -52,16 +52,39 @@ const pngSize = (buf) => ({ w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) })
 /** 第一张图的尺寸,给 01 的自检用。 */
 let firstShot = null
 
-/** 截图:`exec-out screencap -p` 直出 PNG,不过 sdcard,也不用 pull。 */
+/**
+ * 截图:`exec-out screencap -p` 直出 PNG,不过 sdcard,也不用 pull。
+ *
+ * **多屏设备必须给主屏 id**:Titan 2 副屏是表盘,不带 `-d` 时 screencap
+ * 会落到第一个找到的屏(2026-10-12 实测:判卷截图全是表盘,而 report 里
+ * 看着就是正常证据)。写死 id 在模拟器上会 Command failed,所以动态解析
+ * `displayId=0` 的 viewport,失败退回默认(模拟器单屏的旧行为)。
+ */
 function screencap(file) {
-  const buf = execFileSync(adb, [...args, 'exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 })
-  if (!buf || buf.length < 1000) throw new Error(`截图异常:${file} 只有 ${buf ? buf.length : 0} 字节`)
+  const id = mainDisplayId()
+  const grab = (extra) => execFileSync(adb, [...args, 'exec-out', 'screencap', '-p', ...extra], { maxBuffer: 64 * 1024 * 1024 })
+  let buf = id ? grab(['-d', id]) : grab([])
+  const magic = (b) => b && b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47
+  if (!magic(buf) && id) buf = grab([])
+  if (!magic(buf)) throw new Error(`截图异常:${file} 不是 PNG(前 80 字节: ${JSON.stringify((buf ?? Buffer.alloc(0)).slice(0, 80).toString('latin1'))})`)
+  if (buf.length < 1000) throw new Error(`截图异常:${file} 只有 ${buf.length} 字节`)
   writeFileSync(file, buf)
   if (!firstShot) {
     firstShot = pngSize(buf)
     console.log(`\n截图尺寸 ${firstShot.w}×${firstShot.h}`)
   }
   return file
+}
+
+/** 主屏 displayId:挑 displayId=0 的 viewport;解析不到返回 null(调用方退回默认屏)。 */
+function mainDisplayId() {
+  try {
+    const d = shell('dumpsys display 2>/dev/null', 30000)
+    const m = d.match(/DisplayViewport\{[^}]*displayId=0,[^}]*uniqueId='local:(\d+)'/)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
 }
 
 const key = (...codes) => codes.forEach((c) => shell(`input keyevent ${c}`))
