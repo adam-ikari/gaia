@@ -29,8 +29,9 @@
 // nativeSelectCandidate 的注释)。librime 是**静态链接**进来的(见 CMakeLists.txt),
 // 它的头文件与实现都在同一个 so 里,所以这里可以直接用 C++ API。
 #include <rime/service.h>   // Service::instance() / Session::context()
-#include <rime/context.h>   // Context::composition()
+#include <rime/context.h>   // Context::composition() / GetSelectedCandidate()
 #include <rime/composition.h>  // Composition::GetCurrentStartPosition()
+#include <rime/candidate.h>    // Candidate::preedit() / start() / end()
 
 namespace {
 
@@ -279,6 +280,61 @@ JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidat
     env->SetObjectArrayElement(arr, static_cast<jsize>(i), env->NewStringUTF(out[i].c_str()));
   }
   return arr;
+}
+
+/**
+ * 菜单第一项(候选栏中央槽、空格键选中那个)候选的**音节拼写**与它覆盖的输入区间。
+ *
+ * ## 这东西干什么用
+ *
+ * 拼音显示要「自动加入分隔符」:引擎知道首选候选怎么切音节
+ * (`ScriptSyllabifier::GetPreeditString` 用 schema 的 delimiter 拼音节,
+ * 见 `script_translator.cc` 的 `ScriptTranslation::Peek`),上层只需要把它
+ * 取出来显示。C API 的 `RimeCandidate` 没有 preedit 字段(只有 text/comment),
+ * 所以走 C++:`Context::GetSelectedCandidate()` 拿当前段高亮候选,
+ * 它正是候选栏中央那一格(菜单第一项 = li=0)。
+ *
+ * ## 返回格式
+ *
+ * `String[3]` = `[preedit, start, end]`;没有候选/取不到 ⇒ **空数组**
+ * (空表比垃圾数据安全,调用方据此回退到原始拼写)。
+ *
+ * - [preedit]:音节拼写,**空格分节**(`GetPreeditString` 取
+ *   `delimiters().at(0)`,本 schema 的 `speller/delimiter` = " '",第一个字符是空格)。
+ *   换成项目约定的 `'` 是 Kotlin 侧的事 —— 显示规范不属于引擎层。
+ * - [start] / [end]:候选覆盖的**输入区间**,全输入坐标。注意 `RimeEngine.query`
+ *   重建时把 `'` 跳过了(它不喂引擎),所以这是**不含撇号**的坐标 ——
+ *   与 `selectAndRemain` 返回的 `consumed` 同一坐标系,映射回 raw 要数非撇字符。
+ */
+JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeTopSpelling(
+    JNIEnv* env, jobject, jlong session) {
+  jclass str_cls = env->FindClass("java/lang/String");
+  jobjectArray empty = env->NewObjectArray(0, str_cls, nullptr);
+  if (!session) return empty;
+  try {
+    auto s = rime::Service::instance().GetSession(static_cast<RimeSessionId>(session));
+    if (!s) return empty;
+    auto* ctx = s->context();
+    if (!ctx) return empty;
+    auto cand = ctx->GetSelectedCandidate();
+    if (!cand) return empty;
+    // start/end 是输入坐标(preedit 覆盖的那段)。GetSelectedCandidate 在
+    // 没有段时返回 null,所以这里 cand->start()/end() 一定可读。
+    const std::string preedit = cand->preedit();
+    const std::string start = std::to_string(cand->start());
+    const std::string end = std::to_string(cand->end());
+    jobjectArray out = env->NewObjectArray(3, str_cls, nullptr);
+    env->SetObjectArrayElement(out, 0, env->NewStringUTF(preedit.c_str()));
+    env->SetObjectArrayElement(out, 1, env->NewStringUTF(start.c_str()));
+    env->SetObjectArrayElement(out, 2, env->NewStringUTF(end.c_str()));
+    return out;
+  } catch (const std::exception& e) {
+    __android_log_print(ANDROID_LOG_WARN, "RimeNative",
+                        "nativeTopSpelling failed: %s", e.what());
+    return empty;
+  } catch (...) {
+    return empty;
+  }
 }
 
 /**

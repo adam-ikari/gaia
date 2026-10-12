@@ -6,6 +6,7 @@ import android.util.Log
 import dev.hwkbd.ime.engine.Candidate
 import dev.hwkbd.ime.engine.CandidateKind
 import dev.hwkbd.ime.strategy.InputMethod
+import dev.hwkbd.ime.strategy.SyllableSpelling
 import java.io.File
 
 /**
@@ -266,6 +267,50 @@ class RimeEngine(private val context: Context) : InputMethod {
     fun highlighted(): Int {
         val s = synchronized(lock) { session }
         return if (s == 0L) -1 else RimeNative.highlighted(s)
+    }
+
+    /**
+     * 菜单第一项(候选栏中央槽)候选的音节拼写。
+     *
+     * ## 它给谁用:拼音显示的自动分隔符
+     *
+     * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
+     * 候选词为准」:引擎的首选候选知道整串怎么切音节
+     * (`ScriptSyllabifier::GetPreeditString`,空格分节),把它取出来显示即可 ——
+     * 手打 `'` 在这台设备上几乎不可达(实测 Alt+L 被五键选字吃掉,见
+     * CandidateBarView 里移除候选栏上滑那段注释),分隔符本就该自动。
+     *
+     * ## 坐标系
+     *
+     * [SyllableSpelling.start] / [SyllableSpelling.end] 是**引擎输入坐标**
+     * (与 `selectAndRemain` 的 consumed 同一坐标系)。`query()` 重建时把 `'`
+     * 跳过了(分节符不喂引擎),所以这是**不含撇号**的坐标 —— 拼回 raw 显示时
+     * 要数非撇字符,不能当下标记用(见 `displaySpelling` 的映射)。
+     *
+     * @return 取不到(空菜单/没就绪/异常)→ `null`,调用方回退显示原始拼写。
+     *   **空比错安全**:回退只是没有分隔符,错坐标会拼出错的拼音。
+     */
+    override fun topSpelling(): SyllableSpelling? {
+        val s = synchronized(lock) { session }
+        if (s == 0L) return null
+        val a = try {
+            RimeNative.topSpelling(s)
+        } catch (e: Throwable) {
+            android.util.Log.w(TAG, "topSpelling: native 调用失败", e)
+            return null
+        }
+        if (a.size < 3) return null
+        val preedit = a[0]
+        if (preedit.isEmpty()) return null // 首选没有音节拼写(非拼音候选)
+        val start = a[1].toIntOrNull() ?: return null
+        val end = a[2].toIntOrNull() ?: return null
+        if (start < 0 || end < start) return null
+        return SyllableSpelling(
+            // 引擎用空格分节(schema 的 delimiter 首字符);项目规范的分隔符是 `'`。
+            text = preedit.replace(' ', '\''),
+            start = start,
+            end = end,
+        )
     }
 
     /** 清空 composition(切语言 / ESC)。 */

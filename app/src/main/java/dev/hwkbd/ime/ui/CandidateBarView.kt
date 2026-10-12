@@ -23,7 +23,6 @@ class CandidateBarView @JvmOverloads constructor(
     var onSelect: ((Int) -> Unit)? = null
     var onLongPress: ((Int) -> Unit)? = null
     var onPage: ((Int) -> Unit)? = null
-    var swipeSelectEnabled = true
     var swipePageEnabled = true
 
     /**
@@ -66,24 +65,31 @@ class CandidateBarView @JvmOverloads constructor(
     /**
      * 箭头**触摸区**每侧的宽度(px):点这一条就翻页,候选槽位也从这里开始算。
      *
-     * **与 [arrowInset] 分开是有意的**(2026-10-02 用户「翻页左右箭头到屏幕边缘近一些」):
-     * 此前两者共用一个 `arrowWidth`,于是"箭头往边缘挪"只能靠把触摸区一起调窄来换 ——
-     * 而翻页恰恰是手指最容易滑偏的动作,触摸区不该跟着视觉走。
-     * 那个共用值 26dp 今天原封不动留给触摸用。
+     * **40px 是用户定的下限**(2026-10-12「翻页提示器的可点击最小宽度需要有 40px」):
+     * 视觉可以贴着屏幕边缘,触摸区不许再瘦。与 [arrowInset] 分开是有意的
+     * (2026-10-02 用户「翻页左右箭头到屏幕边缘近一些」):此前两者共用一个值,
+     * "箭头往边缘挪"只能靠把触摸区一起调窄来换 —— 而翻页恰恰是手指最容易滑偏的动作。
      */
-    private val arrowWidth = 26f * density
+    private val arrowWidth = 40f
 
     /**
-     * 箭头**图形中心**到该侧边缘的距离(px):**24dp**。
+     * 箭头**图形中心**到该侧边缘的距离(px):**10dp**。
      *
-     * **这个数现在就等于「离屏幕边缘 24dp」**,因为候选行改成通栏了(见 `ime_root.xml` 的 candidate_row)。
-     * 此前行自身有 `bar_safe_edge`(16dp)左右内边距,这里只需 8dp(16 + 8 = 24dp);2026-10-10
-     * 行改通栏的代价就得在这里加回来 —— 否则箭头从离屏 24dp 挪到 8dp,被底部物理圆角裁掉一角。
-     *
-     * 取值本身不变的是观感:字形 `◀`/`▶` 约 8dp 宽,中心再往外是行边把它裁掉的起点;
-     * 「箭头离屏幕边缘近一些」是 2026-10-02 用户定的,通栏只改分区基准、不改这个观感。
+     * 2026-10-12 用户「翻页提示器到屏幕边缘再近一些」:24dp → 10dp。
+     * 底部物理圆角半径 10px(ScreenDecorOverlay),字形 `◀`/`▶` 约 8dp 宽、
+     * 中心在 30px,字形左缘落在 ~15px,不会被圆角裁到。
      */
-    private val arrowInset = 24f * density
+    private val arrowInset = 10f * density
+
+    /**
+     * 候选词**每侧统一内缩**(px):40 —— 两侧各让出一条与箭头触摸区同宽的带子。
+     *
+     * 2026-10-12 用户「候选词向内缩」+「五槽统一内缩」:所有槽一视同仁地收窄,
+     * 不是只收最外两槽 —— 槽心不动(5 槽仍 = 屏宽 / 5,与键盘面飞字区的对应不变),
+     * 收窄的是**词可用宽**:最外的词也不伸进两侧 40px 的箭头触摸带,与箭头互不遮挡。
+     * 截断判据见 [CandidateWordFit]。
+     */
+    private val wordInset = 40f
     private val touchSlop = 12f * density
 
     /**
@@ -1408,10 +1414,12 @@ pageSlide = pageSettleTarget
                     // 横滑翻页同样改成"拖动即反馈":整页跟手指走,松手过提交线才真的翻页
                     // (与上滑同一套模型:死区 → 跟手 → 松手判定 → 没过线反向动画收回)
                     takeOverPage || pageDragging -> setPageDrag(event.x, event.eventTime)
-                    swipeArmed && swipeSelectEnabled && downCell >= 0 && dy > flyDeadPx && dy > adx -> {
-                        beginFlyDrag(downCell) // 自带防重入
-                        setFlyDrag(DragGesture.progress(dy, flyThresholdPx, flyDeadPx), event.eventTime)
-                    }
+                    // **候选行内的上滑选字 2026-10-12 移除**(用户「候选词栏上不是上滑
+                    // 而是点击上屏」):起手改点按([onTap]),飞字只剩键盘表面 /
+                    // ImeRootView 全屏 overlay 那条外部驱动路径(同日起 adb 注入实测:
+                    // keycombination Alt+L 会被五键选字吃掉,手动分节符在这台设备上
+                    // 本就难以输入 —— 上屏入口收敛为点选)。键盘面的上滑飞字不受
+                    // 影响,触发区仍是屏宽五等份。
                     flyP >= 0f && !isFlyAnimating() -> cancelFlyDrag()
                 }
             }
@@ -1484,14 +1492,12 @@ pageSlide = pageSettleTarget
                     "touch UP: 无主(${pageFrom.size}/${pageTo.size} 残留) downCell=$downCell " +
                         "swipeArmed=$swipeArmed => 继续走点按/轻扫判定"
                 )
-                // 下面就是点按/长按/轻扫的判定,原样保留。
+                // 下面就是点按/长拍/轻扫的判定,原样保留。
                 when {
                     longPressFired -> Unit // 长按已在定时器里处理
                     kotlin.math.abs(dx) < touchSlop && kotlin.math.abs(dy) < touchSlop -> onTap(downX)
-                    swipeArmed && swipeSelectEnabled && dy < -flingDistance && -dy > kotlin.math.abs(dx) -> {
-                        val i = cellIndexAt(downX)
-                        if (i >= 0) onSelect?.invoke(i)
-                    }
+                    // **抬手的上滑快划 2026-10-12 一并移除**(同 MOVE 分支的理由):
+                    // 上滑选字整条路从候选行退役,点选是唯一上屏入口。
                     // **候选词上横向滑动也能翻页**(用户 2026-09-30「在候选词上滑动一样也可以翻页」):
                     // 抬手时若位移够大且横向占优,直接翻。之前只有点两侧箭头能翻,
                     // 拖动必须过死区才接管,快速轻扫会落进 touchSlop 里什么都不发生。
@@ -1947,7 +1953,7 @@ private fun onTap(x: Float) {
         // 飞的字和槽内裁到同一可用宽:起飞那一刻两者必须一致,否则手一滑,
         // 词在槽里是截断的、飞起来是全的,像换了词(见 [CandidateWordFit])。
         // 飞行中字号会上浮 20%,逐帧重裁只会让省略号变多,不会画出候选行。
-        val flyShown = CandidateWordFit.fit(flyWord, cellWidth - dip(4) * 2) { s -> wordPaint.measureText(s) }
+        val flyShown = CandidateWordFit.fit(flyWord, cellWidth - wordInset * 2) { s -> wordPaint.measureText(s) }
         val w = wordPaint.measureText(flyShown)
         val x = (flyX - w / 2f).coerceIn(dip(8), width - w - dip(8))
         val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f - lift
@@ -2006,12 +2012,13 @@ private fun onTap(x: Float) {
             // 缩放只改 textSize,measureText 量出的就是缩放后的宽 —— 照常居中即可,
             // 不需要额外补偿(试过"按比例反推中心"的写法,结果是字朝一侧漂)
             //
-            // 槽内截断(2026-10-12 用户「候选词过长需要截断」):可用宽 = 槽宽 - 两侧
-            // 各 4dp 呼吸。4dp 是不让词贴上分割线。0.7 倍缩小之后仍然超宽的词
-            // (≥8 字)以前会直接画出槽、压到邻词与分割线上,由这里兜底。
+            // 槽内截断(2026-10-12 用户「候选词过长需要截断」+「候选词向内缩」):
+            // 可用宽 = 槽宽 - 两侧各 [wordInset](40px)——五槽统一内缩,最外的词也
+            // 不伸进两侧 40px 的箭头触摸带。0.7 倍缩小之后仍然超宽的词(≥8 字)
+            // 以前会直接画出槽、压到邻词与分割线上,由这里兜底。
             // 纯函数判据见 [CandidateWordFit] —— 字号(含缩小/强调/入场缩放)已在
             // 上面设好,measured 就是当下的宽。
-            val shown = CandidateWordFit.fit(c.word, cellWidth - dip(4) * 2) { s -> wordPaint.measureText(s) }
+            val shown = CandidateWordFit.fit(c.word, cellWidth - wordInset * 2) { s -> wordPaint.measureText(s) }
             val w = wordPaint.measureText(shown)
             val x = left + (cellWidth - w) / 2f
             val y = height / 2f - (wordPaint.ascent() + wordPaint.descent()) / 2f - lift

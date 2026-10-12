@@ -342,6 +342,13 @@ class ImeService : InputMethodService() {
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
+        // **调出即初始态**(2026-10-12 用户「每次调出输入法需要恢复到初始状态」):
+        // 层/大写/修饰内部态全部归零。必须走在 [setFieldKind] **之前** ——
+        // 数字类聚焦锁 L2 是这里重新建立的,复位放在后面会把它连坐掉。
+        //
+        // 此前只有 [onWindowHidden] 复位层状态,表单 next 框这类**窗口不隐藏**的
+        // 切换会把上一框的锁定层/大写原样带过来 —— 那个缺口由这条补上。
+        controller.resetLayers()
         // L4 自定义键每次开始输入重载(开销可忽略)。**L1-L3 不在这里变**:
         // 键位编辑器已下线,[KeyLayoutStore.load] 只从文件取 L4,物理三层永远走出厂表。
         controller.layout = KeyLayoutStore.load(this)
@@ -925,7 +932,6 @@ class ImeService : InputMethodService() {
         controller.altKeycodes =
             if (alt > 0) intArrayOf(alt) else intArrayOf(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)
 
-        candidateBar?.swipeSelectEnabled = p.getBoolean(PREF_SWIPE_SELECT, true)
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
         // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
         haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
@@ -1208,11 +1214,14 @@ class ImeService : InputMethodService() {
         }
         preeditRow?.apply {
             val raw = s.raw
+            // 拼音条同样带自动分隔符(见 syncComposing 的 shown):App 不渲染
+            // composing 区时( Termux 类)这条气泡是用户唯一看得见拼音的地方。
+            val shown = s.spelling.ifEmpty { raw }
             if (raw.isEmpty() || !bubbleAllowed || appRendersComposing) {
                 if (visibility != View.GONE) visibility = View.GONE
             } else {
                 if (visibility != View.VISIBLE) visibility = View.VISIBLE
-                if (text.toString() != raw) text = raw
+                if (text.toString() != shown) text = shown
             }
         }
 
@@ -1242,11 +1251,16 @@ class ImeService : InputMethodService() {
     private fun syncComposing() {
         val s: ImeState = controller.state
         val ic = currentInputConnection
-        if (s.raw != composing && ic != null) {
+        // 写进编辑框的拼音**带自动分隔符**(state.spelling,2026-10-12 用户定;
+        // 产生与失效见 [ImeController.refreshSpelling])。判据是**显示串**而不是
+        // raw:首选候选会变,raw 不变时显示串也可能变(翻页后中央槽换成另一个词,
+        // 切音节不同)—— 拿 raw 做判据会漏掉这种改写。
+        val shown = s.spelling.ifEmpty { s.raw }
+        if (shown != composing && ic != null) {
             if (s.raw.isEmpty()) {
                 if (composing.isNotEmpty()) ic.finishComposingText()
             } else {
-                ic.setComposingText(s.raw, 1)
+                ic.setComposingText(shown, 1)
                 // 自己写的这一次,下一次 [onUpdateSelection] 是它的回声 —— 别拿它对账
                 // (见 [composingAckPending] 的完整经过)。
                 composingAckPending = true
@@ -1256,11 +1270,11 @@ class ImeService : InputMethodService() {
                 val after = runCatching { ic.getTextAfterCursor(200, 0)?.toString() }.getOrNull()
                 android.util.Log.i(
                     TAG,
-                    "syncComposing: wrote=\"${s.raw}\" len=${s.raw.length} " +
+                    "syncComposing: wrote=\"$shown\" len=${shown.length} " +
                         "before=$before after=$after prev=\"$composing\""
                 )
             }
-            composing = s.raw
+            composing = shown
         }
     }
 
@@ -1322,7 +1336,8 @@ class ImeService : InputMethodService() {
         private const val PAGE_NEXT = -2
         const val PREF_FULLWIDTH = "fullwidth_symbols_in_cn"
         const val PREF_PAGE_REVERSE = "page_reverse"
-        const val PREF_SWIPE_SELECT = "swipe_select"
+        // PREF_SWIPE_SELECT("swipe_select")2026-10-12 退役:候选栏上滑选字整条路移除,
+        // 上屏收敛为点选。key 留着不管(老设置里的残留值无害),但不再有开关读它。
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
 

@@ -39,7 +39,7 @@
         android:paddingEnd="8dp"
         android:paddingBottom="4dp"
         android:textColor="@color/candidate_fg"
-        android:textSize="13sp"
+        android:textSize="16sp"
         android:visibility="gone" />
     <!-- 上面 preedit_row 的 textColor 只是 applyPrefs 跑到之前的默认值;**真正的颜色
          由 ImeService.applyPrefs 按所选主题注入主题 accent** —— 与候选行里匹配拼音的

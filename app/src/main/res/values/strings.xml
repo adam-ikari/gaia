@@ -43,7 +43,7 @@
     <string name="pref_hz_split">键区分栏比例（上滑选字）</string>
     <string name="pref_hz_split_12421">1 : 2 : 4 : 2 : 1</string>
     <string name="pref_hz_split_23432">2 : 3 : 4 : 3 : 2</string>
-    <string name="pref_swipe_select">候选栏上滑选字</string>
+    <!-- pref_swipe_select 2026-10-12 随「候选栏上滑选字」功能一起移除,字符串也删掉 -->
     <string name="pref_swipe_page">候选栏左右滑翻页</string>
     <!-- 震动反馈:开关本身;desc 列出四个反馈点,让人知道关掉的是什么 -->
     <string name="pref_haptic">震动反馈</string>

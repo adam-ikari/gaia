@@ -10,6 +10,7 @@ import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.strategy.InputMethod
 import dev.hwkbd.ime.strategy.Language
+import dev.hwkbd.ime.strategy.SyllableSpelling
 
 /**
  * 纯逻辑输入法状态机:语言(策略注册表)、三层键位、Alt/Sym 单双击锁定与长按临时层、Shift 单双击 Caps 与长按大写、
@@ -63,7 +64,8 @@ import dev.hwkbd.ime.strategy.Language
  * ```
  * 其它迁移:字母键消费 `OneShot` 与 `ONCE`;聚焦数字类 → `Locked(L2)`,离开数字类且锁着 L2 → `L1`;
  * 切语言 → 语言策略 [Language.onEnter] 清大写(层**不**清,换一个输入框不该丢用户选的层);
- * 窗口隐藏 → [resetLayers] 全回初始;换输入框 → [resetForNewInput] 只清组词。
+ * 窗口隐藏 → [resetLayers] 全回初始;换输入框(调出输入法)→ 同样全回初始
+ * (2026-10-12 用户「每次调出输入法需要恢复到初始状态」,复位在 setFieldKind 之前)。
  *
  * **只有单击和双击两种事件(2026-09-30 用户定案「三连击无效」)**:窗口内第三次及以后的敲击
  * 不再是独立事件,只是"锁定态下的一次单击" = 解锁。原先那条 `n>=3 → L1↔L2/L3 换层` 已删除——
@@ -620,6 +622,8 @@ class ImeController(
         // `hao` 的候选它算得出来。错的是**读的时候引擎可能已经没了**,
         // 重建同样得先问引擎,所以两条路一起空。
         val candidates = inputMethod().currentCandidates(rest, CANDIDATE_LIMIT)
+        // 显示拼写跟着新菜单走:剩余部分的首选候选决定剩余拼音怎么显示分隔符。
+        refreshSpelling()
         // **这里不做「没候选就当全吃掉」的夹取** —— 试过,撤回(2026-10-06)。
         //
         // 起因是我以为「librime 切在词中间会留下一字母碎片,而碎片没有候选」。
@@ -797,10 +801,12 @@ class ImeController(
         }
         if (state.raw.isNotEmpty()) {
             state.candidates = inputMethod().query(state.raw, CANDIDATE_LIMIT)
+            refreshSpelling()
             state.page = 0
             state.highlight = -1
         } else {
             state.candidates = emptyList()
+            state.spelling = ""
             state.page = 0
             state.highlight = -1
         }
@@ -821,6 +827,24 @@ class ImeController(
         )
         // ----------------------------------------------------------------
         host.render()
+    }
+
+    /**
+     * 刷新 [ImeState.spelling](拼音的显示串:带自动分隔符)。
+     *
+     * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
+     * 候选词为准」。与候选查询同源同时机:紧跟 [InputMethod.query] /
+     * [InputMethod.currentCandidates] —— 它读的是引擎**此刻**的菜单,晚一步
+     * 就是两份不同的状态(见 brain `unverified-as-fact`:判据要和权威量对齐)。
+     */
+    private fun refreshSpelling() {
+        val raw = state.raw
+        if (raw.isEmpty()) {
+            state.spelling = ""
+            return
+        }
+        val sp = inputMethod().topSpelling()
+        state.spelling = if (sp == null) "" else displaySpelling(raw, sp)
     }
 
     /**
@@ -867,7 +891,14 @@ class ImeController(
         state.highlight = -1
     }
 
-    /** 切换输入框/外部改动组词区:丢弃当前组词,保留模式与层。 */
+    /**
+     * 切换输入框/外部改动组词区:丢弃当前组词,**层也归零**。
+     *
+     * 2026-10-12 用户「每次调出输入法需要恢复到初始状态」:调出(换框聚焦)即复位,
+     * 不再保留上一框手动选的层 —— 那条"换输入框不该丢用户选的层"的旧设计
+     * 连同层复位与 [setFieldKind] 的顺序约束一起作废(复位必须在 setFieldKind
+     * 之前,数字类聚焦锁 L2 由后者重建)。窗口隐藏那一下照旧 [resetLayers]。
+     */
     fun resetForNewInput() {
         clearComposition()
         symDown = false
@@ -878,12 +909,9 @@ class ImeController(
      * **大写 / Alt(L2) / Sym(L3) 全部回到初始态**(2026-09-29 用户定案,输入法隐藏时调用):
      * L1、无锁定、无一次性、长按层解除、大写关,连同长按/连击那套内部状态一起清干净。
      *
-     * 与 [resetForNewInput] 的分工:那个刻意**保留**模式与层(换一个输入框不该丢用户选的层);
-     * 这个是给"窗口都收起来了"用的——锁定过的 L2、开着的大写若原样留着,下次弹出来会莫名其妙
-     * 还停在那个态,状态行也会显示一个用户根本没在用的层。语言与输入框类型不动。
-     *
-     * 内部那些 hold/suppress 字段必须一起清:它们记的是"这次长按/连击的前置状态",
-     * 跨过一次隐藏就该丢弃,否则下一次长按 Alt 会去恢复一份早已过期的快照。
+     * 与 [resetForNewInput] 的分工:换输入框现在也全量复位了(2026-10-12 调出即初始态),
+     * 这个函数保留给"窗口都收起来了"那一刻 —— 同样全回初始,调用时机不同,内部态
+     * (hold/suppress 那些字段)一起清,理由是"下一次长按 Alt 不该恢复过期快照"。
      */
     fun resetLayers() {
         // 层状态一次归零:锁定/一次性/按住中都在这一个字段里(含 [LayerState.Hold] 里的
@@ -1082,5 +1110,40 @@ class ImeController(
          * 免得同一时长在两处各留一份常量。
          */
         const val HOLD_MS = ModifierGestures.DEFAULT_HOLD_MS
+
+        /**
+         * 组装拼音的**显示串**:首选候选的音节拼写([SyllableSpelling.text],带 `'`)
+         * 拼回 [raw]。
+         *
+         * ## 为什么要拼,而不是直接显示 preedit
+         *
+         * 首选候选**不一定覆盖整串**:翻到后面的页,中央槽那个候选可能只覆盖开头
+         * 几个音节(`nihao` 翻页后中央槽是「你」= 只覆盖 "ni")。它的音节拼写
+         * 只该替换它覆盖的那一段,剩下的 raw 尾巴原样接在后面。
+         *
+         * ## 坐标系:引擎坐标**不含撇号**
+         *
+         * [SyllableSpelling.start] / [SyllableSpelling.end] 是喂进引擎那串里的下标,
+         * 而 `RimeEngine.query` 重建时**跳过 `'`**(分节符不喂引擎)。
+         * 所以映射回 raw 时数的是**非撇字符** —— 这一点与
+         * [ImeController] 的 `readRemainder` 注释(写的是「含 '」)相反;
+         * 以代码为准(2026-10-12 发现,已记 brain `unverified-as-fact`)。
+         *
+         * 切点正好落在撇上时,那个撇属于被覆盖那一段,跟着音节拼写一起被替换掉 ——
+         * 与 `rawAfterConsuming` 对撇的处理同一条规矩。
+         *
+         * @return 拼好的显示串;引擎给不出音节拼写时由调用方传 null 走回退。
+         */
+        internal fun displaySpelling(raw: String, sp: SyllableSpelling): String {
+            if (raw.isEmpty()) return ""
+            // 非撇字符在 raw 里的下标表:rawStart[k] = 第 k 个(0 起)非撇字符的下标。
+            val rawStart = ArrayList<Int>(raw.length)
+            for ((i, c) in raw.withIndex()) if (c != '\'') rawStart += i
+            val s = sp.start.coerceIn(0, rawStart.size)
+            val e = sp.end.coerceIn(s, rawStart.size)
+            val prefix = if (s == 0) "" else raw.substring(0, rawStart[s])
+            val tail = if (e >= rawStart.size) "" else raw.substring(rawStart[e])
+            return prefix + sp.text + tail
+        }
     }
 }

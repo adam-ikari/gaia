@@ -65,6 +65,25 @@ interface InputMethod {
      */
     fun currentCandidates(pinyin: String, limit: Int): List<Candidate> = query(pinyin, limit)
 
+    /**
+     * 菜单第一项(候选栏中央槽)候选的**音节拼写**与覆盖区间;引擎不支持 → `null`。
+     *
+     * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
+     * 候选词为准」:拼音显示(preedit)跟随首选候选的切音节自动插入 `'`,
+     * 而不是等用户手打 —— 手打分节符在这台设备上几乎不可达(Alt+L 被五键选字吃掉)。
+     *
+     * ## 默认值为什么是 null 而不是空串
+     *
+     * 与 [selectAndRemain] 同一条规矩:**加法式接口,默认退化成旧行为**。
+     * `null` = 「本引擎说不清」,调用方照旧显示原始拼写(没有分隔符,和改动前一致);
+     * 空串会被当成「首选没有音节拼写」—— 那也是同一个显示结果,但分不清
+     * 「引擎不支持」与「这一页真的没有」,排查时多一道坎。
+     *
+     * 调用时机:紧跟 [query] / [currentCandidates] —— 它读的是引擎**此刻**的菜单,
+     * 与候选列表同源,晚一步就是两份不同的状态。
+     */
+    fun topSpelling(): SyllableSpelling? = null
+
     /** 一词上屏后的词频反馈。 */
     fun onCommitted(word: String) {}
 
@@ -185,4 +204,20 @@ interface InputMethod {
 data class PinyinConsumption(
     val consumed: Int,
     val preview: String,
+)
+
+/**
+ * 菜单第一项(候选栏中央槽)候选的**音节拼写**与它覆盖的输入区间。
+ *
+ * @property text 音节拼写,`'` 分节(如 `xi'an`)。引擎给的是空格分节
+ *   (`ScriptSyllabifier::GetPreeditString` 取 schema delimiter 首字符),
+ *   换成项目规范的 `'` 是 rime 层 `topSpelling()` 做的事。
+ * @property start / end 候选覆盖的输入区间,**引擎输入坐标、不含撇号**
+ *   (引擎重建时 `'` 不喂,见 `RimeEngine.query`)。拼回 raw 显示要数非撇字符,
+ *   见 `ImeController.displaySpelling`。
+ */
+data class SyllableSpelling(
+    val text: String,
+    val start: Int,
+    val end: Int,
 )

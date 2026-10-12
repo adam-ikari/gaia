@@ -22,10 +22,6 @@
             android:defaultValue="true"
             android:title="@string/pref_fullwidth" />
         <SwitchPreferenceCompat
-            android:key="swipe_select"
-            android:defaultValue="true"
-            android:title="@string/pref_swipe_select" />
-        <SwitchPreferenceCompat
             android:key="swipe_page"
             android:defaultValue="true"
             android:title="@string/pref_swipe_page" />
