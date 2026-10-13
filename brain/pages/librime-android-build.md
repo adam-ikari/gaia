@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-13T11:45:08"
+updated: "2026-10-13T15:44:36"
 ---
 
 <!-- compiled_truth -->
@@ -201,4 +201,10 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   kind: evidence
   summary: "2026-10-13 更新 librime:d6006f73 → f6ea8d94(fork 1.17.0-89,1d7c2618 的后续,沿 1975 个提交差)。范围:上游同步 + fork 词库两轮读音校准(删 149 死读音/补 59 现代读)+ clamp/dict 少数源码与 README 归位;构建配方零改动(drop Boost、std::regex 那套仍在)。arm64+x86_64 重编通过、JVM 单测全绿。真机冒烟(TTANCN2100002663):nihao 45 候选、空格上屏 consumed=0、**拼音自动分隔符照常(wrote=ni'hao,preedit 仍空格分节,Kotlin 侧换 ')**—— 2026-10-12 新加的 nativeTopSpelling 走的 C++ Candidate::preedit() 在新版 API 未变。"
   source: "2026-10-13 子模块更新 + 构建 + 真机冒烟"
+  affects: [windows-native-build]
+
+- time: 2026-10-13T15:44:36
+  kind: evidence
+  summary: "2026-10-13 第二次更新 librime:f6ea8d94 → 0d00afba(3 个提交):①源码注释去中文与 term-ime 字样(纯风格);②新增 emoji 扩展词典,默认关、Ctrl+Shift+6 开(librime 侧开关,本输入法 schema 未启用,默认行为不变);③fork 自建 brain 文档。diff +8529/-153 行。双 ABI 重编通过、JVM 单测全绿。**设备冒烟未做** —— 更新时手机 USB 掉线(adb wait-for-device 超时),nihao 候选/上屏/自动分隔符三项待设备回来后补跑(用例同 2026-10-13 第一次更新)。"
+  source: "2026-10-13 子模块更新 + 构建(设备掉线,冒烟待补)"
   affects: [windows-native-build]
