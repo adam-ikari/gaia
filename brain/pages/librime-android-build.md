@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-11T05:13:07"
+updated: "2026-10-13T11:45:08"
 ---
 
 <!-- compiled_truth -->
@@ -196,3 +196,9 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   summary: "2026-10-11 更新 librime 两件一起做(用户「更新librime」):①子模块 bdbd576 → d6006f73(fork 主线 8 提交:并入上游 67 提交、regex 走 PCRE 翻译层、插件模块注册从 Boost.PP 编译定义改为 configure 期生成 rime_extra_modules.h);②词典资产同步 —— 应用的 assets/rime/{luna_pinyin.dict.yaml,essay.txt} 此前冻结在 64eda4c7,本次覆盖为 fork dict/ 当前状态(简体化 3fbacf6c + 错音订正 fa3744e3 + 文言读音清理 d6006f73)。同步边界:opencc/ 与 luna_pinyin.schema.yaml 是应用自己维护的,不随子模块走。验证(无真机):NDK 配方编过、JNI 15/15、单测全过、rimeprobe 探针对同一组查询在引擎更新前后逐字节一致、词典同步后 shenme→什么/sheme→色么(文言行已删)/排序随新 essay 变化、consumed 与分段结构不变。dev APK 10699195 → 11633451(+0.93MB,essay raw +2.05MB 但 APK 压缩存储)。"
   source: "2026-10-11 用户要求更新 librime,范围经确认含词典"
   affects: [librime-android-build]
+
+- time: 2026-10-13T11:45:08
+  kind: evidence
+  summary: "2026-10-13 更新 librime:d6006f73 → f6ea8d94(fork 1.17.0-89,1d7c2618 的后续,沿 1975 个提交差)。范围:上游同步 + fork 词库两轮读音校准(删 149 死读音/补 59 现代读)+ clamp/dict 少数源码与 README 归位;构建配方零改动(drop Boost、std::regex 那套仍在)。arm64+x86_64 重编通过、JVM 单测全绿。真机冒烟(TTANCN2100002663):nihao 45 候选、空格上屏 consumed=0、**拼音自动分隔符照常(wrote=ni'hao,preedit 仍空格分节,Kotlin 侧换 ')**—— 2026-10-12 新加的 nativeTopSpelling 走的 C++ Candidate::preedit() 在新版 API 未变。"
+  source: "2026-10-13 子模块更新 + 构建 + 真机冒烟"
+  affects: [windows-native-build]
