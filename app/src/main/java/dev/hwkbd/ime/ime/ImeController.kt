@@ -889,6 +889,12 @@ class ImeController(
         lastCandidateSig = ""
         state.page = 0
         state.highlight = -1
+        // **显示串必须跟着 raw 一起清**(2026-10-13 评审补):否则 ESC / abandon /
+        // 上屏之后 spelling 留着旧值,而 `ImeService.syncComposing` 的 shown 取
+        // `spelling.ifEmpty { raw }` —— 陈旧拼写会被当成"还有组词",
+        // `finishComposingText()` 不再触发,编辑框里的拼音不清除。
+        // 症状(评审时推出来的,单测钉住):组词后按 ESC,拼音留在输入框里。
+        state.spelling = ""
     }
 
     /**

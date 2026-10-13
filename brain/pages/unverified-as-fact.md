@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [lessons, method, verification, e2e]
 created: "2026-10-08T18:16:42"
-updated: "2026-10-12T16:54:05"
+updated: "2026-10-13T13:52:19"
 ---
 
 <!-- compiled_truth -->
@@ -147,3 +147,9 @@ updated: "2026-10-12T16:54:05"
   summary: "第 11 个错判,近似形状:撇号坐标 —— RimeEngine.query 跳过 ' 不喂引擎(代码事实),而 rawAfterConsuming/readRemainder/ImeController 三处注释都说'坐标含撇'、依据是宿主机探针(探针绕过 skip 直接喂)与 E2E(输入从无撇)。探针证据 ≠ 生产证据:raw 含 ' 时(本机只能 hold-Alt+L 输入,极难构造)consumed 的下标语义可能错。适用于:任何'引擎收到了什么'的结论,判据必须是生产路径本身,探针只证明引擎能力。当天顺带实测:Alt+L 组合键会被五键选字吃掉(手动分节符在本机几乎不可达),这正是自动分隔符需求的由来。"
   source: "2026-10-12 读码 + 真机注入取证"
   affects: [rime-candidate-consumption]
+
+- time: 2026-10-13T13:52:19
+  kind: evidence
+  summary: "2026-10-13 评审自查发现同批代码的真 bug:clearComposition 清了 raw 没清 spelling(拼音显示串),而 syncComposing 的写入判据是 spelling.ifEmpty{raw} —— 陈旧拼写让 finishComposingText 不再触发,ESC/abandon 后拼音留在输入框。E2E 16/16 是绿的:没有场景测 ESC/换框时的组词清除,而现有场景断言的都在上屏之后。教训形状:全绿套件 + 真机验证过主路径,依然漏掉'两条状态字段的清除必须同步'这类不变量 —— 不变量要么收进同一个漏斗(clearComposition)并用单测钉'每个清空入口',要么靠评审。已修(clearComposition 清 spelling)+ 三条入口回归测试。"
+  source: "2026-10-13 代码评审"
+  affects: [e2e-capture]

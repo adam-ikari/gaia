@@ -15,7 +15,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import dev.hwkbd.ime.strategy.withConsumed
 import dev.hwkbd.ime.strategy.withReady
+import dev.hwkbd.ime.strategy.withSpelling
 import dev.hwkbd.ime.strategy.PinyinInputMethod
+import dev.hwkbd.ime.strategy.SyllableSpelling
 
 class ImeControllerTest {
 
@@ -87,6 +89,8 @@ class ImeControllerTest {
         /** 引擎报「这个候选吃掉了几个输入字符」;null = 不参与选词(走旧路径全清)。 */
         consumed: Int? = null,
         engineReady: Boolean = true,
+        /** 引擎 [InputMethod.topSpelling] 的固定回答(拼音显示串用;null = 说不清)。 */
+        spelling: SyllableSpelling? = null,
     ): Rig {
         // 用 [FakePinyinInputMethod] 而不是真引擎(2026-10-03 换 librime):
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
@@ -96,6 +100,7 @@ class ImeControllerTest {
         val engine = FakePinyinInputMethod.common()
             .withConsumed(consumed)
             .withReady(engineReady)
+            .withSpelling(spelling)
         // **注册的是装饰器**,和 `ImeService.kt:162` 的生产写法一样
         // (`registerMethod(PinyinInputMethod(rime))`)。
         //
@@ -1468,5 +1473,50 @@ class ImeControllerTest {
             LayerState.Locked(dev.hwkbd.ime.keymap.Layer.L2),
             r.c.state.layerState,
         )
+    }
+
+    // ---------------------------------------------------------------- 拼音显示串
+
+    /**
+     * 组词后 [ImeState.spelling] 有值;**任何清空路径都必须连它一起清**。
+     *
+     * 2026-10-13 评审发现的真 bug:`clearComposition` 清了 raw 却没清 spelling,
+     * 而 `ImeService.syncComposing` 的写入判据取 `spelling.ifEmpty { raw }` ——
+     * 陈旧拼写让「组词还没结束」的假象成立,`finishComposingText()` 不再触发,
+     * 用户按 ESC 之后拼音**留在输入框里**。E2E 没有场景测 ESC,所以它是绿的。
+     *
+     * 三条清空路径(直接清 / 换框 / 外部破坏)各钉一遍 —— 它们都汇到
+     * [ImeController.clearComposition],但接口上各有入口,回归要防的是
+     * 「以后有人绕过漏斗再清一次 raw」。
+     */
+    @Test
+    fun `spelling is cleared by every composition-clearing path`() {
+        val r = rig(spelling = SyllableSpelling("ni'hao", 0, 5))
+        r.type("nihao")
+        assertEquals("ni'hao", r.c.state.spelling)
+
+        r.c.clearComposition()
+        assertEquals("", r.c.state.spelling)
+
+        r.type("nihao")
+        assertEquals("ni'hao", r.c.state.spelling)
+        r.c.resetForNewInput() // 换框
+        assertEquals("", r.c.state.spelling)
+
+        r.type("nihao")
+        assertEquals("ni'hao", r.c.state.spelling)
+        r.c.abandonComposition() // 组词区被外部破坏
+        assertEquals("", r.c.state.spelling)
+        assertEquals("", r.c.state.raw) // raw 与 spelling 必须同步,不能一个清一个留
+    }
+
+    /** 引擎说不清音节拼写时 spelling 恒空 —— 显示回退原始拼写,与改动前一致。 */
+    @Test
+    fun `spelling stays empty when engine cannot tell`() {
+        val r = rig(spelling = null)
+        r.type("nihao")
+        assertEquals("", r.c.state.spelling)
+        r.c.clearComposition() // 清空路径对空值同样要安静通过
+        assertEquals("", r.c.state.spelling)
     }
 }

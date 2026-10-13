@@ -60,10 +60,21 @@ class FakePinyinInputMethod(
      * 与换 librime 之前的行为一致。
      */
     internal val ready: Boolean = true,
+    /**
+     * [InputMethod.topSpelling] 的固定回答(2026-10-13,拼音自动分隔符)。
+     *
+     * `null`(默认)= 引擎说不清首选的音节拼写 —— 与真引擎取不到时同路径,
+     * 上层回退显示原始拼写。给值即可在**控制器层**验 spelling 的刷新与清除
+     * (评审 2026-10-13 发现的陈旧 bug 就钉在这里)。
+     */
+    internal val spelling: SyllableSpelling? = null,
 ) : InputMethod {
 
     /** 实现 [InputMethod.isReady]。false 时 [query] 给空表,模拟「词库还在部署」。 */
     override val isReady: Boolean get() = ready
+
+    /** 实现 [InputMethod.topSpelling]:固定回答 [spelling](真引擎按当前菜单动态给)。 */
+    override fun topSpelling(): SyllableSpelling? = spelling
 
     /** 实现 [InputMethod.selectAndRemain]:按 [consumedChars] 回答,不做真的选词。 */
     override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
@@ -258,3 +269,13 @@ fun FakePinyinInputMethod.withConsumed(v: Int?): FakePinyinInputMethod =
 /** 复制一份并设定「是否就绪」(给候选行闪烁那几条测试用)。见 [withConsumed] 的理由。 */
 fun FakePinyinInputMethod.withReady(v: Boolean): FakePinyinInputMethod =
     FakePinyinInputMethod(id = id, table = table, consumedChars = consumedChars, ready = v)
+
+/**
+ * 复制一份并设定 [InputMethod.topSpelling] 的固定回答(2026-10-13,拼音自动分隔符)。
+ *
+ * 真引擎按当前菜单动态给,这里给常量就够 —— 控制器层要验的是
+ * 「spelling 何时刷新、**何时清除**」,不是音节切分本身(那是 displaySpelling
+ * 纯函数与真机的事)。
+ */
+fun FakePinyinInputMethod.withSpelling(s: SyllableSpelling?): FakePinyinInputMethod =
+    FakePinyinInputMethod(id = id, table = table, consumedChars = consumedChars, ready = ready, spelling = s)
