@@ -5,11 +5,17 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-12T16:57:55"
+updated: "2026-10-13T16:52:13"
 ---
 
 <!-- compiled_truth -->
-## 待办(2026-10-12 收尾时点,按价值排序)
+## 待办(2026-10-13 更新,按价值排序)
+
+### 0. librime `0d00afba`(emoji 词典,默认关)设备冒烟待补 ← 最新欠账
+
+- **已过**:fetch/diff 审查、双 ABI 构建、JVM 单测、提交 `c313083` 已推。
+- **待做**:候选/上屏/自动分隔符三项冒烟。卡因:更新时手机 USB 掉线,重连后设备焦点异常(`mFocusedApp=null`,副屏 launcher 占焦点),Shift+Space 切中文的重试脚本已备(`%TEMP%\opencode\rs-smoke3.cjs`)但用户叫停收尾。
+- **用例**:playground 主输入框,Shift+Space 切中文(设备语言态可能停在 En),打 `nihao` → 期望 45 候选、 composing 显示 `ni'hao`、空格上屏 `consumed=0`。手动三分钟也能验完。
 
 ### 1. `rawAfterConsuming` 撇号坐标:文档与实现矛盾,raw 含 `'` 时可能截错缓冲
 
@@ -30,7 +36,7 @@ updated: "2026-10-12T16:57:55"
 
 ### 已完成(不再追)
 
-候选词槽内截断(尾补 `…`)、候选栏箭头贴边(10dp)+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(气泡 + 行内双路径)、拼音气泡 16sp、调出即初始态 —— 均已单测/真机/E2E(16/16)验证并提交。
+候选词槽内截断(尾补 `…`)、候选栏箭头贴边(10dp)+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(气泡 + 行内双路径)、拼音气泡 16sp、调出即初始态、评审修复(spelling 随组词一起清)、librime 两次更新(`f6ea8d94` 已冒烟、`0d00afba` 见第 0 项) —— 除第 0 项外均已单测/真机/E2E(16/16)验证并提交。
 
 
 ## Timeline
@@ -45,4 +51,10 @@ updated: "2026-10-12T16:57:55"
   kind: decision
   summary: "建立待办清单:撇号坐标矛盾(探针≠生产)、five-key-slots 断言脆弱改 zone 不变量、调出复位的语言口径待确认"
   source: "2026-10-12 收尾"
+  affects: [pending-todos]
+
+- time: 2026-10-13T16:52:13
+  kind: decision
+  summary: "2026-10-13 追加第 0 项:librime 0d00afba 设备冒烟待补(USB 掉线+焦点异常卡住,构建单测已过)"
+  source: "2026-10-13 收尾"
   affects: [pending-todos]
