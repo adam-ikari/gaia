@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-12T11:18:00"
+updated: "2026-10-12T16:52:12"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -510,3 +510,9 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   summary: "候选词槽内截断(尾补 …,2026-10-12 用户「候选词过长需要截断」):候选槽 288px、17sp 字号下 6 字全字号已超宽,旧代码只有「>6 字缩 0.7 倍」一道缓解,≥8 字仍会画出槽压到邻词与分割线。判据拆成纯函数 CandidateWordFit.fit(二分裁几点 + 省略号预算,可 JVM 单测),drawSlots/drawFly 共用同一可用宽(槽宽 - 2×4dp),飞字起飞帧与槽内一致。刻意与 L4/L5 走不同的路:键帽不截断、放不下翻页(2026-09-29 定案),候选词长短不可控、翻页治不了一页里某个词太长。真机验证:溴甲烷网站之前(7 字)渲染为 6 字 + …,装得下的词一个字符不动。"
   source: "2026-10-12 真机 + 单测(候选序随词频漂移,同词两次首选不同)"
   affects: [e2e-capture]
+
+- time: 2026-10-12T16:52:12
+  kind: decision
+  summary: "2026-10-12 候选栏交互批改(用户逐条定):①翻页箭头视觉 24dp→10dp 贴边、触摸区固定 40px(原 26dp);②五槽统一内缩——分栏保持 5 等分不动(cellWidth=width/5、cellIndexAt 不变),只把每槽内词的可用宽统一收窄 40px(与箭头触摸带等宽,最外的词也不伸进箭头区);③候选栏上滑选字整条路移除,上屏收敛为点选(横滑翻页/长按删词/箭头点按保留;键盘面上滑飞字走 ImeRootView 外部驱动不受影响,触发区仍是屏宽五等份);swipe_select 偏好退役;④拼音自动分隔符:以中央槽首选候选的音节切分(preedit,引擎给空格分节、显示换 ')自动插入,App 内 composing 与 Termux 气泡两条显示路径都生效,首选变(含翻页)实时跟随;⑤拼音气泡 13sp→16sp(可读性);⑥调出即初始态:onStartInput 增补 resetLayers(在 setFieldKind 之前,保住数字类锁 L2),换框不再带上一次锁定的层/大写。"
+  source: "2026-10-12 真机(TTANCN2100002663)逐项验证 + E2E 16/16"
+  affects: [e2e-capture pinyin-dict-strategy]

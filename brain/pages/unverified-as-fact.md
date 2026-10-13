@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [lessons, method, verification, e2e]
 created: "2026-10-08T18:16:42"
-updated: "2026-10-12T09:39:37"
+updated: "2026-10-12T16:54:05"
 ---
 
 <!-- compiled_truth -->
@@ -141,3 +141,9 @@ updated: "2026-10-12T09:39:37"
   summary: "2026-10-12 第十个错判,第五种形状:证据本体落错对象 —— 四张判卷截图 PNG 存在、能打开,内容是副屏表盘(screencap 不带 -d 落在 displayId 非 0 的屏上);同时 display-vs-commit 的红是环境造的(wm override 1436x1440@358 残留,候选行只能铺 1436,断言拿物理 1440 比)。修 display-id + 清 override 后 16/16 全绿。five-key-slots 的红是断言脆弱:三次查询候选序随词频漂移, Ctrl 选的就是它槽位当时显示的词。判据:清掉 override 再谈红;断言用不变量(zone)别用会漂移的量(互异的词)。"
   source: "2026-10-12 真机全量回归 TTANCN2100002663(v0.7.11 debug @93f62ba)"
   affects: [e2e-capture, spring-damping-direction]
+
+- time: 2026-10-12T16:54:05
+  kind: evidence
+  summary: "第 11 个错判,近似形状:撇号坐标 —— RimeEngine.query 跳过 ' 不喂引擎(代码事实),而 rawAfterConsuming/readRemainder/ImeController 三处注释都说'坐标含撇'、依据是宿主机探针(探针绕过 skip 直接喂)与 E2E(输入从无撇)。探针证据 ≠ 生产证据:raw 含 ' 时(本机只能 hold-Alt+L 输入,极难构造)consumed 的下标语义可能错。适用于:任何'引擎收到了什么'的结论,判据必须是生产路径本身,探针只证明引擎能力。当天顺带实测:Alt+L 组合键会被五键选字吃掉(手动分节符在本机几乎不可达),这正是自动分隔符需求的由来。"
+  source: "2026-10-12 读码 + 真机注入取证"
+  affects: [rime-candidate-consumption]
