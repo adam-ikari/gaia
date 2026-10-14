@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-12T16:52:12"
+updated: "2026-10-14T12:43:39"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -516,3 +516,9 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   summary: "2026-10-12 候选栏交互批改(用户逐条定):①翻页箭头视觉 24dp→10dp 贴边、触摸区固定 40px(原 26dp);②五槽统一内缩——分栏保持 5 等分不动(cellWidth=width/5、cellIndexAt 不变),只把每槽内词的可用宽统一收窄 40px(与箭头触摸带等宽,最外的词也不伸进箭头区);③候选栏上滑选字整条路移除,上屏收敛为点选(横滑翻页/长按删词/箭头点按保留;键盘面上滑飞字走 ImeRootView 外部驱动不受影响,触发区仍是屏宽五等份);swipe_select 偏好退役;④拼音自动分隔符:以中央槽首选候选的音节切分(preedit,引擎给空格分节、显示换 ')自动插入,App 内 composing 与 Termux 气泡两条显示路径都生效,首选变(含翻页)实时跟随;⑤拼音气泡 13sp→16sp(可读性);⑥调出即初始态:onStartInput 增补 resetLayers(在 setFieldKind 之前,保住数字类锁 L2),换框不再带上一次锁定的层/大写。"
   source: "2026-10-12 真机(TTANCN2100002663)逐项验证 + E2E 16/16"
   affects: [e2e-capture pinyin-dict-strategy]
+
+- time: 2026-10-14T12:43:39
+  kind: decision
+  summary: "2026-10-14 拼音自动分隔符两处修正(评审 + 用户当场纠正):①分隔符跟随**当前页**中央槽(JNI 改按索引取 Menu::GetCandidateAt,索引=page*pageSize,翻页即刷新),此前固定取菜单第 0 项,翻页后与画面脱节;②**每一段边界都补撇** —— 候选覆盖段与剩余 raw 是两段,「倪」只覆盖 ni 时显示 ni'hao(ni 后面需要拆分),不是 nihao;③刷新点从 readRemainder(旧 raw/旧页,会拼出 haoao)挪到 remainder 落定后。真机:nihao 第0/1/回翻三态均 ni'hao。"
+  source: "2026-10-14 评审 + 真机(TTANCN2100002663)"
+  affects: [pending-todos]
