@@ -182,7 +182,7 @@ if(NOT EXISTS ${_STAMP})
 #   · `opencc`(库)—— 交叉编译,产出 `libopencc.a`。**本项目要的就是它。**
 #   · `Dictionaries`(词典)—— 主机程序 + 数据。**本项目不要。**
 #
-# 用 `--target opencc` 而不是 `--target install`:opencc 的 install 规则
+# 用 `--target libopencc` 而不是 `--target install`:opencc 的 install 规则
 # 全挂在词典上,install 会连带 Dictionaries。库文件由我们自己从构建目录
 # **拷**进 stage。
 #
@@ -233,11 +233,14 @@ message(STATUS "PYTHON_EXECUTABLE -> ${_DEP_PY}")
 
 rime_dep_configure(opencc ${RIME_SRC}/deps/opencc
     ${_DEP_COMMON} ${_DEP_PY}
-    -DUSE_SYSTEM_MARISA=OFF -DBUILD_TESTING=OFF -DOPENCC_BUILD_TOOLS=OFF)
+    -DUSE_SYSTEM_MARISA=OFF -DBUILD_TESTING=OFF -DOPENCC_BUILD_TOOLS=OFF
+    -DOPENCC_BUILD_DATA=OFF)
 
 execute_process(
     COMMAND ${CMAKE_COMMAND} --build ${DEPS_STAGE}/../_deps_build/opencc
-    --target opencc -j
+        # opencc 的库 target 名:上游一直是 libopencc,旧 librime 子模块那份叫 opencc。
+    # 2026-10-14 子模块更新后按上游名走(ninja: unknown target opencc)。
+--target libopencc -j
     RESULT_VARIABLE _rc
     ECHO_OUTPUT_VARIABLE
     ECHO_ERROR_VARIABLE)
@@ -291,7 +294,7 @@ message(STATUS "libopencc 就位(未构建词典 —— 真机上 librime 自己
 #
 # 于是这里:
 #   1. configure 时关掉 Dictionaries(见 `-DBUILD_DICTIONARIES=OFF` 的兜底);
-#   2. 用 `--target opencc` 而不是 `--target install` —— **`install` 会连带
+#   2. 用 `--target libopencc` 而不是 `--target install` —— **`install` 会连带
 #      Dictionaries**(它有 install 规则),而库本身没有 install 规则可用,
 #      所以库文件由我们自己从构建目录**拷**进 stage。
 #
@@ -313,7 +316,7 @@ rime_dep_configure(opencc ${RIME_SRC}/deps/opencc
 # 只要库,不要 install:opencc 的 install 规则挂在词典上,会连带 Dictionaries。
 execute_process(
     COMMAND ${CMAKE_COMMAND} --build ${DEPS_STAGE}/../_deps_build/opencc
-    --target opencc -j
+    --target libopencc -j
     RESULT_VARIABLE _rc
     ECHO_OUTPUT_VARIABLE
     ECHO_ERROR_VARIABLE)
