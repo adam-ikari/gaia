@@ -125,13 +125,13 @@ object RimeNative {
         if (loaded && session != 0L) nativeCompositionLength(session) else 0
 
     /**
-     * 菜单第一项(候选栏中央槽)候选的音节拼写与覆盖区间。
+     * 菜单第 [index] 项(候选栏中央槽)候选的音节拼写与覆盖区间。
      *
      * 返回 `[preedit, start, end]`;没就绪/取不到 ⇒ **空数组**
      * (调用方据此回退,见 [dev.hwkbd.ime.rime.RimeEngine.topSpelling])。
      */
-    fun topSpelling(session: Long): Array<String> =
-        if (loaded && session != 0L) nativeTopSpelling(session) else emptyArray()
+    fun topSpelling(session: Long, index: Int): Array<String> =
+        if (loaded && session != 0L) nativeTopSpelling(session, index) else emptyArray()
 
     private external fun nativeVersion(): String
     private external fun nativeApiProbe(): String
@@ -142,7 +142,7 @@ object RimeNative {
     private external fun nativeDestroy()
     private external fun nativeReset(session: Long)
     private external fun nativeCandidates(session: Long, limit: Int): Array<String>
-    private external fun nativeTopSpelling(session: Long): Array<String>
+    private external fun nativeTopSpelling(session: Long, index: Int): Array<String>
 
     /** @return 被吃掉的输入字符数(>= 0);-1 = 没选成。见 [selectCandidate]。 */
     private external fun nativeSelectCandidate(session: Long, index: Int): Int

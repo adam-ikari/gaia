@@ -32,6 +32,7 @@
 #include <rime/context.h>   // Context::composition() / GetSelectedCandidate()
 #include <rime/composition.h>  // Composition::GetCurrentStartPosition()
 #include <rime/candidate.h>    // Candidate::preedit() / start() / end()
+#include <rime/menu.h>         // Menu::GetCandidateAt(index)
 
 namespace {
 
@@ -283,16 +284,22 @@ JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidat
 }
 
 /**
- * 菜单第一项(候选栏中央槽、空格键选中那个)候选的**音节拼写**与它覆盖的输入区间。
+ * 菜单第 [index] 项候选的**音节拼写**与它覆盖的输入区间。
  *
  * ## 这东西干什么用
  *
- * 拼音显示要「自动加入分隔符」:引擎知道首选候选怎么切音节
+ * 拼音显示要「自动加入分隔符」:引擎知道候选怎么切音节
  * (`ScriptSyllabifier::GetPreeditString` 用 schema 的 delimiter 拼音节,
  * 见 `script_translator.cc` 的 `ScriptTranslation::Peek`),上层只需要把它
  * 取出来显示。C API 的 `RimeCandidate` 没有 preedit 字段(只有 text/comment),
- * 所以走 C++:`Context::GetSelectedCandidate()` 拿当前段高亮候选,
- * 它正是候选栏中央那一格(菜单第一项 = li=0)。
+ * 所以走 C++:`composition().back().menu->GetCandidateAt(index)`。
+ *
+ * ## 为什么是「第 index 项」而不是「当前选中项」
+ *
+ * 需求是「以**当前**候选栏中央槽的候选为准」。第 0 页中央槽 = 菜单第 0 项,
+ * 翻页后中央槽 = `page * pageSize` 那一项 —— 取选中项(`GetSelectedCandidate`)
+ * 在翻页后就跟画面不一致了(2026-10-14 评审补:分隔符不再跟着用户实际看到的
+ * 中央词走)。索引与 `nativeCandidates` 同序(同一份 `ctx.menu.candidates`)。
  *
  * ## 返回格式
  *
@@ -307,19 +314,24 @@ JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidat
  *   与 `selectAndRemain` 返回的 `consumed` 同一坐标系,映射回 raw 要数非撇字符。
  */
 JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeTopSpelling(
-    JNIEnv* env, jobject, jlong session) {
+    JNIEnv* env, jobject, jlong session, jint index) {
   jclass str_cls = env->FindClass("java/lang/String");
   jobjectArray empty = env->NewObjectArray(0, str_cls, nullptr);
   if (!session) return empty;
+  // 硬顶:与 nativeCandidates 的 cap 同量级。越界查询没有意义,
+  // 且能防上层算错索引时把引擎拖去 Prepare 一个巨大的菜单。
+  if (index < 0 || index >= 100) return empty;
   try {
     auto s = rime::Service::instance().GetSession(static_cast<RimeSessionId>(session));
     if (!s) return empty;
     auto* ctx = s->context();
     if (!ctx) return empty;
-    auto cand = ctx->GetSelectedCandidate();
+    const auto& comp = ctx->composition();
+    if (comp.empty()) return empty;
+    const auto& seg = comp.back();
+    if (!seg.menu) return empty;
+    auto cand = seg.menu->GetCandidateAt(static_cast<size_t>(index));
     if (!cand) return empty;
-    // start/end 是输入坐标(preedit 覆盖的那段)。GetSelectedCandidate 在
-    // 没有段时返回 null,所以这里 cand->start()/end() 一定可读。
     const std::string preedit = cand->preedit();
     const std::string start = std::to_string(cand->start());
     const std::string end = std::to_string(cand->end());

@@ -275,10 +275,14 @@ class RimeEngine(private val context: Context) : InputMethod {
      * ## 它给谁用:拼音显示的自动分隔符
      *
      * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
-     * 候选词为准」:引擎的首选候选知道整串怎么切音节
+     * 候选词为准」:引擎的候选知道整串怎么切音节
      * (`ScriptSyllabifier::GetPreeditString`,空格分节),把它取出来显示即可 ——
      * 手打 `'` 在这台设备上几乎不可达(实测 Alt+L 被五键选字吃掉,见
      * CandidateBarView 里移除候选栏上滑那段注释),分隔符本就该自动。
+     *
+     * [index] 是**菜单全局下标**(与 `nativeCandidates` 同序):第 0 页中央槽传 0,
+     * 翻页后传 `page * pageSize` —— 2026-10-14 评审补:此前固定取第 0 项,
+     * 翻页后显示的切分跟中央槽实际那个词对不上。
      *
      * ## 坐标系
      *
@@ -290,18 +294,18 @@ class RimeEngine(private val context: Context) : InputMethod {
      * @return 取不到(空菜单/没就绪/异常)→ `null`,调用方回退显示原始拼写。
      *   **空比错安全**:回退只是没有分隔符,错坐标会拼出错的拼音。
      */
-    override fun topSpelling(): SyllableSpelling? {
+    override fun topSpelling(index: Int): SyllableSpelling? {
         val s = synchronized(lock) { session }
         if (s == 0L) return null
         val a = try {
-            RimeNative.topSpelling(s)
+            RimeNative.topSpelling(s, index)
         } catch (e: Throwable) {
             android.util.Log.w(TAG, "topSpelling: native 调用失败", e)
             return null
         }
         if (a.size < 3) return null
         val preedit = a[0]
-        if (preedit.isEmpty()) return null // 首选没有音节拼写(非拼音候选)
+        if (preedit.isEmpty()) return null // 该候选没有音节拼写(非拼音候选)
         val start = a[1].toIntOrNull() ?: return null
         val end = a[2].toIntOrNull() ?: return null
         if (start < 0 || end < start) return null

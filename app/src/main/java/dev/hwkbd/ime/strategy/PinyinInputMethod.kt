@@ -36,8 +36,8 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
     override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? =
         engine.selectAndRemain(index, selectedWord)
 
-    /** 转发 —— 装饰器漏转发,接口就永远拿不到首选的音节拼写(见 [isReady] 那条教训)。 */
-    override fun topSpelling(): SyllableSpelling? = engine.topSpelling()
+    /** 转发 —— 装饰器漏转发,接口就永远拿不到中央槽的音节拼写(见 [isReady] 那条教训)。 */
+    override fun topSpelling(index: Int): SyllableSpelling? = engine.topSpelling(index)
 
     /**
      * 转发,别用接口默认值。

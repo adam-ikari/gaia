@@ -66,15 +66,29 @@ class FakePinyinInputMethod(
      * `null`(默认)= 引擎说不清首选的音节拼写 —— 与真引擎取不到时同路径,
      * 上层回退显示原始拼写。给值即可在**控制器层**验 spelling 的刷新与清除
      * (评审 2026-10-13 发现的陈旧 bug 就钉在这里)。
+     *
+     * **只回答 index=0**(第 0 页中央槽)。翻页后的中央槽用 [spellingsByIndex]。
      */
     internal val spelling: SyllableSpelling? = null,
+    /**
+     * 按**菜单全局下标**回答 [InputMethod.topSpelling](2026-10-14 评审补:
+     * 翻页后中央槽 = `page * pageSize`,分隔符要跟着当前页那个词走)。
+     * 优先级高于 [spelling](后者只是 index=0 的糖)。
+     */
+    internal val spellingsByIndex: Map<Int, SyllableSpelling> = emptyMap(),
 ) : InputMethod {
 
     /** 实现 [InputMethod.isReady]。false 时 [query] 给空表,模拟「词库还在部署」。 */
     override val isReady: Boolean get() = ready
 
-    /** 实现 [InputMethod.topSpelling]:固定回答 [spelling](真引擎按当前菜单动态给)。 */
-    override fun topSpelling(): SyllableSpelling? = spelling
+    /** 被问过的 topSpelling 下标(顺序 = 调用顺序),断言「翻页后问的是不是新中央槽」。 */
+    val spellingIndexes: MutableList<Int> = mutableListOf()
+
+    /** 实现 [InputMethod.topSpelling]:按 [spellingsByIndex] 回答,未命中回落 index=0 的 [spelling]。 */
+    override fun topSpelling(index: Int): SyllableSpelling? {
+        spellingIndexes += index
+        return spellingsByIndex[index] ?: if (index == 0) spelling else null
+    }
 
     /** 实现 [InputMethod.selectAndRemain]:按 [consumedChars] 回答,不做真的选词。 */
     override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
@@ -279,3 +293,17 @@ fun FakePinyinInputMethod.withReady(v: Boolean): FakePinyinInputMethod =
  */
 fun FakePinyinInputMethod.withSpelling(s: SyllableSpelling?): FakePinyinInputMethod =
     FakePinyinInputMethod(id = id, table = table, consumedChars = consumedChars, ready = ready, spelling = s)
+
+/**
+ * 复制一份并设定**按菜单下标**的 [InputMethod.topSpelling] 回答(2026-10-14 评审补:
+ * 翻页后的中央槽是另一个词,分隔符要跟着它)。给翻页回归测试用。
+ */
+fun FakePinyinInputMethod.withSpellingsByIndex(m: Map<Int, SyllableSpelling>): FakePinyinInputMethod =
+    FakePinyinInputMethod(
+        id = id,
+        table = table,
+        consumedChars = consumedChars,
+        ready = ready,
+        spelling = spelling, // **必须转发**:复制式辅助漏一个字段就静默改变语义
+        spellingsByIndex = m,
+    )

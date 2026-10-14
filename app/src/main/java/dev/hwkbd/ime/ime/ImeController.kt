@@ -584,6 +584,12 @@ class ImeController(
             state.page = 0
             state.highlight = -1
             state.candidates = rem.candidates
+            // 显示拼写这时才刷:raw 与 page 都已是剩余部分的新值(2026-10-14 评审,
+            // 从 readRemainder 里挪出来 —— 在那里刷用的是旧 raw + 旧 page)。
+            // 读的是引擎当前菜单(剩余部分),index=0 = 剩余部分的第一页中央槽。
+            // 时序上它在 commitText 之后,若 onUpdateSelection 已把引擎清掉,
+            // topSpelling 返回空 ⇒ 回退显示原始拼写,只是没有分隔符,不是错误显示。
+            refreshSpelling()
             querySeq++
             android.util.Log.i(
                 "ImeService",
@@ -622,8 +628,10 @@ class ImeController(
         // `hao` 的候选它算得出来。错的是**读的时候引擎可能已经没了**,
         // 重建同样得先问引擎,所以两条路一起空。
         val candidates = inputMethod().currentCandidates(rest, CANDIDATE_LIMIT)
-        // 显示拼写跟着新菜单走:剩余部分的首选候选决定剩余拼音怎么显示分隔符。
-        refreshSpelling()
+        // **不在这里刷 spelling**(2026-10-14 评审挪走):此刻 `state.raw` 还是选词前
+        // 的整串、`state.page` 还是选词前的页 —— 拿旧 raw 配新菜单的候选拼出来的
+        // 显示串是错的(如 "nihao" 选「你」会得到 "haoo")。改由调用方在把
+        // `raw/page` 换成剩余值**之后**刷(见 selectCandidate 的 remainder 分支)。
         // **这里不做「没候选就当全吃掉」的夹取** —— 试过,撤回(2026-10-06)。
         //
         // 起因是我以为「librime 切在词中间会留下一字母碎片,而碎片没有候选」。
@@ -751,6 +759,10 @@ class ImeController(
         }
         state.page = (state.page + delta).coerceIn(0, state.totalPages - 1)
         state.highlight = -1
+        // 翻页后中央槽换了词:拼音显示的切分要跟着新中央词走(2026-10-14 评审补,
+        // 需求原文「以**当前**候选词栏中央……为准」)。放在 render 前,
+        // 这一帧的画面与显示串一起出去,不会出现「词换了、拼音慢一帧」。
+        refreshSpelling()
         android.util.Log.i(
             "ImeService",
             "pageStep: delta=$delta page=$before→${state.page}/${state.totalPages}",
@@ -801,9 +813,11 @@ class ImeController(
         }
         if (state.raw.isNotEmpty()) {
             state.candidates = inputMethod().query(state.raw, CANDIDATE_LIMIT)
-            refreshSpelling()
             state.page = 0
             state.highlight = -1
+            // 显示拼写跟着新菜单走(新查询恒回第 0 页,故中央槽 index=0)。
+            // 必须在 page 复位**之后**刷:索引 = page * pageSize。
+            refreshSpelling()
         } else {
             state.candidates = emptyList()
             state.spelling = ""
@@ -834,8 +848,11 @@ class ImeController(
      *
      * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
      * 候选词为准」。与候选查询同源同时机:紧跟 [InputMethod.query] /
-     * [InputMethod.currentCandidates] —— 它读的是引擎**此刻**的菜单,晚一步
+     * [InputMethod.currentCandidates] / 翻页 —— 它读的是引擎**此刻**的菜单,晚一步
      * 就是两份不同的状态(见 brain `unverified-as-fact`:判据要和权威量对齐)。
+     *
+     * 2026-10-14 评审补:**跟着当前页的中央槽走** —— 索引 = `page * pageSize`。
+     * 固定传 0 时,翻页后显示的切分属于第 0 页那个词,与用户实际看到的中央词脱节。
      */
     private fun refreshSpelling() {
         val raw = state.raw
@@ -843,7 +860,10 @@ class ImeController(
             state.spelling = ""
             return
         }
-        val sp = inputMethod().topSpelling()
+        // 中央槽 = 当前页的逻辑第 0 项 = 全局下标 page * pageSize(displayOrder 钉死:
+        // 显示槽 2 = 逻辑 0,见 ImeState.displayOrder 与 select 埋点的 zone=2/li=0)。
+        val centerIndex = state.page * state.pageSize
+        val sp = inputMethod().topSpelling(centerIndex)
         state.spelling = if (sp == null) "" else displaySpelling(raw, sp)
     }
 
@@ -1135,8 +1155,13 @@ class ImeController(
          * [ImeController] 的 `readRemainder` 注释(写的是「含 '」)相反;
          * 以代码为准(2026-10-12 发现,已记 brain `unverified-as-fact`)。
          *
-         * 切点正好落在撇上时,那个撇属于被覆盖那一段,跟着音节拼写一起被替换掉 ——
-         * 与 `rawAfterConsuming` 对撇的处理同一条规矩。
+         * ## 每一段边界都补撇(2026-10-14 用户定)
+         *
+         * 候选覆盖段的终点/起点都是引擎的**音节边界**(候选永远覆盖整音节),
+         * 覆盖段与剩下的 raw 是**两段**,接缝必须补撇 —— 「倪」只覆盖 `ni` 时
+         * 显示 `ni'hao` 而不是 `nihao`:`ni` 后面需要拆分,整串的音节结构
+         * 不随中央候选覆盖到哪儿而丢掉。只补覆盖段两侧的接缝;preedit 内部的
+         * 分节由引擎给(空格分节在 rime 层已换成撇)。
          *
          * @return 拼好的显示串;引擎给不出音节拼写时由调用方传 null 走回退。
          */
@@ -1149,7 +1174,17 @@ class ImeController(
             val e = sp.end.coerceIn(s, rawStart.size)
             val prefix = if (s == 0) "" else raw.substring(0, rawStart[s])
             val tail = if (e >= rawStart.size) "" else raw.substring(rawStart[e])
-            return prefix + sp.text + tail
+            return buildString {
+                if (prefix.isNotEmpty()) append(prefix)
+                if (sp.text.isNotEmpty()) {
+                    if (isNotEmpty() && last() != '\'') append('\'')
+                    append(sp.text)
+                }
+                if (tail.isNotEmpty()) {
+                    if (isNotEmpty() && last() != '\'') append('\'')
+                    append(tail)
+                }
+            }
         }
     }
 }

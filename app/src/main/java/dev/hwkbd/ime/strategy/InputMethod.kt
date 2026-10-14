@@ -66,23 +66,26 @@ interface InputMethod {
     fun currentCandidates(pinyin: String, limit: Int): List<Candidate> = query(pinyin, limit)
 
     /**
-     * 菜单第一项(候选栏中央槽)候选的**音节拼写**与覆盖区间;引擎不支持 → `null`。
+     * 菜单第 [index] 项(候选栏中央槽)候选的**音节拼写**与覆盖区间;引擎不支持 → `null`。
      *
      * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
-     * 候选词为准」:拼音显示(preedit)跟随首选候选的切音节自动插入 `'`,
+     * 候选词为准」:拼音显示(preedit)跟随中央槽候选的切音节自动插入 `'`,
      * 而不是等用户手打 —— 手打分节符在这台设备上几乎不可达(Alt+L 被五键选字吃掉)。
+     *
+     * [index] 是菜单全局下标:第 0 页中央槽传 0,翻页后传 `page * pageSize`
+     * (2026-10-14 评审补 —— 固定传 0 会让翻页后的分隔符与画面里的中央词脱节)。
      *
      * ## 默认值为什么是 null 而不是空串
      *
      * 与 [selectAndRemain] 同一条规矩:**加法式接口,默认退化成旧行为**。
      * `null` = 「本引擎说不清」,调用方照旧显示原始拼写(没有分隔符,和改动前一致);
-     * 空串会被当成「首选没有音节拼写」—— 那也是同一个显示结果,但分不清
-     * 「引擎不支持」与「这一页真的没有」,排查时多一道坎。
+     * 空串会被当成「该候选没有音节拼写」—— 那也是同一个显示结果,但分不清
+     * 「引擎不支持」与「真的没有」,排查时多一道坎。
      *
-     * 调用时机:紧跟 [query] / [currentCandidates] —— 它读的是引擎**此刻**的菜单,
+     * 调用时机:紧跟 [query] / [currentCandidates] / 翻页 —— 它读的是引擎**此刻**的菜单,
      * 与候选列表同源,晚一步就是两份不同的状态。
      */
-    fun topSpelling(): SyllableSpelling? = null
+    fun topSpelling(index: Int): SyllableSpelling? = null
 
     /** 一词上屏后的词频反馈。 */
     fun onCommitted(word: String) {}

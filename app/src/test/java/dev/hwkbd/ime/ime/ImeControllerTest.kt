@@ -16,6 +16,7 @@ import org.junit.Test
 import dev.hwkbd.ime.strategy.withConsumed
 import dev.hwkbd.ime.strategy.withReady
 import dev.hwkbd.ime.strategy.withSpelling
+import dev.hwkbd.ime.strategy.withSpellingsByIndex
 import dev.hwkbd.ime.strategy.PinyinInputMethod
 import dev.hwkbd.ime.strategy.SyllableSpelling
 
@@ -89,8 +90,10 @@ class ImeControllerTest {
         /** 引擎报「这个候选吃掉了几个输入字符」;null = 不参与选词(走旧路径全清)。 */
         consumed: Int? = null,
         engineReady: Boolean = true,
-        /** 引擎 [InputMethod.topSpelling] 的固定回答(拼音显示串用;null = 说不清)。 */
+        /** 引擎 [InputMethod.topSpelling] 在 index=0 的固定回答(拼音显示串用;null = 说不清)。 */
         spelling: SyllableSpelling? = null,
+        /** 引擎按菜单下标回答的 topSpelling(翻页后的中央槽;优先级高于 [spelling])。 */
+        spellingsByIndex: Map<Int, SyllableSpelling> = emptyMap(),
     ): Rig {
         // 用 [FakePinyinInputMethod] 而不是真引擎(2026-10-03 换 librime):
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
@@ -101,6 +104,7 @@ class ImeControllerTest {
             .withConsumed(consumed)
             .withReady(engineReady)
             .withSpelling(spelling)
+            .withSpellingsByIndex(spellingsByIndex)
         // **注册的是装饰器**,和 `ImeService.kt:162` 的生产写法一样
         // (`registerMethod(PinyinInputMethod(rime))`)。
         //
@@ -1518,5 +1522,83 @@ class ImeControllerTest {
         assertEquals("", r.c.state.spelling)
         r.c.clearComposition() // 清空路径对空值同样要安静通过
         assertEquals("", r.c.state.spelling)
+    }
+
+    /**
+     * 翻页后分隔符跟着**新中央槽**走(2026-10-14 评审补的规格缺口)。
+     *
+     * 需求原文「以**当前**候选词栏中央……为准」:第 1 页中央槽是另一个候选
+     * (可能只覆盖输入的一部分),拼音显示的切分必须换成它的。此前固定问菜单
+     * 第 0 项,翻页后显示与画面脱节 —— 而单测与 E2E 都没这个场景。
+     *
+     * 断言两层:①问引擎的下标 = `page * pageSize`(埋点 [spellingIndexes]);
+     * ②显示串换成新中央候选的拼写 + 剩余 raw 尾巴。
+     */
+    @Test
+    fun `spelling follows the center candidate after paging`() {
+        // 7 个 `nihao` 前缀词 ⇒ 45? 不,7 个候选 ⇒ 2 页(pageSize 5)
+        val table = mapOf(
+            "ni'hao" to listOf("你好"),
+            "ni'hao'a" to listOf("你好啊"),
+            "ni'hao'ma" to listOf("你好吗"),
+            "ni'hao'ba" to listOf("你好吧"),
+            "ni'hao'le" to listOf("你好嘞"),
+            "ni'hao'ne" to listOf("你好呢"),
+            "ni'hao'shei" to listOf("你好谁"),
+        )
+        val engine = FakePinyinInputMethod(table = table)
+            .withSpellingsByIndex(
+                mapOf(
+                    0 to SyllableSpelling("ni'hao", 0, 5),
+                    5 to SyllableSpelling("ni", 0, 2), // 第 1 页中央槽:只覆盖 "ni"
+                )
+            )
+        val h = RecHost()
+        val c = ImeController(
+            h,
+            KeyLayout.default(),
+            ImeRegistry.builtin().registerMethod(PinyinInputMethod.forTest(engine)),
+        )
+        val r = Rig(c, h, engine)
+
+        r.type("nihao")
+        assertEquals(2, c.state.totalPages) // 前置:真的有两页
+        assertEquals("ni'hao", c.state.spelling) // 第 0 页:整串切分
+
+        r.c.pageStep(1)
+        assertEquals(1, c.state.page)
+        // 新规则(2026-10-14):覆盖段 [0,2) 与尾巴 [2,5) 之间补撇 ⇒ 仍是 ni'hao。
+        // 该用例的区分点从"有没有撇"挪到"问引擎的下标 + 显示跟着页走":
+        // 若刷新点错位(用旧 raw/旧页),这里会拼出别的东西。
+        assertEquals("ni'hao", c.state.spelling)
+        // 每次按键都会问一次(index=0),翻页那次问的是新中央槽(下标 5 = page1*pageSize)
+        assertEquals(listOf(0, 0, 0, 0, 0, 5), engine.spellingIndexes)
+
+        r.c.pageStep(-1) // 翻回来,显示跟着回去
+        assertEquals(0, c.state.page)
+        assertEquals("ni'hao", c.state.spelling)
+        assertEquals(listOf(0, 0, 0, 0, 0, 5, 0), engine.spellingIndexes)
+    }
+
+    /**
+     * 部分消费后,显示拼写按**剩余 raw** 拼(2026-10-14 评审的顺序缺陷回归)。
+     *
+     * `refreshSpelling` 一度放在 `readRemainder` 里 —— 那一刻 `state.raw` 还是
+     * 选词前的整串,拿旧 raw 配新菜单的候选拼出来的显示串是错的
+     * (`nihao` 选「你」会拼出 `haoao`)。挪到 remainder 落定之后刷新。
+     *
+     * 演示:剩余 `hao` 是单音节(preedit "hao" 覆盖 [0,3)),无论刷新点多错,
+     * 拼出来必须是 `hao` —— 旧 raw 会把它拼成 `hao` + 旧 raw 的尾巴 `ao`。
+     */
+    @Test
+    fun `spelling after partial consumption is assembled from the remainder`() {
+        val r = rig(
+            consumed = 2, // 「你」只覆盖 ni
+            spellingsByIndex = mapOf(0 to SyllableSpelling("hao", 0, 3)),
+        )
+        r.type("nihao")
+        r.c.selectCandidate(2) // 中央槽 = 「你」
+        assertEquals("hao", r.c.state.raw)
+        assertEquals("hao", r.c.state.spelling)
     }
 }
