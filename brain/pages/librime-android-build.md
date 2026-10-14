@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-13T15:44:36"
+updated: "2026-10-14T14:00:10"
 ---
 
 <!-- compiled_truth -->
@@ -207,4 +207,10 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   kind: evidence
   summary: "2026-10-13 第二次更新 librime:f6ea8d94 → 0d00afba(3 个提交):①源码注释去中文与 term-ime 字样(纯风格);②新增 emoji 扩展词典,默认关、Ctrl+Shift+6 开(librime 侧开关,本输入法 schema 未启用,默认行为不变);③fork 自建 brain 文档。diff +8529/-153 行。双 ABI 重编通过、JVM 单测全绿。**设备冒烟未做** —— 更新时手机 USB 掉线(adb wait-for-device 超时),nihao 候选/上屏/自动分隔符三项待设备回来后补跑(用例同 2026-10-13 第一次更新)。"
   source: "2026-10-13 子模块更新 + 构建(设备掉线,冒烟待补)"
+  affects: [windows-native-build]
+
+- time: 2026-10-14T14:00:10
+  kind: evidence
+  summary: "2026-10-14 dev 发布构建暴露子模块 0d00afba 的两处配方漂移(已修 1868bb5):①opencc 上游化后 OPENCC_BUILD_DATA 默认开,与 TOOLS=OFF 冲突——erro『OPENCC_BUILD_DATA generates the dictionaries by running the opencc_dict tool』。我们只要 libopencc.a(.ocd2 词典在真机首次部署时由 librime 自己转),目标 configure 补 -DOPENCC_BUILD_DATA=OFF;②库 target 名回到上游 libopencc(旧子模块那份叫 opencc),四处 --target 全改。**为什么 debug 没暴露**:Debug 的 .cxx opencc 缓存是子模块更新前配的,ninja 复用旧图;dev(RelWithDebInfo)冷配置全撞上。附带:dev 构建还需要 Python 解释器给 _DEP_PY(本机 C:/Users/fod/AppData/Local/Programs/py312embed/python.exe;PYTHON_EXECUTABLE 环境变量或 find_program)。教训形状:submodule 更新后**冷配置的变体**才是试验田,热缓存变体全绿不代表配方还对。"
+  source: "2026-10-14 dev 发布构建"
   affects: [windows-native-build]
