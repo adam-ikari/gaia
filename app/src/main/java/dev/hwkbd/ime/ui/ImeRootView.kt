@@ -36,17 +36,24 @@ class ImeRootView @JvmOverloads constructor(
     /** L5 行(条上方):可见时它就是最上面的 UI 区,contentTop 抬到它的顶,否则 L5 的触摸全被飞字吃掉。 */
     private var l5Panel: View? = null
 
+    /** L6 虚拟键盘面板(最顶一层):可见时它盖过 L5,contentTop 取它的顶(同上,免得面板的触摸被飞字吃掉)。 */
+    private var l6Panel: View? = null
+
     override fun onFinishInflate() {
         super.onFinishInflate()
         barContainer = findViewById(dev.hwkbd.ime.R.id.bar_container)
         l5Panel = findViewById(dev.hwkbd.ime.R.id.l5_panel)
+        l6Panel = findViewById(dev.hwkbd.ime.R.id.l6_panel)
     }
 
     /**
-     * 内容区上界 = 最上面一条可见的输入法 UI 行:L5 行(状态栏上方)可见时取它的顶,
-     * 否则取 48dp 条顶。组词态 L5 恒隐藏(让位),上界仍是条顶,飞字区不受影响。
+     * 内容区上界 = 最上面一条可见的输入法 UI 行:L6 面板(最顶,盖过一切)可见时取它的顶,
+     * 否则 L5 行可见时取 L5 的顶,再否则取 48dp 条顶。组词态 L5/L6 恒隐藏(让位),
+     * 上界仍是条顶,飞字区不受影响。
      */
     private fun uiTop(): Int {
+        val l6 = l6Panel
+        if (l6 != null && l6.visibility == View.VISIBLE) return l6.top
         val l5 = l5Panel
         if (l5 != null && l5.visibility == View.VISIBLE) return l5.top
         return barContainer?.top ?: if (childCount > 0) getChildAt(0).top else 0
