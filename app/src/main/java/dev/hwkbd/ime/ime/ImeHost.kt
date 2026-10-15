@@ -12,4 +12,14 @@ interface ImeHost {
 
     /** 状态有变,刷新 UI 与组词区。 */
     fun render()
+
+    /**
+     * 登记一次「长按待判定」:host 在 [ImeController.HOLD_MS] 后若键仍未松开,
+     * 回调 [ImeController.onLongPressFire](2026-10-15 用户定的长按上屏 L2 符号 /
+     * 拼音中长按插分隔符)。实现侧一般只对**最近一次**调度有效(新 down 覆盖旧的)。
+     */
+    fun scheduleLongPress(code: Int)
+
+    /** 取消待判定的长按(松手 / 换键 / 复位时)。 */
+    fun cancelLongPress()
 }

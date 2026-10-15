@@ -30,11 +30,19 @@ class ImeRegistryTest {
 
         override fun sendKey(code: Int, ctrl: Boolean, shift: Boolean) {}
         override fun render() {}
+
+        // 长按相关(ImeController 的通用收尾会问 host):本类不验长按,空实现即可
+        override fun scheduleLongPress(code: Int) {}
+        override fun cancelLongPress() {}
     }
 
     private class Rig(val c: ImeController, val h: RecHost) {
         fun type(s: String) {
-            for (ch in s) c.onKeyDown(KeyEvent.KEYCODE_A + (ch - 'a'), false, false)
+            // down+up 一对(2026-10-15 长按上屏把提交挪到 UP 后必须成对)
+            for (ch in s) {
+                c.onKeyDown(KeyEvent.KEYCODE_A + (ch - 'a'), false, false)
+                c.onKeyUp(KeyEvent.KEYCODE_A + (ch - 'a'))
+            }
         }
     }
 

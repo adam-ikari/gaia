@@ -22,6 +22,11 @@
             android:defaultValue="true"
             android:title="@string/pref_fullwidth" />
         <SwitchPreferenceCompat
+            android:key="longpress_l2"
+            android:defaultValue="true"
+            android:title="@string/pref_longpress_l2"
+            android:summary="@string/pref_longpress_l2_desc" />
+        <SwitchPreferenceCompat
             android:key="swipe_page"
             android:defaultValue="true"
             android:title="@string/pref_swipe_page" />

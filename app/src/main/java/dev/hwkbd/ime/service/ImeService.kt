@@ -184,6 +184,22 @@ class ImeService : InputMethodService() {
         override fun render() {
             requestRender() // 组词区同步 + 合并渲染(见 requestRender)
         }
+
+        /**
+         * 长按字母键到点回调(300ms,主线程)—— 见 [ImeController.onLongPressFire]。
+         * 语义:空闲且开关开 = 上屏该键 L2 符号;组词中且该键 L2 是 `'` = 插分隔符。
+         */
+        private val longPressRunnable = Runnable { controller.onLongPressFire() }
+
+        override fun scheduleLongPress(code: Int) {
+            // 新一次按压覆盖旧调度(连续快打时上个定时器必须让位)
+            mainHandler.removeCallbacks(longPressRunnable)
+            mainHandler.postDelayed(longPressRunnable, ImeController.HOLD_MS)
+        }
+
+        override fun cancelLongPress() {
+            mainHandler.removeCallbacks(longPressRunnable)
+        }
     }
 
     // ------------------------------------------------------------------ 生命周期
@@ -940,6 +956,9 @@ class ImeService : InputMethodService() {
             if (alt > 0) intArrayOf(alt) else intArrayOf(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)
 
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
+        // 长按字母键上屏 L2 符号(2026-10-15 用户定,默认开)。**拼音输入中长按 L
+        // 插分隔符不受它管** —— 那条不可关闭,见 ImeController.tryArmLongPress。
+        controller.longPressSymbolEnabled = p.getBoolean(PREF_LONGPRESS_L2, true)
         // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
         haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
         migrateFlyThreshold(p)
@@ -1346,6 +1365,7 @@ class ImeService : InputMethodService() {
         // PREF_SWIPE_SELECT("swipe_select")2026-10-12 退役:候选栏上滑选字整条路移除,
         // 上屏收敛为点选。key 留着不管(老设置里的残留值无害),但不再有开关读它。
         const val PREF_SWIPE_PAGE = "swipe_page"
+        const val PREF_LONGPRESS_L2 = "longpress_l2"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
 
         /** 左右滑翻页所需距离(2026-10-02 用户「左右滑动阈值需要可调节性」)。值是档位名。 */

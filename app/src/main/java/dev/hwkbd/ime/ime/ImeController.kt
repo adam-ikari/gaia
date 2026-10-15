@@ -6,6 +6,7 @@ import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.L4Key
 import dev.hwkbd.ime.keymap.Layer
+import dev.hwkbd.ime.strategy.ChineseLanguage
 import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.strategy.InputMethod
@@ -116,10 +117,33 @@ class ImeController(
     /** 翻页方向反转(DPAD_LEFT 变下一页)。 */
     var pageReverse = false
 
+    /**
+     * 长按字母键 = 上屏该键的 L2 符号(空闲态,2026-10-15 用户定,设置开关,默认开)。
+     * 关掉时长按回到系统连发(连续上屏,旧行为)。
+     * **不影响拼音输入中的长按分隔符**——那条不可关闭(见 [tryArmLongPress])。
+     */
+    var longPressSymbolEnabled = true
+
     private var symDown = false
     private var symProducedKey = false
     private var ctrlDownAlone = false
     private var ctrlUsedCombo = false
+
+    // ------------------------------------------------------------------ 长按字母键(2026-10-15 用户定)
+
+    /** 有长按待判定的按压在进行(该键的输出被推迟到 UP 或定时器)。 */
+    private var lpArmed = false
+
+    /** 待判定按压的键码与 Caps 态;Shift 恒 false(Shift+键不抢,见 [tryArmLongPress])。 */
+    private var lpCode = 0
+    private var lpCaps = false
+
+    /** 300ms 已到并出过屏(长按成立)⇒ UP 只收尾,不再补普通输出。 */
+    private var lpFired = false
+
+    /** 长按落点:true = 插分节符(组词中,不可关闭);false = 上屏 L2 符号(空闲,受开关管)。 */
+    private var lpSeparator = false
+    private var lpSymbol = ""
 
     // ------------------------------------------------------------------ 长按修饰键
 
@@ -210,6 +234,19 @@ class ImeController(
             ctrlUsedCombo = true
             return handleCtrlKey(code, shift)
         }
+        // ── 长按字母键(2026-10-15 用户定)────────────────────────────────────
+        //
+        // 命中则本次 DOWN **不出屏**,输出推迟到 UP(短按)或 300ms 定时器(长按):
+        //   · 空闲 + 开关开 ⇒ 上屏该键的 L2 符号(长按 L → `'`)
+        //   · 组词中 + 该键 L2 输出是 `'` ⇒ 插分节符(补上"手动分节符在本机不可达"
+        //     的坑:Alt+L 组合会被五键选字吃掉)。**这条不受开关限制。**
+        // 武装期间系统连发(repeat)全部吞掉 —— 否则"按住先出一串字母再出符号"
+        // 会变成 `llll'`。DOWN 就出屏再删更脏(动 composition/发 DEL 两条路)。
+        //
+        // 代价(随开关一起给):开开关期间字母提交从 DOWN 挪到 UP,快速连打无感,
+        // 慢按有"松手才出字"的感觉;关开关则完全回到旧行为。
+        if (!shift && !repeat && tryArmLongPress(code, caps)) return true
+        if (repeat && lpArmed && code == lpCode) return true
         return handleNormalKey(code, shift, caps)
     }
 
@@ -260,7 +297,93 @@ class ImeController(
             if (!ctrlUsedCombo && state.hasComposition) selectCandidate(3)
             return true
         }
+        // 长按待判定的收尾:短按 ⇒ 补上被推迟的普通输出;长按 ⇒ 定时器已出屏,这里只收尾。
+        // **Hold 无条件收尾**(之前可能已被 markModifiersUsed 作废):先恢复层,
+        // 再让短按的字母走 L1 路径 —— 顺序反了字母会变成 L2 符号。
+        if (code == lpCode && holdMod == Layer.L2 && holdCode == lpCode) {
+            val wasArmed = lpArmed
+            val alreadyFired = lpFired
+            lpArmed = false
+            lpFired = false
+            host.cancelLongPress()
+            endHold()
+            if (wasArmed && !alreadyFired) return handleNormalKey(lpCode, false, lpCaps)
+            return true
+        }
         return false
+    }
+
+    /**
+     * 尝试为一次按键按压**武装长按判定**;成功则调用方应该吞掉本次 DOWN 的输出。
+     *
+     * 资格(全部满足):
+     * - 不是 Shift/Ctrl 组合(Shift+键 = 大写 / 组词中选字,不抢);Ctrl 组合在
+     *   [onKeyDown] 更早的分支就走了,到不了这里
+     * - 不是数字类框([FieldProfile.digitsOnly]):那一档 L2 已聚焦锁定,当前输出
+     *   就是"该键的符号",长按没有额外语义,照旧连发
+     * - 该键在 L2 有**文本**输出(26 个字母键全覆盖;功能键形如 `key:esc` 不参与)
+     * - 落点二选一:
+     *   · **空闲态 + [longPressSymbolEnabled]**(默认开)⇒ 上屏该符号(中文全角态
+     *     就是中文标点,与 L2 表一致);
+     *   · **组词态 + 该键 L2 输出是撇号**(ASCII `'` 或全角 `'`)⇒ 插分节符,
+     *     **不受开关限制**(用户 2026-10-15 定;这是本机唯一可达的手动分节路径)
+     *
+     * L2 输出走"当前语言表优先、出厂表兜底"——与 [handleNormalKey] 的查表同一套,
+     * 所以中文全角态长按出的是中文标点,不是 ASCII。
+     */
+    private fun tryArmLongPress(code: Int, caps: Boolean): Boolean {
+        // 已有层生效(Alt 按住 / 一次性 / 锁定 / 数字类锁 L2)时该键当前输出就是
+        // L2 符号,DOWN 即出屏 —— 没有"长按"可判,也不制造第二份 Hold
+        if (fieldProfile().digitsOnly) return false
+        if (holdMod != null) return false
+        if (state.effectiveLayer != Layer.L1) return false
+        // 物理 Shift 正按住(HELD):这一按是 Shift+字母,走大写、不抢长按。
+        // 真机上这时的 event.isShiftPressed 已把 shift 参数置真;状态再兜一层,
+        // 是因为 shiftMode=HELD 也能表达同一件事(测试替身不模拟事件参数)。
+        if (state.shiftMode == ShiftMode.HELD) return false
+        val l2 = language().layerMap(Layer.L2, fullWidthSymbolsInCn)?.get(code)
+            ?: layout.lookup(Layer.L2, code)
+            ?: return false
+        val text = (l2 as? KeyOut.Text)?.text ?: return false
+        // 分节符判定**两形都认**:半角态 L2(L)= ASCII `'`(分隔符常量本身),
+        // 中文全角态 L2(L)= `'`(U+2019,标点全角化) —— 默认就在全角态,
+        // 只认 ASCII 会让这条唯一可达的分节路径默认失灵。插入缓冲的恒为
+        // ASCII(引擎的 delimiter,见 ChineseLanguage.SEPARATOR)。
+        val separatorMode = state.hasComposition &&
+            (text == ChineseLanguage.SEPARATOR || text == "’")
+        val symbolMode = !state.hasComposition && longPressSymbolEnabled
+        if (!separatorMode && !symbolMode) return false
+        lpArmed = true
+        lpCode = code
+        lpCaps = caps
+        lpFired = false
+        lpSeparator = separatorMode
+        lpSymbol = text
+        // **状态与显示一致**(用户 2026-10-15 补):按住期间把层状态跳到 L2 ——
+        // 复用修饰键的 Hold(Alt 长按同一机制),状态行亮 alt 芯片、无下划线,
+        // 松手恢复按前的层。否则"按着 L2 符号的键、状态行却显示 L1"是断裂的。
+        beginHold(Layer.L2, code)
+        host.scheduleLongPress(code)
+        return true
+    }
+
+    /**
+     * 长按到点([ImeHost.scheduleLongPress] 的 300ms 回调):键仍未松开 ⇒ 出屏。
+     *
+     * 组词中插分节符(`raw += '` 后按新界线重新查询 —— 分节位约束匹配的语义),
+     * 空闲直接提交符号;两次都震一下(与飞字过阈值同一套"这次定了"的反馈)。
+     */
+    fun onLongPressFire() {
+        if (!lpArmed) return
+        lpFired = true
+        if (lpSeparator) {
+            state.raw += ChineseLanguage.SEPARATOR
+            refreshQuery(from = "长按分节")
+        } else {
+            host.commitText(lpSymbol)
+            host.render()
+        }
+        haptics?.confirm()
     }
 
     // ------------------------------------------------------------------ 长按实现
@@ -311,7 +434,16 @@ class ImeController(
 
     /** 按住修饰键期间按下别的键:标记这次长按已被使用(松开要取消)。 */
     private fun markModifiersUsed(code: Int) {
-        if (holdMod != null && code != holdCode) holdUsed = true
+        if (holdMod != null && code != holdCode) {
+            holdUsed = true
+            // 另一颗键也按了(rollover):本次长按意图作废 —— 定时器取消、不收尾出字。
+            // 仍按住的那颗键松手只恢复层(见 onKeyUp 的 lpCode 分支)。
+            if (lpArmed) {
+                lpArmed = false
+                lpFired = false
+                host.cancelLongPress()
+            }
+        }
         if (symDown && code != symKeycode) symProducedKey = true
         if (shiftHolding && code != shiftHeldCode) shiftUsedAsModifier = true
     }
@@ -955,6 +1087,10 @@ class ImeController(
         symProducedKey = false
         // 敲击计数 / 敲击窗口 / 按住时长 / 吸收窗:全在一处,一次清干净
         gestures.resetAll()
+        // 长按字母键的待判定一起取消:窗口都收了,还挂着个 300ms 定时器会莫名出符号
+        lpArmed = false
+        lpFired = false
+        host.cancelLongPress()
         host.render()
     }
 

@@ -29,6 +29,9 @@ class ImeControllerTest {
         /** [ImeHost.render] 被调了几次(2026-10-04 加:验「没就绪时仍要渲染」)。 */
         var renders = 0
 
+        /** 长按待判定的调度记录:最近一次 schedule 的键码,null = 当前没有挂起的。 */
+        var longPressCode: Int? = null
+
         override fun commitText(text: String) {
             commits += text
         }
@@ -38,6 +41,10 @@ class ImeControllerTest {
         }
 
         override fun render() { renders++ }
+
+        override fun scheduleLongPress(code: Int) { longPressCode = code }
+
+        override fun cancelLongPress() { longPressCode = null }
     }
 
 
@@ -53,11 +60,26 @@ class ImeControllerTest {
         val method: FakePinyinInputMethod,
     ) {
         fun type(s: String) {
-            for (ch in s) c.onKeyDown(kc(ch), false, false)
+            // **down+up 一对**:真实硬件键总是成对送达;早先只发 down 是因为
+            // 字母提交发生在 DOWN。2026-10-15 长按上屏把提交挪到 UP(否则
+            // "先出字母、300ms 再出符号"会变成 `a'`),这里必须跟着真实事件改。
+            for (ch in s) {
+                c.onKeyDown(kc(ch), false, false)
+                c.onKeyUp(kc(ch))
+            }
         }
 
         fun key(code: Int, ctrl: Boolean = false, shift: Boolean = false, caps: Boolean = false): Boolean =
-            c.onKeyDown(code, ctrl, shift, caps)
+            if (code in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) {
+                // 字母键 = 真实敲击(一对):2026-10-15 长按上屏把字母提交挪到 UP 后,
+                // 只发 DOWN 会让字母永远不出(旧行为 commit 在 DOWN 才看不见)。
+                // 修饰键/特殊键保持 DOWN-only —— "按住 Alt 再敲键"那批测试靠它模拟按住。
+                val down = c.onKeyDown(code, ctrl, shift, caps)
+                c.onKeyUp(code)
+                down
+            } else {
+                c.onKeyDown(code, ctrl, shift, caps)
+            }
 
         /** 完整敲击(按下 + 快速松开):修饰键的敲击/长按语义要到 keyUp 才定型。 */
         fun tap(code: Int): Boolean {
@@ -65,6 +87,21 @@ class ImeControllerTest {
             c.onKeyUp(code)
             return down
         }
+
+        /** 按住(模拟长按到点):down、触发 300ms 回调、松手。返回最终上屏文本。 */
+        fun hold(code: Int): String {
+            c.onKeyDown(code, false, false)
+            c.onLongPressFire()
+            c.onKeyUp(code)
+            return h.commits.lastOrNull() ?: ""
+        }
+
+        /** 只 down(不松),用于验证"DOWN 不出屏 + 定时器已挂"。 */
+        fun down(code: Int, repeat: Boolean = false): Boolean =
+            c.onKeyDown(code, false, false, repeat = repeat)
+
+        /** 当前有没有挂起的长按判定(host 记录的)。 */
+        fun pendingLongPress(): Int? = h.longPressCode
     }
 
     /**
@@ -1600,5 +1637,102 @@ class ImeControllerTest {
         r.c.selectCandidate(2) // 中央槽 = 「你」
         assertEquals("hao", r.c.state.raw)
         assertEquals("hao", r.c.state.spelling)
+    }
+    // ---------------------------------------------------------- 长按字母键(2026-10-15 用户定)
+
+    /** 默认开:空闲长按 L ⇒ 上屏它的 L2 符号;DOWN 不出屏、定时器挂起。 */
+    @Test
+    fun `idle long press commits the L2 symbol by default`() {
+        val r = rig()
+        assertTrue("开关默认应为开", r.c.longPressSymbolEnabled)
+        r.down(40) // KEYCODE_L,不松手
+        assertEquals("DOWN 阶段不应出屏(等 300ms 判定)", emptyList<String>(), r.h.commits)
+        assertEquals(40, r.pendingLongPress())
+        r.c.onLongPressFire() // 300ms 到点
+        assertEquals("’", r.h.commits.single()) // 中文全角态 L2(L)= ’(U+2019)
+        r.c.onKeyUp(40)
+        assertEquals("’", r.h.commits.single()) // UP 只收尾,不重复出
+    }
+
+    /** 短按照旧:DOWN 不出屏,UP 补上字母(开关开时输出推迟到 UP)。 */
+    @Test
+    fun `short tap still types the letter`() {
+        val r = rig()
+        r.down(40)
+        assertEquals("DOWN 阶段字母也还没进缓冲", "", r.c.state.raw)
+        r.c.onKeyUp(40)
+        assertEquals("l", r.c.state.raw) // UP 补上进缓冲的字母
+        assertEquals(emptyList<String>(), r.h.commits) // 拼音态字母不直接 commit
+        assertEquals(null, r.pendingLongPress())
+    }
+
+    /** 开关关:回到旧行为 —— DOWN 即出字母,连发照旧(长按连续上屏)。 */
+    @Test
+    fun `switch off restores key repeat`() {
+        val r = rig()
+        r.c.longPressSymbolEnabled = false
+        r.down(40)
+        assertEquals("l", r.c.state.raw) // DOWN 就进缓冲(旧行为)
+        assertEquals(null, r.pendingLongPress()) // 没有挂起的长按判定
+        r.down(40, repeat = true) // 系统连发照旧叠加
+        assertEquals("ll", r.c.state.raw)
+        r.c.onKeyUp(40)
+    }
+
+    /** 组词中长按 L = 插分节符,**不受开关限制**;插入的是 ASCII 撇号。 */
+    @Test
+    fun `composing long press inserts separator even with switch off`() {
+        val r = rig()
+        r.type("ni")
+        r.c.longPressSymbolEnabled = false
+        r.down(40)
+        assertEquals(emptyList<String>(), r.h.commits) // DOWN 不出(letter 也不出)
+        r.c.onLongPressFire()
+        assertTrue("raw 应含分节符", r.c.state.raw.contains("'"))
+        assertEquals("ni'", r.c.state.raw)
+        r.c.onKeyUp(40)
+        assertEquals("ni'", r.c.state.raw) // UP 不补字母
+    }
+
+    /** 组词中长按其它字母:没有长按语义,照旧 DOWN 进缓冲。 */
+    @Test
+    fun `composing long press of other keys keeps old behavior`() {
+        val r = rig()
+        r.type("ni")
+        r.down(42) // N —— L2 是逗号,不是撇号 ⇒ 不长按
+        assertEquals(null, r.pendingLongPress())
+        assertEquals("nin", r.c.state.raw)
+        r.c.onKeyUp(42)
+    }
+
+    /** 按住期间层状态跳到 L2(状态与显示一致),松手恢复。 */
+    @Test
+    fun `holding shows L2 state and release restores`() {
+        val r = rig()
+        r.down(40)
+        assertEquals(Layer.L2, r.c.state.effectiveLayer)
+        r.c.onLongPressFire()
+        assertEquals(Layer.L2, r.c.state.effectiveLayer) // 按住期间一直是 L2
+        r.c.onKeyUp(40)
+        assertEquals(Layer.L1, r.c.state.effectiveLayer) // 松手恢复
+    }
+
+    /** 数字类框:L2 已聚焦锁定,长按无额外语义,不武装。 */
+    @Test
+    fun `digit fields do not arm long press`() {
+        val r = rig()
+        r.c.setFieldKind(FieldKind.PHONE)
+        r.down(40)
+        assertEquals(null, r.pendingLongPress())
+    }
+
+    /** 已有层生效时(Alt 一次性)该键 DOWN 即出 L2 符号,不再叠长按判定。 */
+    @Test
+    fun `one-shot layer keeps immediate symbol output`() {
+        val r = rig()
+        r.tap(KeyEvent.KEYCODE_ALT_LEFT) // 单击 Alt = 一次性 L2
+        r.down(40)
+        assertEquals("’", r.h.commits.single()) // DOWN 即出(中文全角 L2)
+        assertEquals(null, r.pendingLongPress())
     }
 }
