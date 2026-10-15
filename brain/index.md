@@ -8,6 +8,7 @@ _Auto-generated. Last updated 2026-10-16T00:23:01.545Z._
 - [ime-insets-contract](pages/ime-insets-contract.md) — category: decision | tags: [ime android termux] | 输入法窗口的 insets 契约：**窗口全屏 ≠ 内容全屏**。
 - [ime-interaction-model](pages/ime-interaction-model.md) — category: decision | tags: [ime ux keymap] | 模仿可可的交互模型，并按 [[tt2-hardware-constraints]] 重新排布可行通道。
 - [ime-strategy-registry](pages/ime-strategy-registry.md) — category: decision | tags: [策略, 注册表, L4, 扩展性] | # 策略注册表与 L4 上下文键位
+- [l6-virtual-keyboard](pages/l6-virtual-keyboard.md) — category: decision | tags: [ime, l6, ui, keymap] | ## L6 虚拟键盘(2026-10-15 用户定案,同一次对话里问定)
 - [librime-android-build](pages/librime-android-build.md) — category: project | tags: [librime, android, ndk, cmake, jni, rime] | ## 结论先行
 - [paging-feel](pages/paging-feel.md) — category: decision | tags: [gesture, animation, paging] | ---
 - [pending-todos](pages/pending-todos.md) — category: project | tags: [todo, backlog] | ## 待办(2026-10-15 更新,按价值排序)

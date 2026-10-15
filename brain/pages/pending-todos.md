@@ -11,6 +11,16 @@ updated: "2026-10-16T08:23:01"
 <!-- compiled_truth -->
 ## 待办(2026-10-15 更新,按价值排序)
 
+### 0. L6 虚拟键盘:视图真机冒烟待补(2026-10-15 新增)
+
+- **已过**:状态机 16 条 JVM 单测(`L6KeyboardTest`)全绿;`assembleDebug` 过;APK 里布局与
+  类都在(`aapt2 dump xmltree` 见 `L6PanelView` 是 `ImeRootView` 第一子节点;dex 里有该类)。
+- **待做(本机无真机、无 `/dev/kvm`,只能真机跑)**:空闲态 `Sym+Space` 开合面板、
+  **点面板键上屏**、上下滑翻页、切 tab、Esc(Sym+Q)关面板。
+- **E2E 场景 `l6-keyboard` 已写好**(`tools/aitest/scenarios.mjs`),**尚未跑过** —— 跑通前
+  别当成已验。
+- **设计见** [[l6-virtual-keyboard]]。
+
 ### 1. `rawAfterConsuming` 撇号坐标:文档与实现矛盾,raw 含 `'` 时可能截错缓冲
 
 - **事实**:`RimeEngine.query` 重建时**跳过 `'` 不喂引擎**(代码);而 `RimeEngine.rawAfterConsuming` 的注释、`ImeController.readRemainder` 的注释(「引擎坐标含 '」)都说撇在喂进去的串里,依据是宿主机探针(绕过 skip 直接喂)+ E2E(`nihao` 无撇,两种坐标语义巧合一致)。
@@ -26,7 +36,6 @@ updated: "2026-10-16T08:23:01"
 ### 已完成(不再追)
 
 候选词槽内截断、候选栏箭头贴边+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(翻页跟随 + 每段边界补撇)、拼音气泡 16sp、调出即初始态(状态/拼音区/候选词清空;邮箱框默认英文压过 restarting)、评审修复(spelling 随组词一起清)、librime 两次更新(f6ea8d94 冒烟过 / 0d00afba 设备冒烟随当天 E2E 一并还清)、dev 发布(含站点)、**长按字母键上屏 L2 符号 + 拼音中长按 L 插分节符**(2026-10-15,四态真机 + E2E 16/16 + 9 条单测)。
-
 
 ## Timeline
 
@@ -51,19 +60,25 @@ updated: "2026-10-16T08:23:01"
 - time: 2026-10-14T12:39:45
   kind: decision
   summary: "2026-10-14:追加第 1 项长按 L2 符号上屏(未开工,触发路径待澄清);分隔符翻页跟随+边界补撇已完成"
-  source: "2026-10-14 评审+用户纠正"
+  source: "2026-10-14 收尾"
   affects: [pending-todos]
 
-- time: 2026-10-15T09:34:15
+- time: 2026-10-15T13:41:16
   kind: decision
-  summary: "2026-10-15:第 5 项(调出即初始态语言口径)完成 —— 邮箱框默认英文压过 restarting,真机四态验证;待办剩 3 项"
-  source: 2026-10-15
-  affects: [pending-todos]
+  summary: "L6 虚拟键盘定案(同一次对话问定):形态=条上方浮层;内容=通用容器+出厂页;开启=仅空闲态,再按或 Esc 关;翻页=tab 内上下翻。视图还有一层设备冒烟欠账待真机还,见本页第 0 项"
+  source: "2026-10-15 L6 虚拟键盘"
+  affects: [pending-todos, l6-virtual-keyboard]
 
 - time: 2026-10-15T13:52:16
   kind: decision
-  summary: "2026-10-15:第 1 项(长按 L2 符号上屏)完成 —— 四态真机 + E2E 16/16 + 9 单测;撇号坐标项因长按 L 让 ' 变得可达,优先级上调"
-  source: 2026-10-15
+  summary: "2026-10-15 长按 L2 符号 + 拼音中长按 L 插分节符已完成(四态真机 + E2E 16/16 + 9 条单测),从待办移入已完成"
+  source: "2026-10-15 长按 L2 符号定案"
+  affects: [pending-todos]
+
+- time: 2026-10-15T13:52:16
+  kind: reversal
+  summary: "撇号坐标项优先级上调:' 从 2026-10-15 起有稳定入口(长按 L 插分节符,不可关闭),撇号坐标矛盾从'几乎不可达'升级为可达且会被真用到的路径"
+  source: "2026-10-15 长按 L2 符号定案"
   affects: [pending-todos]
 
 - time: 2026-10-16T08:18:38
