@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-14T12:43:39"
+updated: "2026-10-15T13:48:27"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -521,4 +521,10 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   kind: decision
   summary: "2026-10-14 拼音自动分隔符两处修正(评审 + 用户当场纠正):①分隔符跟随**当前页**中央槽(JNI 改按索引取 Menu::GetCandidateAt,索引=page*pageSize,翻页即刷新),此前固定取菜单第 0 项,翻页后与画面脱节;②**每一段边界都补撇** —— 候选覆盖段与剩余 raw 是两段,「倪」只覆盖 ni 时显示 ni'hao(ni 后面需要拆分),不是 nihao;③刷新点从 readRemainder(旧 raw/旧页,会拼出 haoao)挪到 remainder 落定后。真机:nihao 第0/1/回翻三态均 ni'hao。"
   source: "2026-10-14 评审 + 真机(TTANCN2100002663)"
+  affects: [pending-todos]
+
+- time: 2026-10-15T13:48:27
+  kind: decision
+  summary: "2026-10-15 长按字母键(用户定案,四轮设计收敛):短按出字母、长按 300ms 出该键 L2 符号;按住期间层状态跳到 L2(复用修饰键 Hold,状态与显示一致);设置开关默认开、关掉回系统连发(旧行为)。**拼音输入中长按 L 插分节符,不受开关限制** —— 补上本机手动分节符不可达的坑(Alt+L 组合被五键选字吃掉);中文全角态 L2(L)= ’(U+2019)两形都认、插入恒 ASCII。DOWN 不出屏+吞连发、输出推迟 UP/定时器:避免先出字母再出符号拼成 a';代价=开开关期间字母提交从 DOWN 挪到 UP(用户接受)。排除:数字类/已有层/Shift·Ctrl 组合。附带修正测试装置:Rig.type/key 对字母键发 down+up 一对(真实硬件键恒成对,旧装置只发 down 是蒙对)。"
+  source: "2026-10-15 设计讨论四轮 + 真机四态 + E2E 16/16"
   affects: [pending-todos]
