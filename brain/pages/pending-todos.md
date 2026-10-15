@@ -5,11 +5,21 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-14T12:39:45"
+updated: "2026-10-15T13:41:16"
 ---
 
 <!-- compiled_truth -->
-## 待办(2026-10-14 更新,按价值排序)
+## 待办(2026-10-15 更新,按价值排序)
+
+### 0. L6 虚拟键盘:视图真机冒烟待补(2026-10-15 新增)
+
+- **已过**:状态机 16 条 JVM 单测(`L6KeyboardTest`)全绿;`assembleDebug` 过;APK 里布局与
+  类都在(`aapt2 dump xmltree` 见 `L6PanelView` 是 `ImeRootView` 第一子节点;dex 里有该类)。
+- **待做(本机无真机、无 `/dev/kvm`,只能真机跑)**:空闲态 `Sym+Space` 开合面板、
+  **点面板键上屏**、上下滑翻页、切 tab、Esc(Sym+Q)关面板。
+- **E2E 场景 `l6-keyboard` 已写好**(`tools/aitest/scenarios.mjs`),**尚未跑过** —— 跑通前
+  别当成已验。
+- **设计见** [[l6-virtual-keyboard]]。
 
 ### 1. 长按键盘 L2 符号上屏(用户 2026-10-14 给的需求,未开工)
 
@@ -76,4 +86,10 @@ updated: "2026-10-14T12:39:45"
   kind: decision
   summary: "2026-10-14:追加第 1 项长按 L2 符号上屏(未开工,触发路径待澄清);分隔符翻页跟随+边界补撇已完成"
   source: "2026-10-14 评审+用户纠正"
+  affects: [pending-todos]
+
+- time: 2026-10-15T13:41:16
+  kind: decision
+  summary: "2026-10-15:追加第 0 项 —— L6 虚拟键盘视图真机冒烟待补(状态机单测+打包已过,E2E 场景已写未跑)"
+  source: brain update-truth
   affects: [pending-todos]
