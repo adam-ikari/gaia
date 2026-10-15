@@ -371,11 +371,18 @@ class ImeService : InputMethodService() {
             controller.state.languageId != controller.registry.secureLanguageId
         ) {
             controller.setLanguage(controller.registry.secureLanguageId)
-        } else if (!restarting) {
-            // 输入框类型带默认语言(邮箱框默认英文,2026-09-29 用户定案):
-            // 换框即恢复默认;同框重启动(restarting)不动,不打断框内手动切的语言
+        } else {
+            // 输入框类型自带的默认语言(目前只有邮箱 = 英文,2026-09-29 定案)。
+            //
+            // 2026-10-15 用户「邮箱框默认英文优先」:默认语言**压过 restarting
+            // 保护** —— 此前它与"同框重启动不动语言"共用一个 `!restarting` 条件,
+            // 于是用户在邮箱框里手动切中文、离开再回来,语言停在中文;现在有默认
+            // 语言的框每次聚焦都回归默认。**没有默认语言的框才是"语言不变"**
+            // (defaultLanguageId = null ⇒ 不走这条,保持用户当前语言)。
             controller.registry.fieldProfile(controller.state.fieldKind)
-                .defaultLanguageId?.let { controller.setLanguage(it) }
+                .defaultLanguageId?.let { want ->
+                    if (controller.state.languageId != want) controller.setLanguage(want)
+                }
         }
     }
 
