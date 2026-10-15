@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [策略, 注册表, L4, 扩展性]
 created: "2026-09-28T19:06:35"
-updated: "2026-10-04T18:38:14"
+updated: "2026-10-15T09:29:53"
 ---
 
 <!-- compiled_truth -->
@@ -294,3 +294,9 @@ updated: "2026-10-04T18:38:14"
   summary: "给 InputMethod 加成员必须三处同改:接口默认值、装饰器 PinyinInputMethod 的转发、rig() 的组合方式;漏转发会让生产静默走默认值而单测全绿"
   source: "2026-10-04 候选行闪烁:给接口加了 isReady 却没在 PinyinInputMethod 转发,生产注册的是装饰器所以就绪门一次都没触发,而单测注册的是裸替身因此全绿"
   affects: [ime-strategy-registry, librime-android-build]
+
+- time: 2026-10-15T09:29:53
+  kind: reversal
+  summary: "2026-10-15 用户「邮箱框默认英文优先」:推翻默认语言与 restarting 的绑定 —— 此前 fieldProfile.defaultLanguageId 只在 !restarting 时套用(用户 2026-09-29 定案「换框即恢复默认;同框重启动不动,不打断框内手动切的语言」),导致邮箱框内手动切中文、离开再回来停在中文。现在:有默认语言的框(仅邮箱=英文)每次聚焦都回归默认(压过 restarting 与手动切换);defaultLanguageId=null 的框语言不变(即用户同日的「调出即初始态:状态/拼音区/候选词清空,语言不变」)。密码框强制安全语言不变。真机四态验证(邮箱→En/框内中文→拼/离开保持→拼/再回→En)。"
+  source: "2026-10-15 用户定案 + 真机(TTANCN2100002663)四态验证"
+  affects: [ime-interaction-model]

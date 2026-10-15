@@ -5,11 +5,11 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-14T12:39:45"
+updated: "2026-10-15T09:34:15"
 ---
 
 <!-- compiled_truth -->
-## 待办(2026-10-14 更新,按价值排序)
+## 待办(2026-10-15 更新,按价值排序)
 
 ### 1. 长按键盘 L2 符号上屏(用户 2026-10-14 给的需求,未开工)
 
@@ -23,33 +23,21 @@ updated: "2026-10-14T12:39:45"
   [ModifierGestures] 的敲击/长按窗口协调,别破坏五键选字(Alt+字母 = 选字)——
   实测 `input keycombination Alt+L` 会被五键选字吃掉,手动分节符在本机不可达同源。
 
-### 2. librime `0d00afba`(emoji 词典,默认关)设备冒烟待补
-
-- **已过**:fetch/diff 审查、双 ABI 构建、JVM 单测、提交 `c313083` 已推。
-- **待做**:候选/上屏/自动分隔符三项冒烟(emoji 默认关,预期行为不变)。
-- **附**:2026-10-14 已在新 librime 上验证过分隔符翻页跟随(写入 ni'hao/nihao 实机日志),
-  三项完整冒烟仍欠一次。
-
-### 3. `rawAfterConsuming` 撇号坐标:文档与实现矛盾,raw 含 `'` 时可能截错缓冲
+### 2. `rawAfterConsuming` 撇号坐标:文档与实现矛盾,raw 含 `'` 时可能截错缓冲
 
 - **事实**:`RimeEngine.query` 重建时**跳过 `'` 不喂引擎**(代码);而 `RimeEngine.rawAfterConsuming` 的注释、`ImeController.readRemainder` 的注释(「引擎坐标含 '」)都说撇在喂进去的串里,依据是宿主机探针(绕过 skip 直接喂)+ E2E(`nihao` 无撇,两种坐标语义巧合一致)。
 - **风险**:用户若能输入 `'`(本机只能 hold-Alt+L,`input keycombination` 会被五键选字吃掉 —— 实测),选词后剩余缓冲可能被截错位。
 - **修法方向**:实现改成数非撇字符的映射(`ImeController.displaySpelling` 已按此实现,可对齐),并把三处注释改成同一个口径;**先在真机证实用 hold 方式敲出的 `'` 进入 raw 后的实际消费值**,再动实现(教训见 [[unverified-as-fact]]:探针证据不等于生产证据)。
 
-### 4. `five-key-slots` E2E 断言脆弱:三次查询候选序随词频漂移
+### 3. `five-key-slots` E2E 断言脆弱:三次查询候选序随词频漂移
 
 - **现象**:断言要求 Shift/Alt/Ctrl 三键上屏**互异的词**;引擎候选序在查询间重排。
 - **证据**:select 埋点显示三键 zone 全部正确(0/4/3),Ctrl 选的就是它槽位当时显示的词 —— 功能无 bug,是断言假设了候选序不变。
 - **修法方向**:把断言改成**不变量**——从 select 日志解析每键的 zone(Shift=0/Sym=1/空格=2/Ctrl=3/Alt=4)与 consumed 映射,不再比词面。
 
-### 5. 调出即初始态的语言口径待确认
-
-- **已做**:层/大写/修饰内部态每次 onStartInput 全量复位(2026-10-12 用户定)。
-- **未动**:语言仍按旧规则(换框恢复 fieldProfile 默认;`restarting=true` 的**同框重启不动**)。
-
 ### 已完成(不再追)
 
-候选词槽内截断、候选栏箭头贴边+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(翻页跟随 + 每段边界补撇)、拼音气泡 16sp、调出即初始态、评审修复(spelling 随组词一起清)、librime 两次更新。
+候选词槽内截断、候选栏箭头贴边+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(翻页跟随 + 每段边界补撇)、拼音气泡 16sp、调出即初始态(状态/拼音区/候选词清空)、评审修复(spelling 随组词一起清)、邮箱框默认英文**压过 restarting**(2026-10-15 定案并四态真实验证)、librime 两次更新、dev 发布(含站点)。
 
 
 ## Timeline
@@ -76,4 +64,10 @@ updated: "2026-10-14T12:39:45"
   kind: decision
   summary: "2026-10-14:追加第 1 项长按 L2 符号上屏(未开工,触发路径待澄清);分隔符翻页跟随+边界补撇已完成"
   source: "2026-10-14 评审+用户纠正"
+  affects: [pending-todos]
+
+- time: 2026-10-15T09:34:15
+  kind: decision
+  summary: "2026-10-15:第 5 项(调出即初始态语言口径)完成 —— 邮箱框默认英文压过 restarting,真机四态验证;待办剩 3 项"
+  source: 2026-10-15
   affects: [pending-todos]
