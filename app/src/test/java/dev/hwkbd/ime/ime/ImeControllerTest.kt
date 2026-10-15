@@ -1070,15 +1070,20 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `L3 空格保持原功能`() {
+    fun `L3 空闲态空格让位给 L6 组词中仍是空格`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lockedLayer)
+        // **空闲态这把键被 L6 抢走**(2026-10-15 用户定案):开虚拟键盘面板,不写字符。
+        // 与可可「L3 空格保持原功能」的对齐就此打破 —— 那条理由与相关键位见
+        // [ImeController] 的「为什么 Sym+Space 要抢一把本来是空格的键」。
         r.key(KeyEvent.KEYCODE_SPACE)
-        assertEquals(listOf(" "), r.h.commits) // 空格在 L3 不再特判(与可可一致)
+        assertTrue(r.c.l6Open)
+        assertTrue("开面板不写字符", r.h.commits.isEmpty())
+        // 组词中仍是空格的回归在 `L6KeyboardTest` 的「组词中 Sym+Space 仍是空格 不开面板」。
     }
 
     @Test

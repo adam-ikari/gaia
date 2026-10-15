@@ -74,6 +74,7 @@ class ImeService : InputMethodService() {
     private var statusShift: TextView? = null
     private var statusFullWidth: TextView? = null
     private var preeditRow: TextView? = null
+    private var l6Panel: dev.hwkbd.ime.ui.L6PanelView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
     /** L4 面板当前键帽对应的签名([ImeController.l4Signature]);变了才重建键帽。 */
@@ -302,6 +303,16 @@ class ImeService : InputMethodService() {
                 syncL5()
             }
         }
+        // L6 虚拟键盘面板:键走**与 L4/L5 同一条**上屏通路([commitL4Tapped]),
+        // 翻页/切 tab 交回控制器(页码夹取、到头不循环都在 [L6Ui] 里)。
+        // 滑动手势也接静默窗(用户 2026-10-02「所有的键盘滑动都无效」)。
+        l6Panel = root.findViewById<dev.hwkbd.ime.ui.L6PanelView>(R.id.l6_panel).apply {
+            onKey = { commitL4Tapped(it) }
+            onTab = { controller.l6SelectTab(it) }
+            onSwipePage = { delta -> controller.l6StepPage(delta) }
+            // 滑动手势也接静默窗(用户 2026-10-02「所有的键盘滑动都无效」)
+            swipeGate = { keyGate.swipeBlocked() }
+        }
         // 齿轮左侧键盘图标:**只**控制 L5 行的显示/隐藏(2026-09-29 用户定案)。
         // 翻页一律走 L5 行上的横滑(见 [stepL5Page]),图标不再兼做翻页——两件事分开,
         // 图标的语义就只有一个,不用猜"我现在是展开着还是翻到第几页"。
@@ -500,14 +511,16 @@ class ImeService : InputMethodService() {
      * 背后 App 会认为输入法内容占满全屏,把自己的内容区压成 0——
      * Termux 在此状态下终端整片空白,并主动 hideSoftInput(状态条/候选条一起消失)。
      * 所以这里显式上报**最上面一条可见的输入法内容**:组词态与空闲态(状态行)恒等,
-     * App 侧既不 resize 也不 pan;L5 行(状态栏上方)出现时改报 L5 行顶——
-     * 那是真实内容边界,App 必须让出这块空间,否则 L5 会盖在 App 内容上。
+     * App 侧既不 resize 也不 pan;L5 行(状态栏上方)出现时改报 L5 行顶,
+     * L6 虚拟键盘面板(最顶一层)出现时改报 L6 面板顶——两类都是真实内容边界,
+     * App 必须让出这块空间,否则会被盖在 App 内容上(或面板顶被裁)。
      * 触摸范围仍用整个窗口框架,飞字手势不受影响。
      */
     override fun onComputeInsets(outInsets: Insets?) {
         super.onComputeInsets(outInsets)
         if (outInsets == null) return
         val row = when {
+            l6Panel?.visibility == View.VISIBLE -> l6Panel
             l5Panel?.visibility == View.VISIBLE -> l5Panel
             candidateRow?.visibility == View.VISIBLE -> candidateRow
             else -> statusRow
@@ -1205,6 +1218,26 @@ class ImeService : InputMethodService() {
         // 该类型的短语组合键位套,核心键与 L1-L3 已有的键已在注册表滤掉)
         l4Panel?.visibility = View.VISIBLE
         syncL5()
+
+        // L6 虚拟键盘面板:**状态说了算**(state.l6 非空 = 显示,见 [ImeController.toggleL6])。
+        // 显隐与内容都不在这里做判断 —— 面板的开/关/翻页/切 tab 全是控制器改的字段,
+        // 这里只是把它照出来。
+        l6Panel?.apply {
+            val ui = s.l6
+            val was = visibility == View.VISIBLE
+            if (ui == null) {
+                if (was) visibility = View.GONE
+            } else {
+                setContent(ui, theme)
+                if (!was) visibility = View.VISIBLE
+            }
+            // 面板改变**窗口高度**(条上方多出一整块),必须通知框架重算 insets —— 与 L5 行同一条
+            // 理由(见 [syncL5]):不报的话 App 不让位、面板顶被裁掉一截。
+            if ((ui != null) != was) {
+                notifyInsetsChanged()
+                mainHandler.post { notifyInsetsChanged() }
+            }
+        }
 
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
         // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行

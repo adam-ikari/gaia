@@ -176,6 +176,17 @@ class ImeState {
      */
     var spelling = ""
 
+    /**
+     * L6 虚拟键盘的打开状态;`null` = 关闭(2026-10-15 用户「空闲状态 sym+space
+     * 打开虚拟键盘,这是 L6 键盘」)。
+     *
+     * **只在空闲态存在**:一旦开始组词(`hasComposition`)它就必须已经被关掉,
+     * 所以「开着」与「有组词」不会同时成立 —— 那条不变量由
+     * [ImeController.toggleL6] 的入口判据与 [ImeController.closeL6] 的各路调用点保证,
+     * 单测在 `L6KeyboardTest` 的「L6 虚拟键盘」那几条里。
+     */
+    var l6: L6Ui? = null
+
     var candidates: List<Candidate> = emptyList()
     var page = 0
     var pageSize = 5

@@ -78,7 +78,7 @@ const K = {
   a: 29, b: 30, c: 31, d: 32, e: 33, f: 34, g: 35, h: 36, i: 37, j: 38,
   k: 39, l: 40, m: 41, n: 42, o: 43, p: 44, q: 45, r: 46, s: 47, t: 48,
   u: 49, v: 50, w: 51, x: 52, y: 53, z: 54,
-  space: 62, shift: 59, alt: 58, ctrl: 113, del: 67,
+  space: 62, shift: 59, alt: 58, ctrl: 113, del: 67, sym: 63,
 }
 const last = (s) => (s ? s[s.length - 1] : '')
 /** 字母 → Android KEYCODE_*(A=29 起的连续段)。 */
@@ -1174,6 +1174,32 @@ const selOf = (log) => {
         c.expect(last(t) === '1', `Alt+W 应输出 1(半角),实际="${t}"`)
         c.device.key(K.del)
         await sleep(300)
+      },
+    ],
+  },
+
+  {
+    name: 'l6-keyboard',
+    desc: 'L6 虚拟键盘:空闲态 Sym+Space 开面板(AI 判卷),Sym+Space 与 Sym+Q(Esc) 都能关',
+    // **本机无真机,此场景尚未跑过**(2026-10-15 新增)—— 见 brain `pending-todos`
+    // 的设备冒烟欠账。跑通后再去掉这条备注。
+    judge: [
+      { shot: 'l6-open', question: '这是 Android 输入法条区域的截图。条的上方是否出现了一块面板:顶上一行有几个文字标签(如 标点/技术/控制),下面是一片方形小键帽?简短回答。' },
+      { shot: 'l6-closed', question: '这是 Android 输入法条区域的截图。条的上方是否**没有**那块带标签页与键格的面板(只剩一条状态栏)?简短回答。' },
+    ],
+    steps: [
+      async (c) => {
+        // 空闲态 Sym+Space:idle 才抢这把键(组词中仍是空格),开面板不写任何字符
+        c.device.combo(K.sym, K.space)
+        await sleep(800)
+        c.shot('l6-open')
+        c.device.combo(K.sym, K.space) // 再按一次 = 关
+        await sleep(700)
+        c.device.combo(K.sym, K.space) // 再开
+        await sleep(600)
+        c.device.combo(K.sym, K.q) // Sym+Q = 出厂 L3 的 Esc,也关面板
+        await sleep(700)
+        c.shot('l6-closed')
       },
     ],
   },

@@ -403,6 +403,7 @@ class ImeController(
         flushComposition()
         state.languageId = lang.id
         resetTransientState()
+        state.l6 = null // 切语言是一次新的空闲态:面板里的固定符号键跟着语言走,不留
         lang.onEnter(state)
         host.render()
     }
@@ -663,8 +664,12 @@ class ImeController(
     }
 
     /**
-     * L4 虚拟按键输出。文本键**原样上屏**(配置即所见);语言策略判定为组词字符的键跟着组词
-     * (拼音分隔符 `'`:组词中追加分节、不打断组词),功能键转发给目标应用。
+     * 虚拟面板按键输出(L4 中区、L5 尾巴行、L6 虚拟键盘**共用一条**通路)。文本键**原样上屏**
+     * (配置即所见);语言策略判定为组词字符的键跟着组词(拼音分隔符 `'`:组词中追加分节、
+     * 不打断组词),功能键转发给目标应用。
+     *
+     * **三块面板不各写一份**的理由见 [L6Ui] 类注释 —— 「这个键干什么」是 [KeyOut] 的事,
+     * 不是「它长在哪块面板」的事;多一条分支就多一处语义会漂移的地方。
      */
     fun commitL4Key(out: KeyOut) {
         when (out) {
@@ -681,6 +686,12 @@ class ImeController(
                 }
             }
             is KeyOut.Special -> {
+                // 面板开着时,L4/L5 行上的 Esc 也收面板(与物理 Esc 一致)
+                if (out.name == "esc" && l6Open) {
+                    state.l6 = null
+                    host.render()
+                    return
+                }
                 flushComposition()
                 KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
             }
@@ -792,6 +803,13 @@ class ImeController(
 
     /** 词库异步载入完成后主动刷新当前查询。 */
     fun refreshQuery(from: String = "?") {
+        // **组词一开始就把 L6 收掉**:面板只在空闲态存在(2026-10-15 定案),
+        // 而「空闲 → 有组词」这一步的所有路径(字符键 / L4 文本键 / L6 文本键 / 退格)
+        // 都汇到这里 —— 在这一个口子上关一次就够,不必每条路径各写一遍。
+        //
+        // 这里直接改字段而**不**走 [closeL6]:本函数末尾自己会 render,
+        // 嵌套渲染会把同一帧画两遍。
+        if (state.hasComposition) state.l6 = null
         // **引擎没就绪时不去问它**(2026-10-04 用户报候选行自己交替闪烁)。
         //
         // 没就绪时 `query()` 只能给空表,而空表 = 「这个拼音没有候选」。
@@ -928,6 +946,7 @@ class ImeController(
     fun resetForNewInput() {
         clearComposition()
         symDown = false
+        state.l6 = null // 换输入框 = 一次新的空闲态,面板不留(与层/大写一起归零)
         host.render()
     }
 
@@ -953,6 +972,7 @@ class ImeController(
         shiftUsedAsModifier = false
         symDown = false
         symProducedKey = false
+        state.l6 = null // 窗口收起/调出 = 一次新的空闲态(与层、大写一起归零)
         // 敲击计数 / 敲击窗口 / 按住时长 / 吸收窗:全在一处,一次清干净
         gestures.resetAll()
         host.render()
@@ -961,6 +981,71 @@ class ImeController(
     /** onUpdateSelection 发现组词区被外部破坏时调用。 */
     fun abandonComposition() {
         clearComposition()
+        host.render()
+    }
+
+    // ------------------------------------------------------------- L6 虚拟键盘
+    //
+    // 2026-10-15 用户「空闲状态 sym+space 打开虚拟键盘,这是 L6 键盘,支持多个
+    // tab 页和上下滑动虚拟键盘翻页」。四条定案(同一次对话里问定的):
+    //   · 形态 = **条上方浮层**(不拉全屏,键盘表面照常用);
+    //   · 内容 = **通用容器 + 出厂页**(见 [L6Ui]);
+    //   · 开启 = **仅空闲态**,再按一次 Sym+Space 或 Esc 关闭,关闭不写任何字符;
+    //   · 翻页 = **tab 内**上下翻(方向键与上下滑动),不跨 tab。
+    //
+    // ## 为什么 `Sym+Space` 要抢一把「本来是空格」的键
+    //
+    // L3(Sym)层是照可可的扩展字符表逐键定的(commit 7a906b5),其中明确写着
+    // 「空格/回车/删除保持原功能」,并有单测 `L3 空格保持原功能` 钉住。
+    // 用户 2026-10-15 定案:**空闲态抢走它**(组词中仍是空格),与可可对齐的那条
+    // 就此打破 —— 所以那条单测与本段注释一起留着,别当成「忘了改回去」。
+
+    /** L6 面板开着吗。 */
+    val l6Open: Boolean get() = state.l6 != null
+
+    /**
+     * 开/关 L6。**仅空闲态**。
+     *
+     * 组词中调用无效并返回 false —— 那时 `Sym+Space` 是「上屏空格」,面板不该抢。
+     *
+     * @return 是否真的切了状态
+     */
+    fun toggleL6(): Boolean {
+        if (state.hasComposition) return false
+        val opening = state.l6 == null
+        state.l6 = if (opening) L6Ui.factory() else null
+        android.util.Log.i(
+            "ImeService",
+            "l6: ${if (opening) "打开 tab=0" else "关闭"} raw=\"${state.raw}\"",
+        )
+        host.render()
+        return true
+    }
+
+    /** 关掉 L6。没开着时是空操作(不渲染,免得无谓的一帧)。 */
+    fun closeL6() {
+        if (state.l6 == null) return
+        state.l6 = null
+        host.render()
+    }
+
+    /** 上下翻页(tab 内)。@return 是否真的翻了 —— 到头不循环,返回 false 让面板不给反馈。 */
+    fun l6StepPage(delta: Int): Boolean {
+        val ui = state.l6 ?: return false
+        val moved = ui.stepPage(delta)
+        if (moved) {
+            android.util.Log.i("ImeService", "l6: 翻页 tab=${ui.tabIndex} page=${ui.pageIndex}/${ui.pageCount}")
+            host.render()
+        }
+        return moved
+    }
+
+    /** 切 tab(页码归零,见 [L6Ui.selectTab])。 */
+    fun l6SelectTab(index: Int) {
+        val ui = state.l6 ?: return
+        if (index == ui.tabIndex) return
+        ui.selectTab(index)
+        android.util.Log.i("ImeService", "l6: 切 tab=$index(${ui.tab.id}) page=0")
         host.render()
     }
 
@@ -1001,6 +1086,41 @@ class ImeController(
             cycleLanguage()
             return true
         }
+
+        // Sym+Space = 开/关 L6 虚拟键盘(2026-10-15 用户「空闲状态 sym+space 打开
+        // 虚拟键盘」)。**仅空闲态**:组词中这把键仍旧上屏空格 —— 空闲才抢,
+        // 见本节开头「为什么 Sym+Space 要抢一把本来是空格的键」。
+        //
+        // `layer` 取的是 effectiveLayer,所以单击 Sym(一次性 L3)、长按 Sym
+        // (按住 L3)、双击 Sym(锁定 L3)三种按法都算「Sym+Space」。
+        // 借来的 L3 被这一下用掉(与别的键一样「用完就还」):不还的话开关完面板那一层
+        // 还挂着,下一颗字母键会被当成 L3 符号敲出去(实测:开完面板敲 n 出的是 L3 符号,
+        // 组词起不来)。按住/锁定两种按法不受影响(它们不是一次性层)。
+        if (code == KeyEvent.KEYCODE_SPACE && layer == Layer.L3 && !state.hasComposition) {
+            consumeOneShot()
+            return toggleL6()
+        }
+
+        // L6 面板开着时,方向键归面板:上下 = 本 tab 内翻页,左右 = 切 tab
+        // (2026-10-15 定案「翻页 = tab 内上下翻(方向键与上下滑动),不跨 tab」;
+        // 左右切 tab 是同一次对话里从「不跨 tab」推出来的 —— 翻页这条路上 tab 不动,
+        // 切 tab 就得另有一条,**面板开着时左右对候选无意义**(空闲态无候选),拿来切最顺)。
+        // 放在候选键分支之前:面板只在空闲态存在,此刻 ↑↓←→ 不该落到"翻候选页"那条老路上。
+        if (l6Open) {
+            when (code) {
+                KeyEvent.KEYCODE_DPAD_UP -> { l6StepPage(-1); consumeOneShot(); return true }
+                KeyEvent.KEYCODE_DPAD_DOWN -> { l6StepPage(1); consumeOneShot(); return true }
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    state.l6?.let { l6SelectTab(it.tabIndex - 1) }
+                    consumeOneShot(); return true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    state.l6?.let { l6SelectTab(it.tabIndex + 1) }
+                    consumeOneShot(); return true
+                }
+            }
+        }
+
 
         when (code) {
             // 数字框限定 0-9:空格吞掉(数字不需要空格,状态按钮也全隐藏)
@@ -1073,6 +1193,17 @@ class ImeController(
                 return true
             }
             is KeyOut.Special -> {
+                // 面板开着时 Esc 收面板,不转发给应用(2026-10-15 开关对称)。
+                // 走的是**物理键**这条路(Sym+Q 是出厂 Esc);面板上那颗 Esc 键走
+                // [commitL4Key]。两条都收面板,但这里要把一次性层/大写照常消耗掉 ——
+                // Sym 是被当修饰键用掉的,不消耗会留下一层没人消的 L3。
+                if (out.name == "esc" && l6Open) {
+                    state.l6 = null
+                    consumeShiftOnce()
+                    consumeOneShot()
+                    host.render()
+                    return true
+                }
                 flushComposition()
                 KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
                 consumeShiftOnce()

@@ -18,6 +18,25 @@
     android:orientation="vertical">
 
     <!--
+      L6 虚拟键盘面板(2026-10-15 用户「空闲状态 sym+space 打开虚拟键盘,这是 L6 键盘,
+      支持多个 tab 页和上下滑动翻页」):条上方的浮层。**仅空闲态**存在 —— 组词一开始
+      控制器就把它关掉(state.l6 = null,见 ImeController.refreshQuery),所以它和候选行
+      不会同时要位子。放在最上面:它是最后叠上去的一层,盖住 L5 行也在所不惜
+      (两者都只在空闲态出现,而 L6 是用户主动叫出来的,该压在 L5 之上)。
+      显隐与内容全归 [dev.hwkbd.ime.service.ImeService.renderViews]:state.l6 非空 = 显示。
+    -->
+    <dev.hwkbd.ime.ui.L6PanelView
+        android:id="@+id/l6_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/status_bg"
+        android:paddingStart="@dimen/bar_safe_edge"
+        android:paddingTop="6dp"
+        android:paddingEnd="@dimen/bar_safe_edge"
+        android:paddingBottom="6dp"
+        android:visibility="gone" />
+
+    <!--
       组词拼音(悬浮):只在 App 自己不渲染 composing 区时显示(Termux 这类),
       能就地显示拼音的 App(EditText 类)直接藏起来;浮在候选条正上方,
       不占 contentTopInsets(应用不 resize)。宽度随文字(至多 300dp),
