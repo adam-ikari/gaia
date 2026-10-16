@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-16T08:18:38"
+updated: "2026-10-16T08:23:01"
 ---
 
 <!-- compiled_truth -->
@@ -70,4 +70,10 @@ updated: "2026-10-16T08:18:38"
   kind: decision
   summary: "2026-10-16:长按字母键从「只出 L2」扩成**三选一**(关闭/L2/L3,见 [[ime-interaction-model]]),含一个真机取证过的修正(短按不再闪层状态)+ 长按状态机收口(LongPress 四迁移);单测 331 全绿。状态机整理本身也定了口径:**sealed + 纯函数,不引库**([[state-machine-approach]]);输入机与候选栏手势机按用户决定暂不动。待办仍是撇号坐标 + five-key-slots 两条。"
   source: "2026-10-16 收尾"
+  affects: [pending-todos]
+
+- time: 2026-10-16T08:23:01
+  kind: evidence
+  summary: "2026-10-16 长按三选一(L2/L3)+ 短按不闪修正的回归:E2E 16/16(2 个 AI 判卷场景因未配 AITEST_API_KEY 依例 pending,非失败),无崩溃;单测 331 全绿;真机三态取证(短按不闪 / L2 长按出 ’ 且按住出 alt / L3 长按 T 出《、L 触发 move_end)。"
+  source: "2026-10-16 E2E(tools/aitest)+ 真机 TTANCN2100002663"
   affects: [pending-todos]
