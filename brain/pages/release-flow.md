@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-11T03:17:09"
+updated: "2026-10-16T00:38:56"
 ---
 
 <!-- compiled_truth -->
@@ -228,4 +228,10 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   kind: evidence
   summary: "publish-site.sh 两处查询补重试(2026-10-11 实测,同一个形状当天第三、四次):①权威大小只查一次,gh api 抖动 → want=0 → [ want -gt 0 ] 恒假 → 大小校验被静默禁用,下载其实 5 次全部完整成功(10699195)却全被判截断,dev 渠道放弃上线、按钮从站点消失;②资产名查询 read < <(gh … || true),抖动 → asset 空 → 脚本断言『v0.7.11 上没有 app-release 资产』并致命退出,而资产好好在那儿。两次危害不同(一个静默丢渠道、一个中断发布),根因同一个:查询失败与结果为空在写法上不可区分,且下载有重试、查询没有。publish-dev.sh 的 remote_asset_size/dev_assets 早有正确形状(退出码区分 + 重试),publish-site.sh 的两处查询没照抄。判据:凡是『远端有什么』的查询,失败必须与空结果分流,且重试次数不能少于它所护卫的那个动作。"
   source: "2026-10-11 发 dev 77f6720 时 publish-site.sh 连挂两次"
+  affects: [release-flow]
+
+- time: 2026-10-16T00:38:56
+  kind: decision
+  summary: "2026-10-16 发 dev 4c26536(含站点)的四个发现:(1) gate.sh 在「master 承袭已发布版本、不发新正式 tag」状态必须传 --tag <当前 tag>——check-version.sh 无参模式假设 HEAD 即将打 tag,HEAD 上无 tag 指向时排不出自己,把 v0.7.11 的 versionCode 30 跟自己比必挂(本地无 tag=CI 状态不同,同一个坑的第三种形态)。(2) 本应用仓不该有 dev-latest tag:2026-10-06 误打的那个指向 587df89(树里没 app/build.gradle.kts),git show dev-latest:app/build.gradle.kts exit 128,在 set -uo pipefail 下把 check-version 整个脚本拖崩(128 伪装成 fail,容易被当成环境问题)。publish-dev.sh 的 dev-latest 是 gaia 仓的 release tag,与本应用仓的 git tag 无关。(3) STABLE_STATUS 默认 withdrawn 是过时的:它带 0.7.10 的 NOTE,但 cd04b5a(拼音部分消费后剩余拼音无候选)已进 v0.7.11 发布,主渠道当前 APK 已修——用默认值发会让站点对用户说谎(项目判据第一要义);本次切 official + 空 NOTE,以后默认值要随最新已发布版本更新。(4) rebase 合流(L6 分支 + 远端长按三选一)暴露 tryArmLongPress 不查 l6Open:面板开着敲字母被武装、DOWN 被吞、不组词、300ms 还出符号;已补并移植到三选一的 lp.arm 新架构。"
+  source: "2026-10-16 发 dev 4c26536"
   affects: [release-flow]
