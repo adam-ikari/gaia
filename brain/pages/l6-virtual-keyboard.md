@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-15T13:40:12"
+updated: "2026-10-16T03:19:42"
 ---
 
 <!-- compiled_truth -->
@@ -68,4 +68,10 @@ L4 中区 / L5 尾巴行 / L6 键盘都走 `ImeController.commitL4Key`(键的输
   kind: decision
   summary: "L6 虚拟键盘:L4/L5/L6 三块面板共用 commitL4Key 上屏通路;状态机在 L6Ui,视图在 L6PanelView"
   source: brain update-truth
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-16T03:19:42
+  kind: reversal
+  summary: "2026-10-16 三态化(reversal):L6 的开关从「sym+space 二态」改成**三态循环** OFF→L5→L6→OFF。用户原话「把 L5 的图标的工作改为 L5 L6 和关闭状态的切换 sym+space 的功能和切换图标的功能一致 默认状态不显示 L5 和 L6」。要点:① PanelMode(OFF/L5/L6) 进 ImeState,ImeController.cyclePanel() 是唯一推进入口, sym+space 与状态行右区 btn_l5 走同一通路;② L5 行/按钮的显隐与图标从视图层变量(l5RowShown)收进 state.panelMode,btn_l5 **常驻**(不再「有溢出才显示」),图标随态(展开箭头 ic_expand / 键盘 ic_keyboard / 收起箭头 ic_collapse),非 OFF 态用主题 accent;③ 组词开端/换框/切语言/窗口收起/Esc 全走 ImeState.closePanels();④ 旧「sym+space 二态开关 L6」的定案作废。附带:连续敲 Sym 三次会撞双击窗(单击借 L3 / 双击锁 L3 / 再敲取消),所以三态循环的单测用 cyclePanel() 直测,不连敲三次 symSpace。"
+  source: "2026-10-16 用户定案"
   affects: [l6-virtual-keyboard]

@@ -17,6 +17,11 @@
 //   2. composition 变成什么样(几段、每段 start/end/status)
 //   3. 新的菜单里有没有剩余拼音的候选
 //
+// **连续 Select**(`RIMEPROBE_CHAIN=N`:同一 session 上反复选单字)回答另一件事:
+// `GetCurrentStartPosition()` 是**相对当前 composition** 还是**相对最初输入**?
+// 实测是后者(**绝对坐标**):`zhongguoren` 选「中」给 5、再选「国」给 **8**(不是 3)。
+// 上层若拿它当相对量去截已消费过的 raw,第二次起就多截、丢光剩余拼音(2026-10-16 真 bug)。
+//
 // 这正是 `app/src/main/cpp/rime_jni.cpp` 的 `nativeSelectCandidate` 与
 // `app/src/main/java/dev/hwkbd/ime/rime/RimeEngine.kt` 的 `currentCandidates`
 // 在真机上走的那条路径 —— 同一个 schema、同一份词典、同一个 librime 源码。
@@ -24,6 +29,10 @@
 // ## 用法
 //
 //     tools/rimeprobe/run.sh nihao "ni'hao" xian n
+//
+// 连续消费(同一 session 反复选单字,量 consumed 是否累积):
+//
+//     RIMEPROBE_CHAIN=4 tools/rimeprobe/run.sh zhongguoren
 //
 // run.sh 负责把 `app/src/main/assets/rime` 复制成一份 shared_data_dir、编依赖、
 // 首次部署,再把参数原样转交。
@@ -143,6 +152,52 @@ void probeOne(const std::string& input, int tryCandidates) {
   }
 }
 
+// 连续 Select:同一个 session 上反复选第 0 个候选,每次打印
+// `GetCurrentStartPosition()`(= 上层 `selectAndRemain` 的 consumed)。
+//
+// 回答一个问题:**它是相对「当前 composition 开端」,还是相对「最初输入」?**
+//   · 相对当前 → 上层按单次语义截**当前** raw(`rawAfterConsuming(raw, consumed)`)一致;
+//   · 累积     → 上层会**多截**,剩余拼音逐次变短,几次后丢光(用户报的症状)。
+void probeChain(const std::string& input, int steps) {
+  printf("\n============== chain input = %s steps = %d ==============\n",
+         input.c_str(), steps);
+  RimeSessionId sid = feed(input);
+  rime::an<rime::Session> s = rime::Service::instance().GetSession(sid);
+  if (!s) { printf("!! 无 session\n"); api()->destroy_session(sid); return; }
+  dumpComposition(s, "输入后");
+  dumpMenu(sid, 8);
+
+  for (int k = 1; k <= steps; ++k) {
+    RimeContext pre;
+    RIME_STRUCT_INIT(RimeContext, pre);
+    api()->get_context(sid, &pre);
+    // 选**单字**候选(UTF-8 汉字 = 3 字节)= 用户点单字的手势;没有单字退回第 0 个。
+    // 连续单字消费正是用户报的那条路(选词 = 消费一个音节,逐字往下)。
+    int pick = 0;
+    std::string word = "(空)";
+    if (pre.menu.candidates && pre.menu.num_candidates > 0) {
+      for (int i = 0; i < pre.menu.num_candidates; ++i) {
+        const char* t = pre.menu.candidates[i].text;
+        if (t && std::strlen(t) == 3) { pick = i; word = t; break; }
+      }
+      if (word == "(空)" && pre.menu.candidates[0].text)
+        word = pre.menu.candidates[0].text;
+    }
+    api()->free_context(&pre);
+
+    size_t before = s->context()->composition().GetCurrentStartPosition();
+    bool ok = api()->select_candidate(sid, static_cast<size_t>(pick)) != 0;
+    size_t after = s->context()->composition().GetCurrentStartPosition();
+    printf("  --- 第 %d 次 select(%d) 选中 \"%s\" ok=%d ---\n", k, pick, word.c_str(),
+           ok ? 1 : 0);
+    printf("      consumed(GetCurrentStartPosition): 选前=%zu 选后=%zu\n", before,
+           after);
+    dumpComposition(s, "选后");
+    dumpMenu(sid, 8);
+  }
+  api()->destroy_session(sid);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -181,7 +236,13 @@ int main(int argc, char** argv) {
   // 「部分消费」这条路在常见输入上到底占多少比例,不能凭印象。
   const char* env = getenv("RIMEPROBE_TRY");
   int tryCandidates = env ? atoi(env) : 6;
-  for (int i = 3; i < argc; ++i) probeOne(argv[i], tryCandidates);
+  const char* chainEnv = getenv("RIMEPROBE_CHAIN");
+  int chain = chainEnv ? atoi(chainEnv) : 0;
+  if (chain > 0) {
+    for (int i = 3; i < argc; ++i) probeChain(argv[i], chain);
+  } else {
+    for (int i = 3; i < argc; ++i) probeOne(argv[i], tryCandidates);
+  }
 
   a->finalize();
   return 0;

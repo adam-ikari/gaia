@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.TextView
 import android.widget.LinearLayout
 import dev.hwkbd.ime.ime.L6Key
+import dev.hwkbd.ime.ime.L6Layout
 import dev.hwkbd.ime.ime.L6Ui
 import dev.hwkbd.ime.keymap.KeyOut
 import kotlin.math.abs
@@ -41,6 +42,13 @@ class L6PanelView @JvmOverloads constructor(
 
     /** 点面板里的一颗键(文本 / 功能键原样交出,上屏由控制器走 [commitL4Key])。 */
     var onKey: ((KeyOut) -> Unit)? = null
+
+    /**
+     * 点**整行键**(剪贴板 tab:每条一行)时的回调,**不走** [onKey] ——
+     * 剪贴板条目是「粘贴」不是「按键」:纯字母的剪贴内容若走 [onKey] 会被当成拼音进组词
+     * (L6 定案「面板上点符号=直接上屏」的前提是符号盘没有 a-z,剪贴板不满足)。
+     */
+    var onRowKey: ((KeyOut) -> Unit)? = null
 
     /** 点 tab 条上的一个 tab(下标)。切 tab 由控制器 [l6SelectTab] 归零页码。 */
     var onTab: ((Int) -> Unit)? = null
@@ -79,7 +87,9 @@ class L6PanelView @JvmOverloads constructor(
         stroke = theme.divider
         accent = theme.accent
         panelBg = theme.barBg
-        val sig = "${theme.id}/${ui.tabIndex}/${ui.pageIndex}"
+        // 签名含**当前页键的内容** —— 剪贴板 tab 的条目会变而 tab/页不变,只看 tab/页的话
+        // 面板会停在旧内容上(与候选行「签名要含显示内容」同一条教训)。
+        val sig = "${theme.id}/${ui.tabIndex}/${ui.pageIndex}/${ui.pageKeys().hashCode()}"
         if (sig == lastSig) return
         lastSig = sig
         // 翻页/重建把跟手位移清掉:旧页的位移不该带到新页的键上。
@@ -117,15 +127,17 @@ class L6PanelView @JvmOverloads constructor(
     private fun rebuildGrid(ui: L6Ui) {
         grid.removeAllViews()
         val keys = ui.pageKeys()
-        val rows = (keys.size + COLUMNS - 1) / COLUMNS
+        // ROWS(剪贴板):每条一行、整行宽;GRID(出厂符号盘):每行 COLUMNS 颗等宽。
+        val columns = if (ui.tab.layout == L6Layout.ROWS) 1 else COLUMNS
+        val rows = (keys.size + columns - 1) / columns
         var idx = 0
         val density = resources.displayMetrics.density
         repeat(rows) {
             val row = LinearLayout(context).apply { orientation = HORIZONTAL }
-            repeat(COLUMNS) {
+            repeat(columns) {
                 if (idx < keys.size) {
                     val k = keys[idx++]
-                    row.addView(makeKey(k), LinearLayout.LayoutParams(0, dip(36), 1f).apply {
+                    row.addView(makeKey(k, direct = ui.tab.layout == L6Layout.ROWS), LinearLayout.LayoutParams(0, dip(36), 1f).apply {
                         marginEnd = (3 * density).toInt()
                         bottomMargin = (3 * density).toInt()
                     })
@@ -138,7 +150,7 @@ class L6PanelView @JvmOverloads constructor(
         }
     }
 
-    private fun makeKey(k: L6Key): View = TextView(context).apply {
+    private fun makeKey(k: L6Key, direct: Boolean = false): View = TextView(context).apply {
         text = k.label
         maxLines = 1
         setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -146,7 +158,7 @@ class L6PanelView @JvmOverloads constructor(
         background = makeKeyBg()
         setOnClickListener {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            onKey?.invoke(k.out)
+            if (direct) onRowKey?.invoke(k.out) else onKey?.invoke(k.out)
         }
     }
 

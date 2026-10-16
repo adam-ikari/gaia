@@ -602,7 +602,7 @@ class ImeController(
         flushComposition()
         state.languageId = lang.id
         resetTransientState()
-        state.l6 = null // 切语言是一次新的空闲态:面板里的固定符号键跟着语言走,不留
+        state.closePanels() // 切语言是一次新的空闲态:面板里的固定符号键跟着语言走,不留
         lang.onEnter(state)
         host.render()
     }
@@ -781,6 +781,7 @@ class ImeController(
             clearComposition()
         } else {
             state.raw = rem.raw
+            state.rawBase = consumed ?: 0 // 引擎已吃掉的绝对量 = 新 raw 的起点
             state.page = 0
             state.highlight = -1
             state.candidates = rem.candidates
@@ -816,13 +817,18 @@ class ImeController(
      * 「缓冲里是 hao、候选栏却是 hao 别的段」,极难查。
      * 打包成一份就只有一个真相来源。
      *
-     * @param consumed 引擎给的消费长度(引擎坐标 = 喂进去那串里的**下标**,含 `'`);`null` 或 `<= 0` ⇒ `null`。
+     * @param consumed 引擎给的消费长度(**绝对坐标** = 相对引擎当前输入串开头的下标,含 `'`);
+     *   `null` 或 `<= 0` ⇒ `null`。与当前 `state.raw` 之间差一个 [ImeState.rawBase]。
      */
     private fun readRemainder(consumed: Int?): Remainder? {
         if (consumed == null || consumed <= 0) return null
-        // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),
-        // 所以留的是**尾巴**。切点与坐标口径见 [dev.hwkbd.ime.rime.rawAfterConsuming]。
-        val rest = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, consumed)
+        // 被吃掉的永远是**开头**那一段(librime 的候选从当前段起点开始吃),所以留的是**尾巴**。
+        // **但 consumed 是绝对坐标**(相对引擎当前输入串起点),不是相对当前 raw —— 连续消费时
+        // raw 已是尾巴,必须先减 [ImeState.rawBase](= 引擎此前吃掉的绝对量)换成相对量,否则
+        // 第二次消费起会多截、把剩余拼音丢光(2026-10-16 真 bug;探针 chain 实测见
+        // `tools/rimeprobe/probe.cc`)。切点与撇口径见 [dev.hwkbd.ime.rime.rawAfterConsuming]。
+        val rel = consumed - state.rawBase
+        val rest = dev.hwkbd.ime.rime.rawAfterConsuming(state.raw, rel)
         // 不用 [refreshQuery] 的理由**不是**「重建算不出 hao 的候选」——
         // 那条判断是错的:重建是 `clear_composition()` + 逐字重喂,纯函数,
         // `hao` 的候选它算得出来。错的是**读的时候引擎可能已经没了**,
@@ -863,6 +869,19 @@ class ImeController(
     }
 
     /**
+     * 剪贴板条目**直接上屏**(2026-10-16 剪贴板 tab)。
+     *
+     * 与 [commitL4Key] 的文本键不同:那是拼音补差键(可能进组词缓冲),剪贴板是「粘贴」——
+     * 纯字母内容也该原样上屏,不能当拼音(L6 定案「面板上点键 = 直接上屏」的前提是
+     * 符号盘里没有 a-z,剪贴板不满足)。上屏后**面板留原地**([ImeState.panelMode] 不变)。
+     */
+    fun commitClipboardText(text: String) {
+        if (text.isEmpty()) return
+        host.commitText(text)
+        host.render()
+    }
+
+    /**
      * 虚拟面板按键输出(L4 中区、L5 尾巴行、L6 虚拟键盘**共用一条**通路)。文本键**原样上屏**
      * (配置即所见);语言策略判定为组词字符的键跟着组词(拼音分隔符 `'`:组词中追加分节、
      * 不打断组词),功能键转发给目标应用。
@@ -887,7 +906,7 @@ class ImeController(
             is KeyOut.Special -> {
                 // 面板开着时,L4/L5 行上的 Esc 也收面板(与物理 Esc 一致)
                 if (out.name == "esc" && l6Open) {
-                    state.l6 = null
+                    state.closePanels()
                     host.render()
                     return
                 }
@@ -1006,9 +1025,8 @@ class ImeController(
         // 而「空闲 → 有组词」这一步的所有路径(字符键 / L4 文本键 / L6 文本键 / 退格)
         // 都汇到这里 —— 在这一个口子上关一次就够,不必每条路径各写一遍。
         //
-        // 这里直接改字段而**不**走 [closeL6]:本函数末尾自己会 render,
-        // 嵌套渲染会把同一帧画两遍。
-        if (state.hasComposition) state.l6 = null
+        // 收面板只改字段不 render(本函数末尾自己会 render,嵌套渲染会把同一帧画两遍)。
+        if (state.hasComposition) state.closePanels()
         // **引擎没就绪时不去问它**(2026-10-04 用户报候选行自己交替闪烁)。
         //
         // 没就绪时 `query()` 只能给空表,而空表 = 「这个拼音没有候选」。
@@ -1030,6 +1048,7 @@ class ImeController(
         }
         if (state.raw.isNotEmpty()) {
             state.candidates = inputMethod().query(state.raw, CANDIDATE_LIMIT)
+            state.rawBase = 0 // 引擎以 raw 重建,坐标从 raw 头算起
             state.page = 0
             state.highlight = -1
             // 显示拼写跟着新菜单走(新查询恒回第 0 页,故中央槽 index=0)。
@@ -1120,6 +1139,7 @@ class ImeController(
 
     fun clearComposition() {
         state.raw = ""
+        state.rawBase = 0
         state.candidates = emptyList()
         // 清空本身不调 [logCandidates],所以在这里把签名失效 ——
         // 否则「清空后再敲同一个键」因为 (raw,n) 与上一次相同而**不打日志**。
@@ -1145,7 +1165,7 @@ class ImeController(
     fun resetForNewInput() {
         clearComposition()
         symDown = false
-        state.l6 = null // 换输入框 = 一次新的空闲态,面板不留(与层/大写一起归零)
+        state.closePanels() // 换输入框 = 一次新的空闲态,面板不留(与层/大写一起归零)
         host.render()
     }
 
@@ -1171,7 +1191,7 @@ class ImeController(
         shiftUsedAsModifier = false
         symDown = false
         symProducedKey = false
-        state.l6 = null // 窗口收起/调出 = 一次新的空闲态(与层、大写一起归零)
+        state.closePanels() // 窗口收起/调出 = 一次新的空闲态(与层、大写一起归零)
         // 敲击计数 / 敲击窗口 / 按住时长 / 吸收窗:全在一处,一次清干净
         gestures.resetAll()
         // 长按字母键的待判定一起取消:窗口都收了,还挂着个 300ms 定时器会莫名出符号
@@ -1206,29 +1226,46 @@ class ImeController(
     val l6Open: Boolean get() = state.l6 != null
 
     /**
-     * 开/关 L6。**仅空闲态**。
+     * 三态循环浮层面板:[OFF]→[L5]→[L6]→[OFF](2026-10-16 用户「L5/L6/关闭三态切换」)。
      *
-     * 组词中调用无效并返回 false —— 那时 `Sym+Space` 是「上屏空格」,面板不该抢。
+     * **仅空闲态**:组词中调用无效并返回 false —— 那时 `Sym+Space` 是「上屏空格」,
+     * 面板不该抢。`Sym+Space` 与状态行右区键盘图标走**同一通路**(都调本方法)。
+     *
+     * L6 态切换时 [ImeState.l6] 重建为出厂内容(回 tab 0);非 L6 态 `l6` 置 null。
+     * [ImeState.panelMode] 与 `l6` 始终同步(见该字段注释)。
      *
      * @return 是否真的切了状态
      */
-    fun toggleL6(): Boolean {
+    fun cyclePanel(): Boolean {
         if (state.hasComposition) return false
-        val opening = state.l6 == null
-        state.l6 = if (opening) L6Ui.factory() else null
+        state.panelMode = when (state.panelMode) {
+            PanelMode.OFF -> PanelMode.L5
+            PanelMode.L5 -> PanelMode.L6
+            PanelMode.L6 -> PanelMode.OFF
+        }
+        state.l6 = if (state.panelMode == PanelMode.L6) L6Ui.factory(l6ClipItems) else null
         android.util.Log.i(
             "ImeService",
-            "l6: ${if (opening) "打开 tab=0" else "关闭"} raw=\"${state.raw}\"",
+            "panel: ${state.panelMode}${if (state.panelMode == PanelMode.L6) " tab=0" else ""} raw=\"${state.raw}\"",
         )
         host.render()
         return true
     }
 
-    /** 关掉 L6。没开着时是空操作(不渲染,免得无谓的一帧)。 */
-    fun closeL6() {
-        if (state.l6 == null) return
-        state.l6 = null
-        host.render()
+    /** 剪贴板快照(供 L6 剪贴板 tab)。由 [dev.hwkbd.ime.service.ImeService] 在监听回调里喂。 */
+    private var l6ClipItems: List<ClipItem> = emptyList()
+
+    /**
+     * 喂剪贴板快照。剪贴板一变 ImeService 就调;内容没变则空操作。
+     * L6 开着时立即原地刷新(保留 tab/页 —— 用户可能正停在剪贴板 tab 看新复制的那条)。
+     */
+    fun setL6Clipboard(items: List<ClipItem>) {
+        if (items == l6ClipItems) return
+        l6ClipItems = items
+        if (state.panelMode == PanelMode.L6) {
+            state.l6 = state.l6?.withClipboard(items)
+            host.render()
+        }
     }
 
     /** 上下翻页(tab 内)。@return 是否真的翻了 —— 到头不循环,返回 false 让面板不给反馈。 */
@@ -1300,7 +1337,7 @@ class ImeController(
         // 组词起不来)。按住/锁定两种按法不受影响(它们不是一次性层)。
         if (code == KeyEvent.KEYCODE_SPACE && layer == Layer.L3 && !state.hasComposition) {
             consumeOneShot()
-            return toggleL6()
+            return cyclePanel()
         }
 
         // L6 面板开着时,方向键归面板:上下 = 本 tab 内翻页,左右 = 切 tab
@@ -1400,7 +1437,7 @@ class ImeController(
                 // [commitL4Key]。两条都收面板,但这里要把一次性层/大写照常消耗掉 ——
                 // Sym 是被当修饰键用掉的,不消耗会留下一层没人消的 L3。
                 if (out.name == "esc" && l6Open) {
-                    state.l6 = null
+                    state.closePanels()
                     consumeShiftOnce()
                     consumeOneShot()
                     host.render()

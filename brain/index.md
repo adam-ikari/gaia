@@ -1,8 +1,9 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-16T02:15:17.666Z._
+_Auto-generated. Last updated 2026-10-16T03:30:27.607Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
+- [clipboard-panel](pages/clipboard-panel.md) — category: decision | tags: [ime, clipboard, l6, ui] | <current best understanding — replace this with the real content>
 - [e2e-capture](pages/e2e-capture.md) — category: project | tags: [e2e, ci, emulator, media, capture] | ## 当前状态(2026-10-03,v0.7.0)
 - [fly-zone-basis](pages/fly-zone-basis.md) — category: decision | tags: [gesture, layout, ux] | 上滑选字有**两条起手路径**，它们各自把横向空间五等分，而**基准不是同一个量**：
 - [ime-insets-contract](pages/ime-insets-contract.md) — category: decision | tags: [ime android termux] | 输入法窗口的 insets 契约：**窗口全屏 ≠ 内容全屏**。
@@ -11,7 +12,7 @@ _Auto-generated. Last updated 2026-10-16T02:15:17.666Z._
 - [l6-virtual-keyboard](pages/l6-virtual-keyboard.md) — category: decision | tags: [ime, l6, ui, keymap] | ## L6 虚拟键盘(2026-10-15 用户定案,同一次对话里问定)
 - [librime-android-build](pages/librime-android-build.md) — category: project | tags: [librime, android, ndk, cmake, jni, rime] | ## 结论先行
 - [paging-feel](pages/paging-feel.md) — category: decision | tags: [gesture, animation, paging] | ---
-- [pending-todos](pages/pending-todos.md) — category: project | tags: [todo, backlog] | ## 待办(2026-10-15 更新,按价值排序)
+- [pending-todos](pages/pending-todos.md) — category: project | tags: [todo, backlog] | ## 待办(2026-10-16 更新,按价值排序)
 - [pinyin-dict-strategy](pages/pinyin-dict-strategy.md) — category: decision | tags: [pinyin, dict] | 自带"中等词库"，并提供导入通道扩容（用户已确认该路线）。
 - [project-licensing](pages/project-licensing.md) — category: decision | tags: [license, proprietary, distribution] | 盖亚输入法(Gaia)是**闭源专有软件**:专有许可证保留所有权利;源码仓库 `adam-ikari/hwkbd_ime` 为
 - [reference-cocoime](pages/reference-cocoime.md) — category: reference | tags: [ime, reference, cocoime] | 「可可拼音输入法」（COCOZQ，`com.cocozq.inputmethod.pinyin`）是本项目的模仿对象：基于早期 Android `LatinIME`，服务黑莓 Priv/KEYone/KEY2、Unihertz Titan 系列、Titan 2、Minimal P

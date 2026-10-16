@@ -197,9 +197,11 @@ interface InputMethod {
  * 选「你」  (只覆盖 ni) → consumed=2,剩下 [2,5) 与它的 45 个候选
  * ```
  *
- * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:不含 `'`)。
- *   `0` = 整串吃干净。上层拿它把 `state.raw` 截断 —— 截的是**前缀**,
- *   因为 librime 的候选永远从当前段起点开始吃(见 `rawAfterConsuming`)。
+ * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:**含** `'`,见
+ *   `rawAfterConsuming` 的撇口径)。`0` = 整串吃干净。这是**绝对坐标** ——
+ *   相对**引擎当前输入串**的开头,**不是**相对 `state.raw`:连续消费时后者已是尾巴,
+ *   两者差一个 `ImeState.rawBase`(引擎此前吃掉的绝对量),由
+ *   [ImeController.selectCandidate] 折成相对量后再截(2026-10-16 修连续消费丢候选)。
  * @param preview librime 的 `commit_text_preview` 整串。**只作埋点**:
  *   它是「按回车会提交什么」的预览,不是「哪些输入被吃掉了」的记录
  *   (它每段都填候选文字,包括没被选中的那段)—— 拿来算消费会算错。

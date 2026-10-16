@@ -5,21 +5,25 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-16T08:23:01"
+updated: "2026-10-16T03:20:06"
 ---
 
 <!-- compiled_truth -->
-## 待办(2026-10-15 更新,按价值排序)
+## 待办(2026-10-16 更新,按价值排序)
 
-### 0. L6 虚拟键盘:视图真机冒烟待补(2026-10-15 新增)
+### 0. L6 虚拟键盘 / 剪贴板面板 / 三态开关:视图真机冒烟待补
 
-- **已过**:状态机 16 条 JVM 单测(`L6KeyboardTest`)全绿;`assembleDebug` 过;APK 里布局与
-  类都在(`aapt2 dump xmltree` 见 `L6PanelView` 是 `ImeRootView` 第一子节点;dex 里有该类)。
-- **待做(本机无真机、无 `/dev/kvm`,只能真机跑)**:空闲态 `Sym+Space` 开合面板、
-  **点面板键上屏**、上下滑翻页、切 tab、Esc(Sym+Q)关面板。
-- **E2E 场景 `l6-keyboard` 已写好**(`tools/aitest/scenarios.mjs`),**尚未跑过** —— 跑通前
-  别当成已验。
-- **设计见** [[l6-virtual-keyboard]]。
+- **已过**:状态机 JVM 单测(`L6KeyboardTest` / `ClipHistoryTest` / `ImeControllerTest` 的连续消费用例)
+  全绿;`assembleDebug` + `gate.sh`(构建/R8/JNI)过;布局/类/drawable 都在产物里。
+- **待做(本机无真机、无 `/dev/kvm`,只能真机跑)**:
+  - L6:空闲态开合面板、点面板键上屏、上下滑翻页、切 tab、Esc(Sym+Q)关面板。
+  - **剪贴板 tab(2026-10-16)**:切到剪贴板 tab;点条目上屏(含**纯字母内容不进组词**);
+    敏感内容遮罩 `••••`;长文本截断;空态占位;复制新内容后面板**原地刷新、不弹回第 0 个 tab**。
+  - **三态开关(2026-10-16)**:btn_l5 **常驻**、点击 OFF→L5→L6→OFF 循环;图标随态切换
+    (展开箭头 / 键盘 / 收起箭头);`Sym+Space` 同效;默认 OFF;组词/换框/切语言/Esc 收面板。
+- **E2E 场景 `l6-keyboard` 已写好**(`tools/aitest/scenarios.mjs`),**尚未跑过** ——
+  剪贴板 / 三态**尚无 E2E 场景**。
+- **设计见** [[l6-virtual-keyboard]] / [[clipboard-panel]]。
 
 ### 1. `rawAfterConsuming` 撇号坐标:文档与实现矛盾,raw 含 `'` 时可能截错缓冲
 
@@ -35,7 +39,8 @@ updated: "2026-10-16T08:23:01"
 
 ### 已完成(不再追)
 
-候选词槽内截断、候选栏箭头贴边+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(翻页跟随 + 每段边界补撇)、拼音气泡 16sp、调出即初始态(状态/拼音区/候选词清空;邮箱框默认英文压过 restarting)、评审修复(spelling 随组词一起清)、librime 两次更新(f6ea8d94 冒烟过 / 0d00afba 设备冒烟随当天 E2E 一并还清)、dev 发布(含站点)、**长按字母键上屏 L2 符号 + 拼音中长按 L 插分节符**(2026-10-15,四态真机 + E2E 16/16 + 9 条单测)。
+候选词槽内截断、候选栏箭头贴边+触摸 40px、五槽统一内缩(分栏仍 5 均分)、上滑改点选、拼音自动分隔符(翻页跟随 + 每段边界补撇)、拼音气泡 16sp、调出即初始态(状态/拼音区/候选词清空;邮箱框默认英文压过 restarting)、评审修复(spelling 随组词一起清)、librime 两次更新(f6ea8d94 冒烟过 / 0d00afba 设备冒烟随当天 E2E 一并还清)、dev 发布(含站点)、**长按字母键上屏 L2 符号 + 拼音中长按 L 插分节符**(2026-10-15,四态真机 + E2E 16/16 + 9 条单测)、**连续消费丢候选**(2026-10-16,consumed 绝对坐标 → rawBase 折算;探针 chain 实测 + 单测)、**L6 剪贴板 tab + 三态开关**(2026-10-16,单测 + gate 过)。
+
 
 ## Timeline
 
@@ -91,4 +96,10 @@ updated: "2026-10-16T08:23:01"
   kind: evidence
   summary: "2026-10-16 长按三选一(L2/L3)+ 短按不闪修正的回归:E2E 16/16(2 个 AI 判卷场景因未配 AITEST_API_KEY 依例 pending,非失败),无崩溃;单测 331 全绿;真机三态取证(短按不闪 / L2 长按出 ’ 且按住出 alt / L3 长按 T 出《、L 触发 move_end)。"
   source: "2026-10-16 E2E(tools/aitest)+ 真机 TTANCN2100002663"
+  affects: [pending-todos]
+
+- time: 2026-10-16T03:20:06
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-16 收尾"
   affects: [pending-todos]

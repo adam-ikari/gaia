@@ -56,6 +56,14 @@ class FakePinyinInputMethod(
      */
     internal val consumedChars: Int? = null,
     /**
+     * 连续消费的**绝对坐标**序列(2026-10-16 真 bug):真引擎的
+     * `GetCurrentStartPosition()` 相对**最初输入**,不是相对当前 composition 片段 ——
+     * 探针 chain 实测 `zhongguoren` 选「中」给 5、再选「国」给 **8**(不是 3)。
+     * 本序列按调用次序回答,用来钉住「上层把绝对坐标当相对量截 raw」这条错。
+     * 非空时优先于 [consumedChars]。
+     */
+    internal val consumedSeq: List<Int> = emptyList(),
+    /**
      * [InputMethod.isReady] 的取值(2026-10-04)。默认 true = 已就绪,
      * 与换 librime 之前的行为一致。
      */
@@ -84,6 +92,9 @@ class FakePinyinInputMethod(
     /** 被问过的 topSpelling 下标(顺序 = 调用顺序),断言「翻页后问的是不是新中央槽」。 */
     val spellingIndexes: MutableList<Int> = mutableListOf()
 
+    /** [consumedSeq] 已取到第几个(连续消费按调用次序推进)。 */
+    private var seqIdx = 0
+
     /** 实现 [InputMethod.topSpelling]:按 [spellingsByIndex] 回答,未命中回落 index=0 的 [spelling]。 */
     override fun topSpelling(index: Int): SyllableSpelling? {
         spellingIndexes += index
@@ -93,8 +104,12 @@ class FakePinyinInputMethod(
     /** 实现 [InputMethod.selectAndRemain]:按 [consumedChars] 回答,不做真的选词。 */
     override fun selectAndRemain(index: Int, selectedWord: String): PinyinConsumption? {
         selectedIndexes += index // 断「上层给的是不是全局下标」的那条测试要用
-        val consumed = consumedChars ?: return null // 不参与 ⇒ 走旧路径
-        if (consumed <= 0) return null // 引擎说不清 ⇒ 走旧路径(全清)
+        val consumed = if (consumedSeq.isNotEmpty()) {
+            consumedSeq.getOrNull(seqIdx++) ?: return null
+        } else {
+            consumedChars ?: return null // 不参与 ⇒ 走旧路径
+        }
+        if (consumed <= 0) return null // 引擎说不清 / 全消费 ⇒ 走旧路径
         val raw = queried.lastOrNull() ?: return null
         val word = candidatesOf(raw).getOrNull(index) ?: return null
         // 预览**只作埋点**,不参与判定(真引擎那份也是「按回车会提交什么」)。
@@ -278,11 +293,13 @@ class FakePinyinInputMethod(
  * 「Unresolved reference」(踩过一次)。
  */
 fun FakePinyinInputMethod.withConsumed(v: Int?): FakePinyinInputMethod =
-    FakePinyinInputMethod(id = id, table = table, consumedChars = v)
+    FakePinyinInputMethod(id = id, table = table, consumedChars = v, consumedSeq = consumedSeq)
 
 /** 复制一份并设定「是否就绪」(给候选行闪烁那几条测试用)。见 [withConsumed] 的理由。 */
 fun FakePinyinInputMethod.withReady(v: Boolean): FakePinyinInputMethod =
-    FakePinyinInputMethod(id = id, table = table, consumedChars = consumedChars, ready = v)
+    FakePinyinInputMethod(
+        id = id, table = table, consumedChars = consumedChars, consumedSeq = consumedSeq, ready = v,
+    )
 
 /**
  * 复制一份并设定 [InputMethod.topSpelling] 的固定回答(2026-10-13,拼音自动分隔符)。
@@ -292,7 +309,10 @@ fun FakePinyinInputMethod.withReady(v: Boolean): FakePinyinInputMethod =
  * 纯函数与真机的事)。
  */
 fun FakePinyinInputMethod.withSpelling(s: SyllableSpelling?): FakePinyinInputMethod =
-    FakePinyinInputMethod(id = id, table = table, consumedChars = consumedChars, ready = ready, spelling = s)
+    FakePinyinInputMethod(
+        id = id, table = table, consumedChars = consumedChars, consumedSeq = consumedSeq,
+        ready = ready, spelling = s,
+    )
 
 /**
  * 复制一份并设定**按菜单下标**的 [InputMethod.topSpelling] 回答(2026-10-14 评审补:
@@ -303,7 +323,25 @@ fun FakePinyinInputMethod.withSpellingsByIndex(m: Map<Int, SyllableSpelling>): F
         id = id,
         table = table,
         consumedChars = consumedChars,
+        consumedSeq = consumedSeq,
         ready = ready,
         spelling = spelling, // **必须转发**:复制式辅助漏一个字段就静默改变语义
         spellingsByIndex = m,
+    )
+
+/**
+ * 复制一份并设定**连续消费的绝对坐标序列**(2026-10-16 真 bug)。
+ *
+ * 真引擎的 `GetCurrentStartPosition()` 相对**最初输入**(探针 chain 实测:
+ * `zhongguoren` 选「中」给 5、再选「国」给 **8**,而非相对新段的 3)。
+ */
+fun FakePinyinInputMethod.withConsumedSeq(v: List<Int>): FakePinyinInputMethod =
+    FakePinyinInputMethod(
+        id = id,
+        table = table,
+        consumedChars = consumedChars,
+        consumedSeq = v,
+        ready = ready,
+        spelling = spelling,
+        spellingsByIndex = spellingsByIndex,
     )

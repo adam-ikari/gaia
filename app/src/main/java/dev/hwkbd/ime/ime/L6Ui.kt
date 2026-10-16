@@ -27,8 +27,20 @@ data class L6Key(val label: String, val out: KeyOut)
 /** 一页键帽。分页由内容决定(页宽 × 页高),不是固定切片。 */
 data class L6Page(val keys: List<L6Key>)
 
-/** 一个 tab:标题 + 若干页。翻页只在本 tab 内(2026-10-15 用户定「tab 内翻页」)。 */
-data class L6Tab(val id: String, val label: String, val pages: List<L6Page>)
+/**
+ * tab 内键格的排布(2026-10-16 剪贴板 tab 引入)。
+ * - [GRID]:每行 `L6PanelView.COLUMNS` 颗等宽键(出厂符号盘);
+ * - [ROWS]:每行 1 颗、整行宽(剪贴板:每条一行,长文本要宽度)。
+ */
+enum class L6Layout { GRID, ROWS }
+
+/** 一个 tab:标题 + 若干页 + 键格排布。翻页只在本 tab 内(2026-10-15 用户定「tab 内翻页」)。 */
+data class L6Tab(
+    val id: String,
+    val label: String,
+    val pages: List<L6Page>,
+    val layout: L6Layout = L6Layout.GRID,
+)
 
 /**
  * L6 的打开状态与页码(空 = 关闭)。
@@ -80,6 +92,13 @@ class L6Ui(
         pageIndex = 0
     }
 
+    /**
+     * 换一套剪贴板内容的 tabs,**保留当前 tab/页号** —— 剪贴板一变不该把用户弹回第 0 个 tab
+     * ([dev.hwkbd.ime.ime.ImeController.setL6Clipboard] 用它原地刷新)。
+     */
+    fun withClipboard(items: List<ClipItem>): L6Ui =
+        L6Ui(tabs = factoryTabs() + clipboardTab(items), tabIndex = tabIndex, pageIndex = pageIndex)
+
     companion object {
         /**
          * 出厂内容(2026-10-15):三个 tab,各两页,覆盖「打键盘最费事的那些字符」。
@@ -98,7 +117,8 @@ class L6Ui(
          * 保持原功能」同一类错误。功能键的 keycode 解析集中在
          * [KeyOut.SPECIAL_CODES],面板的键照那份走。
          */
-        fun factory(): L6Ui = L6Ui(tabs = factoryTabs())
+        fun factory(clipItems: List<ClipItem> = emptyList()): L6Ui =
+            L6Ui(tabs = factoryTabs() + clipboardTab(clipItems))
 
         private fun t(s: String) = L6Key(s, KeyOut.Text(s))
         private fun k(label: String, name: String) = L6Key(label, KeyOut.Special(name))
@@ -132,5 +152,33 @@ class L6Ui(
                 ),
             ),
         )
+
+        /** 剪贴板 tab:每条一行(2026-10-16 用户「每条占用一行 显示最近十条」)。 */
+        private fun clipboardTab(items: List<ClipItem>): L6Tab {
+            val keys = items.map { L6Key(clipLabel(it), KeyOut.Text(it.text)) }
+            val pages = if (keys.isEmpty()) {
+                // 空态也给一页(面板不该是白板):一个不可用的占位键。
+                listOf(L6Page(listOf(L6Key("(剪贴板为空)", KeyOut.Text("")))))
+            } else {
+                keys.chunked(CLIP_ROWS_PER_PAGE).map { L6Page(it) }
+            }
+            return L6Tab("clip", "剪贴板", pages, L6Layout.ROWS)
+        }
+
+        /** 每条占一行,一页放这么多行(10 条分两页,与出厂 tab「每 tab 两页」手感一致)。 */
+        private const val CLIP_ROWS_PER_PAGE = 5
+
+        /**
+         * 剪贴板条目的键帽文字:**敏感内容遮罩**,普通内容截断到 [CLIP_LABEL_MAX]。
+         * 敏感项点击仍上屏全文 —— 遮罩防的是「面板上明文摆着密码」,不是禁用。
+         */
+        private fun clipLabel(item: ClipItem): String = when {
+            item.sensitive -> "••••"
+            item.text.length <= CLIP_LABEL_MAX -> item.text
+            else -> item.text.take(CLIP_LABEL_MAX) + "…"
+        }
+
+        /** 一行键帽的字数上限。 */
+        private const val CLIP_LABEL_MAX = 24
     }
 }

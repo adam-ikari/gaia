@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-09T11:20:08"
+updated: "2026-10-16T02:51:22"
 ---
 
 <!-- compiled_truth -->
@@ -195,4 +195,10 @@ consume: index=0 word="妳" consumed=0 preview="null"
   kind: evidence
   summary: "用户确认「部分消费后继续出候选已经没有问题」。补的 setState:/draw: 埋点证明视图侧一直正常(n=45 slots=5 nonNull=5,画的是 hao 的新候选),所以那次报告与对账自杀是同一根因"
   source: "2026-10-09 真机埋点 + 用户确认"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-16T02:51:22
+  kind: reversal
+  summary: "2026-10-16 连续消费真 bug:consumed 是**绝对坐标**(相对最初输入),不是相对当前 composition。探针新增 RIMEPROBE_CHAIN(同一 session 反复选单字)实测 zhongguoren:选「中」GetCurrentStartPosition 给 5、再选「国」给 8(不是相对新段的 3)、选完给 0。上层 readRemainder 一律拿它当**相对量**去截,而 state.raw 在第一次消费后已是尾巴 ⇒ 第二次起按绝对坐标多截、coerceAtMost 夹到尾部后 substring 得空串,剩余拼音连候选一起丢光(症状:连续单字消费几个字后剩余拼音不再出候选)。修:ImeState 加 rawBase(当前 raw 起点在引擎输入串里的偏移):refreshQuery 的 query 重建后归 0,消费后置 = 绝对 consumed,readRemainder 截前先算 rel=consumed-rawBase。cd04b5a 的探针只测单次 Select,而两种语义在单次下同值,所以这个累积错结构性不可见 —— 单测也一直绿。新增 ImeControllerTest 连续消费用例 + FakePinyinInputMethod.withConsumedSeq(绝对坐标序列)。"
+  source: "2026-10-16 探针 chain + 单测"
   affects: [rime-candidate-consumption]

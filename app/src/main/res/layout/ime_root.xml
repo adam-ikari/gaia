@@ -298,13 +298,16 @@
                 android:orientation="horizontal">
 
             <!--
-              L5 行开关:键盘图标,**齿轮左侧**(2026-09-29 用户定案)。
-              L4 一行自然宽(36dp 下限 + 4dp 间距)装不下的键尾巴移到**状态栏上方的 L5 行**,
-              点按切其显隐;没有溢出时 GONE——按钮全靠 gravity=end 右贴,齿轮/收起位置不跳。
+              **面板三态开关**(2026-10-16 用户「L5/L6/关闭状态的切换」):齿轮左侧这颗改成
+              **常驻**按钮,点一下按 OFF→L5→L6→OFF 循环(与 Sym+Space 同一通路
+              [dev.hwkbd.ime.ime.ImeController.cyclePanel])。图标随态切换(展开箭头 / 键盘 /
+              收起箭头,见 [dev.hwkbd.ime.service.ImeService.syncL5]);非 OFF 态用主题 accent
+              着色 = 「面板开着」。**常驻而非「有溢出才显示」**:它是用户手动叫出 L5/L6 的入口。
+              右区三键 = 它 + 齿轮 + 收起,3 × [dimen/btn_size] = 120dp 正好装满 [dimen/bar_side_box]。
 
-              `tools:ignore="UseAppTint"`:本布局由 [ImeService] 用**自己的 LayoutInflater** 展开,
-              上下文不是 AppCompat ⇒ `app:tint` 根本不会被解析(会静默丢掉染色,按钮变成黑图标)。
-              这里必须用平台的 `android:tint`(API 21+),lint 那条规则在此处是误报。
+              `tools:ignore="UseAppTint"`:本布局由 [dev.hwkbd.ime.service.ImeService] 用**自己的
+              LayoutInflater** 展开,上下文不是 AppCompat ⇒ `app:tint` 根本不会被解析(会静默丢掉
+              染色,按钮变成黑图标)。这里必须用平台的 `android:tint`(API 21+),lint 那条是误报。
             -->
             <ImageButton
                 android:id="@+id/btn_l5"

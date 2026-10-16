@@ -394,6 +394,14 @@ class RimeEngine(private val context: Context) : InputMethod {
  * `after === raw_before.slice(consumed)` —— **下标语义**。
  * 也就是说断言一直是对的,只有这个实现是错的。
  *
+ * ## [consumed] 是**相对当前 [raw] 的偏移**(上层已折算)
+ *
+ * 引擎给的是**绝对坐标**(相对它当前输入串的开头),而本函数收到的是**相对 [raw]** 的量 ——
+ * [dev.hwkbd.ime.ime.ImeController.readRemainder] 先减掉 `ImeState.rawBase`
+ * (引擎此前吃掉的绝对量)再喂进来。**连续消费**(选一个词再选下一个、不重建引擎)时
+ * raw 已是尾巴,不折算就会把绝对坐标当相对量、多截、把剩余拼音丢光
+ * (2026-10-16 真 bug;`RIMEPROBE_CHAIN` 连续 Select 探针实测)。
+ *
  * ## 分节符:切点正好落在撇上时,那个撇跟着一起丢
  *
  * 撇标的是「上一个音节到此为止」,属于**被吃掉的那一段**。

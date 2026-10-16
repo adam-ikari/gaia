@@ -113,6 +113,21 @@ val LayerState.base: LayerState
     }
 
 /**
+ * 浮层面板态(2026-10-16 用户「L5/L6/关闭三态切换」):状态行右区键盘图标与
+ * `Sym+Space` 走**同一通路**,在 [OFF]→[L5]→[L6]→[OFF] 间循环。默认 [OFF]。
+ *
+ * - [OFF]:L5 行与 L6 面板都不显示(默认);
+ * - [L5]:显示 L5 溢出行(L4 装不下的尾巴 + 用户短语,见 [ImeService.syncL5]);
+ * - [L6]:显示 L6 虚拟键盘(此时 [ImeState.l6] 非空,存 tab/页码)。
+ *
+ * **与 [ImeState.l6] 同步**:[L6] 态 `l6` 非空,其他态 `l6`=null。组词开端 / 换输入框 /
+ * Esc 收面板等「关掉 L6」的路径都把本字段一起置 [OFF] —— [ImeController.cyclePanel]
+ * 是唯一往前推进(切到下一态)的入口。L6 定案(2026-10-15)原是 `Sym+Space` 二态开关,
+ * 2026-10-16 改三态循环:见 brain `l6-virtual-keyboard` 的 reversal。
+ */
+enum class PanelMode { OFF, L5, L6 }
+
+/**
  * 输入法全部可渲染状态。ImeController 持有并修改它,UI(service/视图)只读。
  */
 class ImeState {
@@ -167,6 +182,18 @@ class ImeState {
     var raw = ""
 
     /**
+     * [raw] 的起点在**引擎当前输入串**里的偏移(2026-10-16 修连续消费丢候选的真 bug)。
+     *
+     * librime 的 `GetCurrentStartPosition()`(上层 `selectCandidate` 读到的 `consumed`)
+     * 是**绝对坐标** —— 相对引擎当前输入串的开头,不是相对当前 composition 片段。
+     * 连续消费时 [raw] 已被截成尾巴,不加这个偏移就会把绝对坐标当相对量,多截、把剩余拼音丢光。
+     *
+     * 语义:引擎一旦以 [raw] 重建(`query`,即 [ImeController.refreshQuery])坐标就归零;
+     * 而**消费不重建**(引擎自己前进),此时 [raw] 的起点 = 引擎已经吃掉的绝对量。
+     */
+    var rawBase: Int = 0
+
+    /**
      * 拼音的**显示串**(带自动分隔符的拼写,如 `xi'an`);空 = 用 [raw] 原样显示。
      *
      * 2026-10-12 用户「拼音显示需要自动加入分隔符,以当前候选词栏中央的最高优先级
@@ -177,15 +204,30 @@ class ImeState {
     var spelling = ""
 
     /**
-     * L6 虚拟键盘的打开状态;`null` = 关闭(2026-10-15 用户「空闲状态 sym+space
-     * 打开虚拟键盘,这是 L6 键盘」)。
+     * 浮层面板态(三态循环,见 [PanelMode]):决定 L5 行 / L6 面板的显隐。
+     * 默认 [PanelMode.OFF]。**与 [l6] 同步**:[L6] 态 `l6` 非空,其他态 null。
+     */
+    var panelMode: PanelMode = PanelMode.OFF
+
+    /**
+     * L6 虚拟键盘的打开状态与内容;`null` = 关闭。
      *
      * **只在空闲态存在**:一旦开始组词(`hasComposition`)它就必须已经被关掉,
-     * 所以「开着」与「有组词」不会同时成立 —— 那条不变量由
-     * [ImeController.toggleL6] 的入口判据与 [ImeController.closeL6] 的各路调用点保证,
-     * 单测在 `L6KeyboardTest` 的「L6 虚拟键盘」那几条里。
+     * 所以「开着」与「有组词」不会同时成立 —— 那条不变量由 [ImeController.cyclePanel]
+     * 的入口判据与各路「收面板」调用点(组词开端/换框/Esc)保证,单测在 `L6KeyboardTest`。
+     * [ImeController.toggleL6] 已被 `cyclePanel` 取代(2026-10-16 三态化)。
      */
     var l6: L6Ui? = null
+
+    /**
+     * 收掉浮层面板:L5 行与 L6 面板一起关(态回 [PanelMode.OFF],`l6` 清空)。
+     * 组词开端 / 换输入框 / 切语言 / 窗口收起 / Esc 都走它 —— 各处不必各写两行,
+     * 也不会漏掉「`l6` 关了 `panelMode` 还停在 L6」这种不同步。
+     */
+    fun closePanels() {
+        l6 = null
+        panelMode = PanelMode.OFF
+    }
 
     var candidates: List<Candidate> = emptyList()
     var page = 0

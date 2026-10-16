@@ -31,17 +31,40 @@ class L6KeyboardTest {
         onKeyUp(KeyEvent.KEYCODE_SPACE)
     }
 
+    /** **开** L6:三态循环里 L6 是第二态,所以按两次(2026-10-16 三态化)。 */
+    private fun ImeController.openL6() {
+        cyclePanel() // OFF → L5
+        cyclePanel() // L5 → L6
+    }
+
     @Test
-    fun `空闲态 Sym+Space 打开与关闭`() {
+    fun `空闲态三态循环 OFF L5 L6 OFF`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        assertFalse("初始关着", c.l6Open)
-        c.symSpace()
-        assertTrue("敲一次打开", c.l6Open)
+        assertEquals("初始 OFF", PanelMode.OFF, c.state.panelMode)
+        assertFalse(c.l6Open)
+        c.cyclePanel()
+        assertEquals("一按到 L5", PanelMode.L5, c.state.panelMode)
+        assertFalse("L5 态不开 L6", c.l6Open)
+        c.cyclePanel()
+        assertEquals("再按到 L6", PanelMode.L6, c.state.panelMode)
+        assertTrue(c.l6Open)
         assertEquals("出厂第一个 tab", 0, c.state.l6!!.tabIndex)
+        c.cyclePanel()
+        assertEquals("三按回 OFF", PanelMode.OFF, c.state.panelMode)
+        assertFalse(c.l6Open)
+    }
+
+    @Test
+    fun `Sym+Space 走 cyclePanel 与状态行按钮同一通路`() {
+        // 真实 Sym+Space(单击 Sym 借 L3 + 空格)第一次落到 L5。三态循环里连续敲 Sym
+        // 会撞双击窗(单击借 L3 / 双击锁 L3 / 再敲取消)——那是 Sym 层机制,不是面板态
+        // 的事,所以三次循环用 cyclePanel 直测,本条目只钉「Sym+Space 确实走这条路」。
+        val r = ImeControllerTestRig()
+        val c = r.c
         c.symSpace()
-        assertFalse("再敲一次关闭", c.l6Open)
-        assertTrue("开关不写任何字符", r.h.commits.isEmpty())
+        assertEquals("Sym+Space 第一态 = L5", PanelMode.L5, c.state.panelMode)
+        assertTrue("不写字符", r.h.commits.isEmpty())
     }
 
     @Test
@@ -51,7 +74,7 @@ class L6KeyboardTest {
         val c = r.c
         c.cycleLanguage() // 拼 → En
         assertEquals(dev.hwkbd.ime.strategy.EnglishLanguage.id, c.state.languageId)
-        c.symSpace()
+        c.openL6()
         assertTrue("英文态同样能开 L6", c.l6Open)
     }
 
@@ -62,7 +85,7 @@ class L6KeyboardTest {
         // 空闲态被抢走的那部分由上一条钉住。
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace() // 先打开面板
+        c.openL6() // 先打开面板
         assertTrue(c.l6Open)
         c.onKeyDown(KeyEvent.KEYCODE_A, false, false) // 敲个字母 → 组词 → 面板自动收
         assertTrue("组词了", c.state.hasComposition)
@@ -78,7 +101,7 @@ class L6KeyboardTest {
     fun `面板开着时敲任意字符自动关闭面板`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         assertTrue(c.l6Open)
         c.onKeyDown(KeyEvent.KEYCODE_N, false, false)
         assertFalse("一敲字就收", c.l6Open)
@@ -88,7 +111,7 @@ class L6KeyboardTest {
     fun `面板上敲符号直接上屏且面板留着`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         // 中文态标点不进组词缓冲(拼音只组字母 a-z):面板上点一颗「，」=直接上屏。
         // 面板是符号盘 —— 上屏一颗符号后留在原地,好接着点下一颗;组词一开始才收面板。
         c.commitL4Key(KeyOut.Text("，"))
@@ -102,7 +125,7 @@ class L6KeyboardTest {
         val r = ImeControllerTestRig()
         val c = r.c
         c.cycleLanguage() // En
-        c.symSpace()
+        c.openL6()
         c.commitL4Key(KeyOut.Text("{}"))
         assertEquals(listOf("{}"), r.h.commits)
         assertEquals("不进组词", "", c.state.raw)
@@ -112,7 +135,7 @@ class L6KeyboardTest {
     fun `Esc 关面板且不转发给应用`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         c.commitL4Key(KeyOut.Special("esc"))
         assertFalse("面板上的 Esc 收面板", c.l6Open)
         assertTrue("Esc 不转发", r.h.keys.isEmpty())
@@ -122,10 +145,10 @@ class L6KeyboardTest {
     fun `物理 Sym+Q(Esc)也收面板`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         assertTrue(c.l6Open)
         // 出厂 L3 的 Q = Esc(照可可扩展字符表):**按住 Sym 再敲 Q** 才是真发 Esc 的手势。
-        // 开面板那一下借的 L3 已用掉(见 toggleL6),不按住 Sym 的话 Q 只是字母 q。
+        // 开面板那一下借的 L3 已用掉(见 cyclePanel),不按住 Sym 的话 Q 只是字母 q。
         c.onKeyDown(KeyEvent.KEYCODE_SYM, false, false) // 按住 Sym → L3
         c.onKeyDown(KeyEvent.KEYCODE_Q, false, false) // L3 的 Q = Esc
         c.onKeyUp(KeyEvent.KEYCODE_Q)
@@ -138,7 +161,7 @@ class L6KeyboardTest {
     fun `面板开着时其他功能键照常转发`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         c.commitL4Key(KeyOut.Special("tab"))
         assertTrue("Tab 仍然转发", r.h.keys.any { it.startsWith(KeyEvent.KEYCODE_TAB.toString()) })
         assertTrue("Tab 不该收面板", c.l6Open)
@@ -148,11 +171,11 @@ class L6KeyboardTest {
     fun `切语言与换输入框都收面板`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         c.cycleLanguage()
         assertFalse("切语言收面板", c.l6Open)
 
-        c.symSpace()
+        c.openL6()
         assertTrue(c.l6Open)
         c.resetForNewInput()
         assertFalse("换输入框收面板", c.l6Open)
@@ -162,7 +185,7 @@ class L6KeyboardTest {
     fun `面板开着时方向键翻页与切 tab`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         assertTrue("出厂每 tab 至少两页(否则翻页无从验)", c.state.l6!!.pageCount >= 2)
 
         c.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, false, false)
@@ -182,7 +205,7 @@ class L6KeyboardTest {
     fun `翻页在 tab 内进行 不循环`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         val ui = c.state.l6!!
         val pages = ui.pageCount
         assertTrue("出厂每页至少两页(否则翻页无从验)", pages >= 2)
@@ -200,7 +223,7 @@ class L6KeyboardTest {
     fun `切 tab 时页码归零`() {
         val r = ImeControllerTestRig()
         val c = r.c
-        c.symSpace()
+        c.openL6()
         c.l6StepPage(1)
         assertEquals(1, c.state.l6!!.pageIndex)
         c.l6SelectTab(2)
@@ -236,15 +259,50 @@ class L6KeyboardTest {
 
     @Test
     fun `出厂 tab 都有内容且页数一致`() {
-        val tabs = L6Ui.factory().tabs
-        assertTrue("至少三个 tab", tabs.size >= 3)
+        // 只看**出厂** tab(网格排布):剪贴板 tab 是动态内容,页数随条目数变,不在此列。
+        val tabs = L6Ui.factory().tabs.filter { it.layout == L6Layout.GRID }
+        assertTrue("至少三个出厂 tab", tabs.size >= 3)
         for (t in tabs) {
             assertTrue("${t.id} 有页", t.pages.isNotEmpty())
             for ((i, p) in t.pages.withIndex()) {
                 assertTrue("${t.id} 第 ${i + 1} 页有键", p.keys.isNotEmpty())
             }
         }
-        assertEquals("每个 tab 页数相同(便于翻页手感一致)", 1, tabs.map { it.pages.size }.distinct().size)
+        assertEquals("每个出厂 tab 页数相同(便于翻页手感一致)", 1, tabs.map { it.pages.size }.distinct().size)
+    }
+
+    /**
+     * 剪贴板 tab(2026-10-16 用户「剪贴板功能:历史面板,复用 L6 浮层」)。
+     *
+     * 钉住:每个条目一行(ROWS 排布)、敏感内容遮罩、长文本截断、**遮罩不禁用**
+     * (点敏感条目仍上屏全文)、空态也有页。
+     */
+    @Test
+    fun `剪贴板 tab 每条一行 敏感遮罩 长文本截断`() {
+        val ui = L6Ui.factory(
+            listOf(
+                ClipItem("normal text", sensitive = false),
+                ClipItem("password", sensitive = true),
+                ClipItem("x".repeat(50), sensitive = false),
+            )
+        )
+        val clip = ui.tabs.first { it.id == "clip" }
+        assertEquals("剪贴板 tab 用整行排布", L6Layout.ROWS, clip.layout)
+        assertEquals("出厂 tab 仍是网格排布", L6Layout.GRID, ui.tabs.first { it.id == "punct" }.layout)
+        val keys = clip.pages.flatMap { it.keys }
+        assertEquals("三条各一行", 3, keys.size)
+        assertEquals("普通条目原样显示", "normal text", keys[0].label)
+        assertEquals("敏感条目遮罩", "••••", keys[1].label)
+        assertTrue("长条目截断", keys[2].label.endsWith("…"))
+        assertEquals("普通条目上屏原文", "normal text", (keys[0].out as KeyOut.Text).text)
+        assertEquals("敏感条目上屏仍是全文(遮罩不是禁用)", "password", (keys[1].out as KeyOut.Text).text)
+    }
+
+    @Test
+    fun `剪贴板空态也有一页`() {
+        val clip = L6Ui.factory().tabs.first { it.id == "clip" }
+        assertEquals("空态一页", 1, clip.pages.size)
+        assertTrue("空态页里有个占位键", clip.pages[0].keys.isNotEmpty())
     }
 }
 

@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyLayoutStore
+import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.rime.RimeEngine
@@ -79,15 +80,42 @@ class ImeService : InputMethodService() {
     /** L4 面板当前键帽对应的签名([ImeController.l4Signature]);变了才重建键帽。 */
     private var l4PanelSig: String? = null
 
-    /** L5 行态(状态栏上方独立行):溢出有无 / 行是否被点开 / 组词态;由 L4 面板测量回调驱动。 */
+    /** 浮层面板态(三态循环,见 [dev.hwkbd.ime.ime.PanelMode])。L5 行的**溢出有无**由 L4 测量回调喂。 */
     private var l5HasOverflow = false
-    private var l5RowShown = false
     private var l5Composing = false
+    /** 上次同步给按钮/行的面板态;变才重设图标(免得每帧重建 drawable)。 */
+    private var syncedPanelMode: dev.hwkbd.ime.ime.PanelMode? = null
     private var l5Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
     /** L5 行与状态行之间的 1dp 分割线:显隐跟 L5 行同步,颜色跟主题(见 [syncL5] 与 [applyPrefs])。 */
     private var l5Divider: View? = null
     private var btnL5: ImageButton? = null
+
+    // ------------------------------------------------------------- 剪贴板历史(2026-10-16 用户定案)
+
+    /** 内存剪贴板历史(最近 [dev.hwkbd.ime.ime.ClipHistory.DEFAULT_CAPACITY] 条,最新在前)。 */
+    private val clipHistory = dev.hwkbd.ime.ime.ClipHistory()
+    private var clipManager: android.content.ClipboardManager? = null
+    private val clipListener =
+        android.content.ClipboardManager.OnPrimaryClipChangedListener { readClipboard() }
+
+    /**
+     * 读一次系统剪贴板并记进历史。剪贴板监听回调里调 —— 前台 IME 有焦点,能读 `primaryClip`
+     * (Android 10+ 的后台读取限制不影响输入法)。敏感标记(密码管理器会设)只有 Android 13+ 有。
+     */
+    private fun readClipboard() {
+        val clip = clipManager?.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val text = clip.getItemAt(0).coerceToText(this)?.toString() ?: return
+        val sensitive = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            clip.description.extras
+                ?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true
+        } else {
+            false
+        }
+        clipHistory.record(text, sensitive)
+        controller.setL6Clipboard(clipHistory.entries)
+    }
 
     private var candidateBar: CandidateBarView? = null
     private var imeRoot: dev.hwkbd.ime.ui.ImeRootView? = null
@@ -246,6 +274,10 @@ class ImeService : InputMethodService() {
         renderPump.startIn(scope) // 按键路径的合并渲染(见 RenderPump)
         ImeRuntime.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         applyPrefs()
+        // 剪贴板监听(2026-10-16 用户「剪贴板功能:历史面板」):历史只在进程生命周期内累积
+        // (用户没要跨重启保留)。注销在 [onDestroy]。
+        clipManager = getSystemService(android.content.ClipboardManager::class.java)
+        clipManager?.addPrimaryClipChangedListener(clipListener)
         // librime 的部署已经在上面起的 rime-boot 线程里跑了,这里不需要再做事。
         // 原先这里是「executor 读 assets/dict.txt.gz → PinyinDict.load → refreshQuery」,
         // 现在整块删掉:词典由 librime 自己从 files/rime/ 读,不需要应用预先建索引。
@@ -257,6 +289,7 @@ class ImeService : InputMethodService() {
         // 原先这里 saveUserDict():旧引擎的用户词频是应用自己的 JSON,退出时要落盘。
         // librime 的用户词频在 files/rime/user/ 里由它自己同步,**退出时不需要通知** ——
         // 反过来说,如果这里还有保存动作,说明还在走旧引擎那条路。
+        clipManager?.removePrimaryClipChangedListener(clipListener)
         executor.shutdown()
         super.onDestroy()
     }
@@ -308,8 +341,7 @@ class ImeService : InputMethodService() {
             // 万一它开始接手势,静默窗规则不用再记得补一处
             swipeGate = { keyGate.swipeBlocked() }
             onOverflowChange = { hasL5, cut ->
-                l5HasOverflow = hasL5
-                if (!hasL5) l5RowShown = false // 没溢出了就收回,避免下次出现时自动弹开
+                l5HasOverflow = hasL5 // 溢出有无只决定 L5 行画不画得出来;面板态由 cyclePanel 管
                 l5Panel?.apply {
                     tailFrom = cut
                     page = 0 // 键序变了(换输入框/换语言)→ 回到第 0 页,否则停在旧的第 N 页
@@ -323,6 +355,9 @@ class ImeService : InputMethodService() {
         // 滑动手势也接静默窗(用户 2026-10-02「所有的键盘滑动都无效」)。
         l6Panel = root.findViewById<dev.hwkbd.ime.ui.L6PanelView>(R.id.l6_panel).apply {
             onKey = { commitL4Tapped(it) }
+
+            // 剪贴板 tab 的整行键 = **粘贴**:直接上屏,不进组词(纯字母内容也一样)。
+            onRowKey = { out -> if (out is KeyOut.Text) controller.commitClipboardText(out.text) }
             onTab = { controller.l6SelectTab(it) }
             onSwipePage = { delta -> controller.l6StepPage(delta) }
             // 滑动手势也接静默窗(用户 2026-10-02「所有的键盘滑动都无效」)
@@ -332,10 +367,10 @@ class ImeService : InputMethodService() {
         // 翻页一律走 L5 行上的横滑(见 [stepL5Page]),图标不再兼做翻页——两件事分开,
         // 图标的语义就只有一个,不用猜"我现在是展开着还是翻到第几页"。
         btnL5 = root.findViewById<ImageButton>(R.id.btn_l5).apply {
-            setOnClickListener {
-                l5RowShown = !l5RowShown
-                syncL5()
-            }
+            // **面板三态开关**(2026-10-16 用户「L5/L6/关闭状态的切换」):点一下 OFF→L5→L6→OFF,
+            // 与 Sym+Space 同一通路([dev.hwkbd.ime.ime.ImeController.cyclePanel]);图标三种形态
+            // 在 [syncL5] 里随态切。渲染由 cyclePanel 的 render → renderViews 带过来。
+            setOnClickListener { controller.cyclePanel() }
         }
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
             setHaptics(haptics)
@@ -1200,13 +1235,31 @@ class ImeService : InputMethodService() {
      * L5 行会改变 contentTopInsets——切换后要通知窗口重算 insets,让 App 相应 resize。
      */
     private fun syncL5() {
-        val enabled = l5HasOverflow
-        btnL5?.visibility = if (enabled) View.VISIBLE else View.GONE
-        btnL5?.imageTintList = android.content.res.ColorStateList.valueOf(
-            if (l5RowShown && enabled) theme.accent
-            else androidx.core.content.ContextCompat.getColor(this, R.color.status_fg),
-        )
-        val rowVisible = enabled && l5RowShown && !l5Composing
+        val mode = controller.state.panelMode
+        // btn_l5 **常驻**(三态开关的入口):图标随态 —— OFF 展开箭头 / L5 键盘 / L6 收起箭头;
+        // 非 OFF 用主题 accent(=面板开着)。只在态变时重设图标,免得每帧重建 drawable。
+        btnL5?.let { btn ->
+            if (syncedPanelMode != mode) {
+                syncedPanelMode = mode
+                btn.setImageResource(
+                    when (mode) {
+                        dev.hwkbd.ime.ime.PanelMode.OFF -> R.drawable.ic_expand
+                        dev.hwkbd.ime.ime.PanelMode.L5 -> R.drawable.ic_keyboard
+                        dev.hwkbd.ime.ime.PanelMode.L6 -> R.drawable.ic_collapse
+                    }
+                )
+                btn.imageTintList = android.content.res.ColorStateList.valueOf(
+                    if (mode == dev.hwkbd.ime.ime.PanelMode.OFF) {
+                        androidx.core.content.ContextCompat.getColor(this, R.color.status_fg)
+                    } else {
+                        theme.accent
+                    },
+                )
+            }
+            if (btn.visibility != View.VISIBLE) btn.visibility = View.VISIBLE
+        }
+        // L5 行可见 = 选了 L5 态 && 有溢出 && 非组词(没溢出时 L5 是空行,没意义)。
+        val rowVisible = mode == dev.hwkbd.ime.ime.PanelMode.L5 && l5HasOverflow && !l5Composing
         val cur = l5Panel?.visibility == View.VISIBLE
         l5Panel?.visibility = if (rowVisible) View.VISIBLE else View.GONE
         // 分割线跟 L5 行同生共死:L5 GONE 时也 GONE,否则底部会留一道孤零零的横线
@@ -1289,8 +1342,9 @@ class ImeService : InputMethodService() {
         val composingNow = s.hasComposition || (candidateBar?.isFlyAnimating() == true)
         statusRow?.visibility = if (composingNow) View.GONE else View.VISIBLE
         candidateRow?.visibility = if (composingNow) View.VISIBLE else View.GONE
-        if (composingNow != l5Composing) {
-            l5Composing = composingNow // L5 行属空闲态:组词时整行让位(具体显隐 syncL5 判)
+        // 面板态变了(cyclePanel / 收面板)要同步按钮图标与 L5 行;组词态变化也要(L5 让位)。
+        if (composingNow != l5Composing || controller.state.panelMode != syncedPanelMode) {
+            l5Composing = composingNow // L5 行属空闲态:组词时整行让位(具体显隐 [syncL5] 判)
             syncL5()
         }
         if (composingNow != lastComposingForInsets) {

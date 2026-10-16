@@ -14,6 +14,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import dev.hwkbd.ime.strategy.withConsumed
+import dev.hwkbd.ime.strategy.withConsumedSeq
 import dev.hwkbd.ime.strategy.withReady
 import dev.hwkbd.ime.strategy.withSpelling
 import dev.hwkbd.ime.strategy.withSpellingsByIndex
@@ -131,17 +132,23 @@ class ImeControllerTest {
         spelling: SyllableSpelling? = null,
         /** 引擎按菜单下标回答的 topSpelling(翻页后的中央槽;优先级高于 [spelling])。 */
         spellingsByIndex: Map<Int, SyllableSpelling> = emptyMap(),
+        /** 自定义词典(默认 [FakePinyinInputMethod.common]);给连续消费测试用。 */
+        table: Map<String, List<String>>? = null,
+        /** 连续消费的**绝对坐标**序列(见 [FakePinyinInputMethod.consumedSeq])。 */
+        consumedSeq: List<Int> = emptyList(),
     ): Rig {
         // 用 [FakePinyinInputMethod] 而不是真引擎(2026-10-03 换 librime):
         // 本类验的是**状态机**(敲 a 再敲 s 会怎样),不是「as 该不该出啊斯」。
         // 引擎实现是 [InputMethod] 背后的事,换了不该让这些断言重写。
         val h = RecHost()
         // 注册表 = 出厂语言/表现 + 拼音输入法(加语言/输入法走注册,不改状态机)
-        val engine = FakePinyinInputMethod.common()
-            .withConsumed(consumed)
-            .withReady(engineReady)
-            .withSpelling(spelling)
-            .withSpellingsByIndex(spellingsByIndex)
+        val engine =
+            (if (table != null) FakePinyinInputMethod(table = table) else FakePinyinInputMethod.common())
+                .withConsumed(consumed)
+                .withConsumedSeq(consumedSeq)
+                .withReady(engineReady)
+                .withSpelling(spelling)
+                .withSpellingsByIndex(spellingsByIndex)
         // **注册的是装饰器**,和 `ImeService.kt:162` 的生产写法一样
         // (`registerMethod(PinyinInputMethod(rime))`)。
         //
@@ -483,6 +490,34 @@ class ImeControllerTest {
         r.c.selectCandidate(2)
         assertEquals(listOf("你"), r.h.commits)
         assertEquals("", r.c.state.raw)
+    }
+
+    /**
+     * 连续消费(2026-10-16 真机报「连续单字消费长拼音,3-4 个字后剩余拼音不再出候选」)。
+     *
+     * 根因:librime 的 `GetCurrentStartPosition()` 是**绝对坐标**(相对最初输入),
+     * 而 `readRemainder` 拿它去截**已消费过一段的当前 raw** —— 第一次恰好对(raw 还完整),
+     * 第二次起就多截、把剩余拼音丢光。探针 chain 实测(见 `tools/rimeprobe/probe.cc`):
+     * `zhongguoren` 选「中」给 5、再选「国」给 **8**(不是相对新段的 3)。
+     */
+    @Test
+    fun `连续消费 引擎给绝对坐标时剩余拼音逐次正确截断`() {
+        val r = rig(
+            table = mapOf(
+                "zhongguoren" to listOf("中", "国", "人"),
+                "guoren" to listOf("国", "人"),
+                "ren" to listOf("人"),
+            ),
+            consumedSeq = listOf(5, 8, 0),
+        )
+        r.type("zhongguoren")
+        r.c.selectCandidate(2) // 显示位 2 = 首选(逻辑 0);DISPLAY_ORDER=[3,1,0,2,4]
+        assertEquals("选「中」后剩 guoren", "guoren", r.c.state.raw)
+        r.c.selectCandidate(2)
+        assertEquals("选「国」后剩 ren(不该被绝对坐标 8 截空)", "ren", r.c.state.raw)
+        r.c.selectCandidate(2)
+        assertEquals("选「人」后全清", "", r.c.state.raw)
+        assertEquals(listOf("中", "国", "人"), r.h.commits)
     }
 
     /**
@@ -1107,18 +1142,18 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `L3 空闲态空格让位给 L6 组词中仍是空格`() {
+    fun `L3 空闲态空格让位给面板 组词中仍是空格`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lockedLayer)
-        // **空闲态这把键被 L6 抢走**(2026-10-15 用户定案):开虚拟键盘面板,不写字符。
-        // 与可可「L3 空格保持原功能」的对齐就此打破 —— 那条理由与相关键位见
+        // **空闲态这把键被面板抢走**(2026-10-15 用户定案;2026-10-16 三态化):第一按
+        // 落到 L5、不写字符。与可可「L3 空格保持原功能」的对齐就此打破 —— 理由见
         // [ImeController] 的「为什么 Sym+Space 要抢一把本来是空格的键」。
         r.key(KeyEvent.KEYCODE_SPACE)
-        assertTrue(r.c.l6Open)
+        assertEquals("第一按 = L5(三态)", PanelMode.L5, r.c.state.panelMode)
         assertTrue("开面板不写字符", r.h.commits.isEmpty())
         // 组词中仍是空格的回归在 `L6KeyboardTest` 的「组词中 Sym+Space 仍是空格 不开面板」。
     }
