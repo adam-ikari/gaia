@@ -16,19 +16,33 @@ import org.junit.Test
  *
  * 行宽取 Titan 2 真机候选行 1440px:面板 1440×1440,候选行通栏(两端只露底色不缩进)。
  * 注意这是**物理像素**,与用户改过的最小逻辑宽度(598dp)无关。
+ * 死区按 density 2.0 折成 px —— 只影响 dp→px 这一步(真机 Titan 2 是 400dpi ≈ 2.5),
+ * 这里钉的是 px 空间的换算关系,不依赖真机密度。
  */
 class CandidateBarPageDragTest {
 
     private val viewW = 1440f
     private val commitPx = viewW * PAGE_COMMIT_FRAC
-    private val DEAD = DragGesture.DEAD_DP * 2f // density 2.0 ⇒ 16px,死区常量不再是阈值的比例
+
+    /**
+     * 候选行横滑的固定死区([CandidateBarView.pageDeadPx] 的常量)。
+     *
+     * 用 [DragGesture.DEAD_DP_SWIPE] 而不是 [DragGesture.DEAD_DP]:2026-10-04 起
+     * 横滑/上滑拆成**两个**常量,横滑这条路径生产用的是这个。两者今天同值 8dp,
+     * 写错了照样绿 —— 而那正是 2026-10-04~10-09 发生过的事(测试钉 16px、生产 8px)。
+     */
+    private val DEAD = DragGesture.DEAD_DP_SWIPE * 2f // density 2.0 ⇒ 16px
 
     /** 位移向**左**为正(左滑=下一页),与页面里 `dir` 无关的直观写法。 */
-    private fun progress(dxLeft: Float): Float =
-        pageDragProgress(
-            x = 1000f - dxLeft, baseX = 1000f, dir = 1f,
-            commitPx = commitPx, dead = DEAD,
-        )
+    private fun progress(dxLeft: Float): Float = progressAt(1000f - dxLeft, 1000f, 1f)
+
+    /**
+     * 与生产**同一个表达式**:手指 x → 沿翻页方向位移([pageDragTravel])→ 进度
+     * ([DragGesture.progress]),阈值/死区按候选行自己划那条量纲
+     * (`CandidateBarView.pageCommitPx()` / `pageDragDeadPx()`)。
+     */
+    private fun progressAt(x: Float, baseX: Float, dir: Float): Float =
+        DragGesture.progress(pageDragTravel(x, baseX, dir), threshold = commitPx, dead = DEAD)
 
     @Test
     fun `dead zone swallows small flicks`() {
@@ -91,12 +105,12 @@ class CandidateBarPageDragTest {
         // 往回翻要靠下一次手势接管(见 beginPageDrag 的角色对调),这是刻意的。
         assertEquals(
             0f,
-            pageDragProgress(1300f, 1000f, 1f, commitPx, DEAD),
+            progressAt(1300f, 1000f, 1f),
             1e-6f,
         )
         assertEquals(
             0f,
-            pageDragProgress(700f, 1000f, -1f, commitPx, DEAD),
+            progressAt(700f, 1000f, -1f),
             1e-6f,
         )
     }
@@ -104,8 +118,8 @@ class CandidateBarPageDragTest {
     @Test
     fun `previous-page direction is the mirror of next-page`() {
         // 同一段手指位移,dir=-1(上一页)且手指往右移 = 等价于往左移且 dir=+1
-        val viaNext = pageDragProgress(700f, 1000f, 1f, commitPx, DEAD)
-        val viaPrev = pageDragProgress(1300f, 1000f, -1f, commitPx, DEAD)
+        val viaNext = progressAt(700f, 1000f, 1f)
+        val viaPrev = progressAt(1300f, 1000f, -1f)
         assertEquals(viaNext, viaPrev, 1e-6f)
     }
 }

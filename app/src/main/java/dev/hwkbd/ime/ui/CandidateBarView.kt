@@ -906,15 +906,10 @@ clearPageTurn()
     )
 
     /**
-     * 本次拖动的**死区**(px):键盘表面驱动时是 **0**。
-     *
-     * [beginPageDrag] 把基线定在"死区被跨过的那一帧" —— 那 32px 死在基线**之前**,
-     * 已经走完了。所以从基线量的行程里**不能再扣一次死区**:
-     * `DragGesture.progress` 是 `(travel - dead) / (threshold - dead)`,
-     * 死区传两次就会把分母算成负数(死区 16、提交线 8 ⇒ 进度 NaN)。
-     * 候选行自己的拖动基线就在 downX,所以照常传 [pageDeadPx]。
+     * 本次拖动的**死区**(px):键盘表面驱动时是 **0**(基线已定在跨过死区那一帧,
+     * 再扣一次会把进度翻转成"一碰就翻")。口径与理由见 [pageDragDeadZone]。
      */
-    private fun pageDragDeadPx(): Float = if (externalDrive) 0f else pageDeadPx
+    private fun pageDragDeadPx(): Float = pageDragDeadZone(externalDrive, pageDeadPx)
 
     /**
      * 键盘表面横滑翻页:**起手**。@return 是否接管(到头时接管的是橡皮筋,一样返回 true)
@@ -2070,25 +2065,6 @@ private fun onTap(x: Float) {
 internal const val PAGE_COMMIT_FRAC = 0.22f
 
 /**
- * 跟手翻页的进度换算(纯函数,便于单测,见 `CandidateBarPageDragTest`)。
- * 走的是三处手势**共用**的 [DragGesture.progress],这里只负责"手指 x 坐标 → 沿翻页方向的位移":
- *
- * - `dir = +1`(下一页)时手指**向左**移(`x` 减小)才推进;`dir = -1` 反之
- *   ⇒ 反向滑动自动把进度拉回 0,松手就是"收回原页";
- * - 死区 = 阈值的 1/4(共用),越过死区后与手指 1:1,所以是**跟手**而不是抬手才跳。
- */
-internal fun pageDragProgress(
-    x: Float,
-    baseX: Float,
-    dir: Float,
-    commitPx: Float,
-    dead: Float,
-): Float {
-    val travel = pageDragTravel(x, baseX, dir)
-    return DragGesture.progress(travel, threshold = commitPx, dead = dead)
-}
-
-/**
  * 翻页的**跟手画面位移**(px):手指沿翻页方向走多少,画面就走多少,夹在 `[0, viewW]`。
  *
  * 这是绘制**唯一**该用的量(2026-09-30 真机报「翻页不跟手」「动画太短」修):
@@ -2189,7 +2165,13 @@ internal fun pageSettleFor(
     return target to PageTiming.withResponse(base, target - from, entrySpeed)
 }
 
-/** 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。 */
+/**
+ * 手指 x 坐标 → 沿翻页方向的位移(px,顺着翻页方向为正)。
+ *
+ * `dir = +1`(下一页)时手指**向左**移(`x` 减小)才为正,`dir = -1` 反之。
+ * 所以反向滑动得到的 travel 为负,[DragGesture.progress] 夹到 0
+ * ⇒ 松手就是"收回原页",不会把"想翻回去"认成同一次拖动提交。
+ */
 internal fun pageDragTravel(x: Float, baseX: Float, dir: Float): Float =
     -(x - baseX) * dir // dir=+1 下一页时手指向左移才为正
 
@@ -2255,4 +2237,24 @@ internal fun pageCommitLine(
     commitFrac: Float,
     viewW: Float,
 ): Float = if (externalDrive && externalPx > 0f) externalCommitFromBase(externalPx) else viewW * commitFrac
+
+/**
+ * 本次拖动的**死区**(px)—— [CandidateBarView.pageDragDeadPx] 的纯函数版。
+ *
+ * ## 键盘表面驱动时是 **0**
+ *
+ * [CandidateBarView.beginPageDrag] 把基线定在"死区被跨过的那一帧" ——
+ * 那一段死在基线**之前**、已经走完了。从基线量的行程里再扣一次,分母
+ * `threshold - dead` 就变负 ⇒ 进度被**翻转**:刚起手(travel ≈ 0)就得到满进度,
+ * 也就是"一碰就翻"。候选行自己的拖动基线就在 `downX`,所以照常传 [pageDeadPx]。
+ *
+ * ## 为什么也必须是纯函数
+ *
+ * 与 [pageCommitLine] 同类:[externalDrive] 是**会被 [CandidateBarView.pageDragEnd]
+ * 清掉**的状态,输入里带状态的部分单独抽出来才测得动(见 PageSettleTest)。
+ *
+ * @param pageDeadPx 候选行自己的固定死区([DragGesture.DEAD_DP_SWIPE] × density)
+ */
+internal fun pageDragDeadZone(externalDrive: Boolean, pageDeadPx: Float): Float =
+    if (externalDrive) 0f else pageDeadPx
 

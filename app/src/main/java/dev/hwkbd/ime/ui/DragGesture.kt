@@ -61,7 +61,8 @@ internal object DragGesture {
     const val DEAD_DP = 8f
 
 /**
-     * 横滑(翻页)的死区,取 [DEAD_DP] 的一半,即 4dp / 8px@density 2.0。
+     * 横滑(翻页)的死区:**8dp 常量**,与纵向的 [DEAD_DP] 同值、但**是独立常量**
+     * (各自是一个可单独调的旋钮;2026-10-04 曾取 `DEAD_DP` 的一半 = 4dp,10-09 改回)。
      *
      * **2026-10-09 改回 8dp(与纵向一致)。**
      *

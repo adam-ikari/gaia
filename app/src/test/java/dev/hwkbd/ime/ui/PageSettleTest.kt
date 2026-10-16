@@ -201,6 +201,43 @@ class PageSettleTest {
         )
     }
 
+    // ------------------------------------------------ 死区的量纲(与提交线同一类状态)
+
+    /**
+     * 死区也要分发起方:键盘表面驱动时是 **0**(基线定在跨过死区那一帧,不能再扣一次)。
+     *
+     * 与提交线同类 —— 输入里带着 `externalDrive` 这个**会被清掉**的状态,所以同样抽成纯函数钉住。
+     * 而且失败模式不是"差一点":死区再扣一次,`threshold - dead` 变负、进度被**翻转**,
+     * 手指才走几 px 就满进度,即 **"一碰就翻"**(第三条断言把这个后果钉住)。
+     */
+    @Test
+    fun `键盘表面驱动不再扣一次死区`() {
+        val deadPx = DragGesture.DEAD_DP_SWIPE * 2.5f // Titan 2 密度 2.5 ⇒ 8dp = 20px
+
+        assertEquals(
+            "键盘表面驱动:死区已经走完,传 0",
+            0f,
+            pageDragDeadZone(externalDrive = true, pageDeadPx = deadPx),
+            0f,
+        )
+        assertEquals(
+            "候选行自己划:照常扣固定死区",
+            deadPx,
+            pageDragDeadZone(externalDrive = false, pageDeadPx = deadPx),
+            0f,
+        )
+
+        // 反面:按候选行那条量纲再扣一次(死区 20px > 档位提交线 8px)⇒ 分母为负。
+        // 注意这里**不是 NaN**:NaN 要求 `dead == threshold` 且 travel 也恰好等于它;
+        // 分母为负的效果是进度直接顶到 1(原注释写"⇒ 进度 NaN",2026-10-16 按公式改正)。
+        assertEquals(
+            "多扣一次死区 ⇒ 刚起手就满进度",
+            1f,
+            DragGesture.progress(travel = 4f, threshold = 8f, dead = deadPx),
+            1e-6f,
+        )
+    }
+
     @Test
     fun `提交时落到整页宽度而不是惯性投影`() {
         val (target, _) = pageSettleFor(committed = true, full = full)

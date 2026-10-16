@@ -19,10 +19,14 @@ class GesturePhysicsTest {
     private val threshold = viewW * PAGE_COMMIT_FRAC // ≈449px
 
     /**
-     * 死区常量换算的 px(density 假设 2.0 ⇒ 32px)。**不再按阈值取比例**
+     * 死区常量换算的 px(density 假设 2.0 ⇒ 16px)。**不再按阈值取比例**
      * (2026-10-02 用户「死区不使用比例计算 采用固定值」)。
+     *
+     * 取 [DragGesture.DEAD_DP_SWIPE]:横滑/上滑 2026-10-04 起是**两个**常量,
+     * 本测试走的是翻页那条路径。两者今天同值 8dp,用错名字照样绿 ——
+     * 而 2026-10-04~10-09 真的发生过(测试钉 16px、生产 8px)。
      */
-    private val dead = DragGesture.DEAD_DP * 2f // density 2.0 ⇒ 16px
+    private val dead = DragGesture.DEAD_DP_SWIPE * 2f
 
     private fun slide(dxLeft: Float) =
         pageDragSlide(
@@ -80,8 +84,11 @@ class GesturePhysicsTest {
         // 档位换算过一次就够了:它本来就是从基线量的
         val fromBase = externalCommitFromBase(kbCommit)
 
-        fun progressAt(travelFromBase: Float, commitFromBase: Float) =
-            pageDragProgress(1000f - travelFromBase, 1000f, 1f, commitFromBase, 0f)
+        fun progressAt(travelFromBase: Float, commitFromBase: Float) = DragGesture.progress(
+            pageDragTravel(1000f - travelFromBase, 1000f, 1f),
+            threshold = commitFromBase,
+            dead = 0f, // 键盘表面驱动:基线定在死区之后,不再扣一次(见 pageDragDeadZone)
+        )
 
         assertEquals(
             "键盘面上过了基线再划满 ${kbCommit}px 就该翻页",
