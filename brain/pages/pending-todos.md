@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-16T13:06:44"
+updated: "2026-10-16T14:02:15"
 ---
 
 <!-- compiled_truth -->
@@ -36,6 +36,33 @@ updated: "2026-10-16T13:06:44"
 - **现象**:断言要求 Shift/Alt/Ctrl 三键上屏**互异的词**;引擎候选序在查询间重排。
 - **证据**:select 埋点显示三键 zone 全部正确(0/4/3),Ctrl 选的就是它槽位当时显示的词 —— 功能无 bug,是断言假设了候选序不变。
 - **修法方向**:把断言改成**不变量**——从 select 日志解析每键的 zone(Shift=0/Sym=1/空格=2/Ctrl=3/Alt=4)与 consumed 映射,不再比词面。
+
+### 3. 手势单测把横滑死区钉在了错的常量上(`DEAD_DP` vs `DEAD_DP_SWIPE`)
+
+- **问题**:`CandidateBarPageDragTest.kt:24` 与 `GesturePhysicsTest.kt:25` 都写 `DragGesture.DEAD_DP * 2f`,
+  而**横滑路径**生产用的是另一个常量(`CandidateBarView.pageDeadPx = DragGesture.DEAD_DP_SWIPE * density`)。
+  今天两个常量都是 8dp,数字巧合相等 ⇒ 测试是"碰巧对"。
+- **证据链(为什么不是空担心)**:那行测试写于 2026-10-02(`e06d837`,当时只有 `DEAD_DP`,写它是对的);
+  2026-10-04(`9d57cb4`)把死区拆成横/纵两个(`DEAD_DP_SWIPE = 4dp`)而测试没跟着改 ⇒
+  **10-04~10-09 这 5 天里,测试钉 16px 死区、生产用 8px**;那窗口里正好是「手指抖动被当成翻页」
+  (`bda2c7d` 修),它是**真机发现**的、不是测试发现的。10-09 改回 8dp 后两个数又相等。
+  而 `PageSettleTest` 是**故意**只钉「横滑死区 ≥ 生理性手抖」这个绝对下限、不钉两常量的相对关系
+  (见该文件 387-388 行说明)⇒ 再次分家是被设计允许的,而测试会再次静默失真。
+- **修法方向**:两处测试改用 `DragGesture.DEAD_DP_SWIPE`(顺带写清密度假设:测试自称 density 2.0,
+  Titan 2 是 400dpi ≈ 2.5,而 `viewW = 1440f` 取的是真机物理宽 —— 同一个测试里两套基准)。
+
+### 4. 手势那条路上的小尾巴:`pageDragProgress` 生产 0 调用 + 两处过期注释
+
+- **`pageDragProgress`**:生产两处站点直接写 `DragGesture.progress(travel, pageCommitPx(), pageDragDeadPx())`,
+  这个 helper 只是同一个公式的 x 空间包装 ⇒ **生产里没有任何调用**(公式只有一份,不是两份实现)。
+  它是 `23edb79` 的遗留:那时生产用它画位移,2026-09-30「跟手=位移,绘制改用 `pageDragSlide`」+
+  2026-10-02「`dead` 改必填参数」之后退化成单测入口。要么删掉(单测直接写那两个原语的组合),
+  要么照 `PinyinInputMethod.forTest` 的惯例补一句「生产代码不用这个」。
+- **过期注释**:`DragGesture.DEAD_DP_SWIPE` 首行还写「取 `DEAD_DP` 的一半,即 4dp / 8px@density 2.0」,
+  而常量是 `8f`(正文后面才说 2026-10-09 改回 8dp);`pageDragProgress` 的 KDoc 里
+  「死区 = 阈值的 1/4(共用)」也是 2026-10-02 前的旧口径(现在死区是固定 8dp、由调用方传入)。
+- **未覆盖的一环**:`pageDragDeadPx()`(外部驱动 → 0,失败模式是进度 **NaN**)没有单测 ——
+  同类「输入里带状态」的 `pageCommitLine` 恰恰是 2026-10-04 事故后抽成纯函数 + 单测钉住的。
 
 ### 已完成(不再追)
 
@@ -112,5 +139,11 @@ updated: "2026-10-16T13:06:44"
 - time: 2026-10-16T13:06:44
   kind: reversal
   summary: "2026-10-16 调查修正当天那条 pageDragProgress 结论(当时写「生产里用 DragGesture.progress 又写了一遍」,读起来像两份实现,不准确):核对生产两处站点(setPageDrag 过阈值当帧翻、endPageDrag 松手提交判定),用的都是 `DragGesture.progress(travel, pageCommitPx(), pageDragDeadPx())`;helper 只是 `DragGesture.progress(pageDragTravel(x,baseX,dir), commitPx, dead)` 的一层包装 —— **公式只有一份**,它包装的两个原语生产都在用,所以「去重」的价值很小。helper 的来历:23edb79 里生产**曾经**用它画位移,2026-09-30「跟手=位移,绘制改用 slide()」+ 2026-10-02「dead 必填」两次改动后,它退化成只给单测用的 x 空间入口(仓里同类先例:PinyinInputMethod.forTest,明确标注「生产代码不用这个」)。**真正值钱的发现(同一轮排查):** CandidateBarPageDragTest / GesturePhysicsTest 把横滑死区写成 `DragGesture.DEAD_DP * 2f`,而横滑路径生产用的是**另一个常量** `DEAD_DP_SWIPE`(见 CandidateBarView.pageDeadPx)。这行写于 2026-10-02(e06d837),**早于** 2026-10-04(9d57cb4)把死区拆成横/纵两个(那时 SWIPE=4dp)⇒ 10-04~10-09 这 5 天里测试钉的是 16px 死区、生产用的是 8px,而那个窗口正是「手指抖动被当成翻页」(bda2c7d,真机发现、不是测试发现)。10-09 改回 8dp 后两个数又巧合相等 ⇒ 测试现在只是「碰巧对」;PageSettleTest 又**故意**只钉「横滑死区 ≥ 生理性手抖」这个绝对下限、不钉两个常量的相对关系 ⇒ 再次分叉是被允许的,然后测试会再次静默失真。修法方向:测试改用 DEAD_DP_SWIPE(顺带写清密度假设);改掉 DEAD_DP_SWIPE 首行那句过期的「取 DEAD_DP 的一半,即 4dp」;pageDragProgress 的 KDoc 里「死区 = 阈值的 1/4」也是 2026-10-02 前的旧口径。另有一处未覆盖:`pageDragDeadPx()`(外部驱动 → 0,失败模式是进度 NaN)没有单测,而同类「输入里带状态」的判断 pageCommitLine 有 —— 可对称地抽成纯函数补测。"
+  source: "2026-10-16 调查(pageDragProgress / 死区常量)"
+  affects: [pending-todos]
+
+- time: 2026-10-16T14:02:15
+  kind: decision
+  summary: "记录调查发现的真问题:手势单测把横滑死区钉在 DEAD_DP(生产横滑用 DEAD_DP_SWIPE);另记 pageDragProgress 生产 0 调用 + 两处过期注释 + pageDragDeadPx 未覆盖"
   source: "2026-10-16 调查(pageDragProgress / 死区常量)"
   affects: [pending-todos]
