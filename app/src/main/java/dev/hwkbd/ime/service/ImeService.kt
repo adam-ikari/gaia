@@ -478,6 +478,11 @@ class ImeService : InputMethodService() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // 窗口隐藏时硬键一律透传给应用,不捕捉(用户 2026-10-16「隐藏时按键透传」)。
+        // 收起三角 / App hideSoftInput / 焦点离开后,onKeyDown 仍会被系统路由到本 IME
+        // (硬键 IME 始终是 current method),照常走 controller 会把字符吃掉,
+        // 游戏 / 终端 / 无焦点编辑框收不到键。
+        if (!isInputViewShown) return super.onKeyDown(keyCode, event)
         // **任何按键都记,不看消费与否**(用户 2026-10-02 补定「无论是否消费」)。
         // 记在 null 检查之前 —— "这个键正被按着"这件事不需要 KeyEvent 才成立。
         // 按住期间手势整条不接(2026-10-16 用户「按键 down 的时候忽略手势」)。
@@ -497,6 +502,7 @@ class ImeService : InputMethodService() {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (!isInputViewShown) return super.onKeyUp(keyCode, event)
         // 抬手也要记:**静默窗从抬手起算**(2026-10-16 用户「up 之后 300ms 以内也忽略」)。
         // 同样记在 null 检查之前 —— 理由同 onKeyDown。
         keyGate.onKeyUp(keyCode)

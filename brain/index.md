@@ -1,11 +1,12 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-16T07:53:44.779Z._
+_Auto-generated. Last updated 2026-10-16T10:48:14.108Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [clipboard-panel](pages/clipboard-panel.md) — category: decision | tags: [ime, clipboard, l6, ui] | <current best understanding — replace this with the real content>
 - [e2e-capture](pages/e2e-capture.md) — category: project | tags: [e2e, ci, emulator, media, capture] | ## 当前状态(2026-10-03,v0.7.0)
 - [fly-zone-basis](pages/fly-zone-basis.md) — category: decision | tags: [gesture, layout, ux] | 上滑选字有**两条起手路径**，它们各自把横向空间五等分，而**基准不是同一个量**：
+- [hardkey-hidden-passthrough](pages/hardkey-hidden-passthrough.md) — category: decision | tags: [ime, hardware-key, key-routing, visibility] | <current best understanding — replace this with the real content>
 - [ime-insets-contract](pages/ime-insets-contract.md) — category: decision | tags: [ime android termux] | 输入法窗口的 insets 契约：**窗口全屏 ≠ 内容全屏**。
 - [ime-interaction-model](pages/ime-interaction-model.md) — category: decision | tags: [ime ux keymap] | 模仿可可的交互模型，并按 [[tt2-hardware-constraints]] 重新排布可行通道。
 - [ime-strategy-registry](pages/ime-strategy-registry.md) — category: decision | tags: [策略, 注册表, L4, 扩展性] | # 策略注册表与 L4 上下文键位
