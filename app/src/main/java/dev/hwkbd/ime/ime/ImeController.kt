@@ -391,6 +391,8 @@ class ImeController(
      *   [onKeyDown] 更早的分支就走了,到不了这里
      * - 不是数字类框([FieldProfile.digitsOnly]):那一档 L2 已聚焦锁定,当前输出
      *   就是"该键的符号",长按没有额外语义,照旧连发
+     * - L6 面板开着时不武装:敲字母 = 收面板 + 正常输入(面板只在空闲态存在,
+     *   见 [refreshQuery]);长按符号是纯空闲态的事,面板开着时不该出符号
      * - 落点二选一:
      *   · **空闲态 + [longPressLayer] 非 null**⇒ 出该键在所选层上的输出(中文全角态
      *     就是中文标点,与层表一致;L3 上多数键是功能键,形如 `key:esc`);
@@ -410,12 +412,11 @@ class ImeController(
         // 真机上这时的 event.isShiftPressed 已把 shift 参数置真;状态再兜一层,
         // 是因为 shiftMode=HELD 也能表达同一件事(测试替身不模拟事件参数)。
         if (state.shiftMode == ShiftMode.HELD) return false
-
-        // 组词中:长按 = 插分节符。判据只看**该键的 L2 输出是不是撇号**,与所选层无关;
-        // 两形都认 —— 半角态 L2(L)= ASCII `'`(分隔符常量本身),中文全角态 L2(L)=
-        // `’`(U+2019,标点全角化)。默认就在全角态,只认 ASCII 会让这条唯一可达的
-        // 分节路径默认失灵。插入缓冲的恒为 ASCII(引擎的 delimiter)。
         if (state.hasComposition) {
+            // 组词中:长按 = 插分节符。判据只看**该键的 L2 输出是不是撇号**,与所选层无关;
+            // 两形都认 —— 半角态 L2(L)= ASCII `'`(分隔符常量本身),中文全角态 L2(L)=
+            // `’`(U+2019,标点全角化)。默认就在全角态,只认 ASCII 会让这条唯一可达的
+            // 分节路径默认失灵。插入缓冲的恒为 ASCII(引擎的 delimiter)。
             val text = (resolveLayerOut(Layer.L2, code) as? KeyOut.Text)?.text ?: return false
             if (text != ChineseLanguage.SEPARATOR && text != "’") return false
             lp.arm(code, caps, separator = true, layer = Layer.L2, out = null)
@@ -424,6 +425,9 @@ class ImeController(
         }
 
         // 空闲:按设置选的层出该键的输出(Text 直接上屏;Special 走功能键)。
+        // **L6 面板开着时不武装**(2026-10-16 rebase 合流后移植):敲字母 = 收面板 +
+        // 正常输入,面板只在空闲态存在 —— 符号快捷是纯空闲态的事,面板开着时不该出符号。
+        if (l6Open) return false
         val layer = longPressLayer ?: return false
         val out = resolveLayerOut(layer, code) ?: return false
         lp.arm(code, caps, separator = false, layer = layer, out = out)

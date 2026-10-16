@@ -270,4 +270,7 @@ private class RecordingHost : ImeHost {
     override fun commitText(text: String) { commits += text }
     override fun sendKey(code: Int, ctrl: Boolean, shift: Boolean) { keys += "$code/$ctrl/$shift" }
     override fun render() {}
+    // 长按调度/取消:本类不验长按,空实现即可
+    override fun scheduleLongPress(code: Int) {}
+    override fun cancelLongPress() {}
 }
