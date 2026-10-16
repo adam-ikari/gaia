@@ -118,12 +118,12 @@ class ImeController(
     var pageReverse = false
 
     /**
-     * 空闲态长按字母键出哪一层(2026-10-16 用户「可以设长按出L2还是L3」):
-     * `Layer.L2` = 该键的 Alt 符号(默认)、`Layer.L3` = Sym 编程层的输出(符号或功能键)、
-     * `null` = 关闭,长按回到系统连发(连续上屏,旧行为)。由设置 `longpress_symbol` 驱动。
-     * **不影响拼音输入中的长按分隔符**——那条恒走 L2 的撇号、不可关闭(见 [tryArmLongPress])。
+     * 空闲态长按字母键 = 上屏该键的 L2 符号(2026-10-15 用户定;设置开关,默认开)。
+     * 关掉时长按回到系统连发(连续上屏,旧行为)。
+     * **只支持字母键**(2026-10-16 用户定):A-Z 之外的键(数字/标点/空格/功能键)一律不长按。
+     * **不影响拼音输入中的长按分隔符**——那条不可关闭(见 [tryArmLongPress])。
      */
-    var longPressLayer: Layer? = Layer.L2
+    var longPressSymbolEnabled = true
 
     private var symDown = false
     private var symProducedKey = false
@@ -136,7 +136,7 @@ class ImeController(
      * 一次「长按待判定」的按压。四个迁移全部经本对象,别处不直接改字段:
      *
      * - [arm] —— DOWN:登记(输出推迟 + 吞连发的起点)
-     * - [confirm] —— 300ms 定时器到点:长按成立,**层状态这一刻才跳所选层**
+     * - [confirm] —— 300ms 定时器到点:长按成立,**层状态这一刻才跳 L2**
      *   (DOWN 不跳:短按会闪 alt 芯片,那是预览;用户 2026-10-15 报障修正)
      * - [cancel] —— 按住期间又按了别的键 / 复位:这次按压作废
      * - [clear] —— UP 收尾,归还字段
@@ -153,16 +153,12 @@ class ImeController(
         var caps = false
             private set
 
-        /** 落点:true = 组分节符(不可关闭);false = 出该键在 [layer] 上的输出。 */
+        /** 落点:true = 组分节符(不可关闭);false = 上屏 L2 符号(受开关管)。 */
         var separator = false
             private set
 
-        /** 空闲落点出屏的层([ImeController.longPressLayer] 定的);分节符那一支不读它。 */
-        var layer: Layer = Layer.L2
-            private set
-
-        /** 空闲落点要出的输出:Text 直接上屏,Special 走功能键;分节符时为 null。 */
-        var out: KeyOut? = null
+        /** 空闲落点要上屏的 L2 符号文本。 */
+        var symbol = ""
             private set
 
         /** 300ms 已确认(出过屏)。 */
@@ -179,12 +175,11 @@ class ImeController(
         /** 连发吞断期:待判定中或已确认(已出屏,不能再溅字);作废的不吞。 */
         val swallowing: Boolean get() = code != 0 && !canceled
 
-        fun arm(code: Int, caps: Boolean, separator: Boolean, layer: Layer, out: KeyOut?) {
+        fun arm(code: Int, caps: Boolean, separator: Boolean, symbol: String) {
             this.code = code
             this.caps = caps
             this.separator = separator
-            this.layer = layer
-            this.out = out
+            this.symbol = symbol
             fired = false
             canceled = false
         }
@@ -205,8 +200,7 @@ class ImeController(
             code = 0
             caps = false
             separator = false
-            layer = Layer.L2
-            out = null
+            symbol = ""
             fired = false
             canceled = false
         }
@@ -389,22 +383,26 @@ class ImeController(
      * 资格(全部满足):
      * - 不是 Shift/Ctrl 组合(Shift+键 = 大写 / 组词中选字,不抢);Ctrl 组合在
      *   [onKeyDown] 更早的分支就走了,到不了这里
+     * - **是字母键**(2026-10-16 用户定「只支持字母键」):A-Z 之外的键一律不长按
      * - 不是数字类框([FieldProfile.digitsOnly]):那一档 L2 已聚焦锁定,当前输出
      *   就是"该键的符号",长按没有额外语义,照旧连发
      * - L6 面板开着时不武装:敲字母 = 收面板 + 正常输入(面板只在空闲态存在,
      *   见 [refreshQuery]);长按符号是纯空闲态的事,面板开着时不该出符号
      * - 落点二选一:
-     *   · **空闲态 + [longPressLayer] 非 null**⇒ 出该键在所选层上的输出(中文全角态
-     *     就是中文标点,与层表一致;L3 上多数键是功能键,形如 `key:esc`);
+     *   · **空闲态 + [longPressSymbolEnabled]**(默认开)⇒ 上屏该键的 L2 符号
+     *     (中文全角态就是中文标点,L2 表与画面一致);
      *   · **组词态 + 该键 L2 输出是撇号**(ASCII `'` 或全角 `’`)⇒ 插分节符,
-     *     **恒走 L2、不受设置限制**(用户 2026-10-15 定;本机唯一可达的手动分节路径)
+     *     **不受开关限制**(用户 2026-10-15 定;本机唯一可达的手动分节路径)
      *
-     * 层输出走"当前语言表优先、出厂表兜底"——与 [handleNormalKey] 的查表同一套
-     * ([resolveLayerOut]),所以中文全角态长按出的是中文标点,不是 ASCII。
+     * L2 输出走"当前语言表优先、出厂表兜底"——与 [handleNormalKey] 的查表同一套,
+     * 所以中文全角态长按出的是中文标点,不是 ASCII。
      */
     private fun tryArmLongPress(code: Int, caps: Boolean): Boolean {
+        // **只支持字母键**(2026-10-16 用户定):数字 / 标点 / 空格 / 功能键都不长按,
+        // 这条做成结构性的第一道闸,不依赖"出厂 L2/L3 表里恰好只有字母"这个巧合。
+        if (code !in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) return false
         // 已有层生效(Alt 按住 / 一次性 / 锁定 / 数字类锁 L2)时该键当前输出就是
-        // 该层符号,DOWN 即出屏 —— 没有"长按"可判,也不制造第二份 Hold
+        // L2 符号,DOWN 即出屏 —— 没有"长按"可判,也不制造第二份 Hold
         if (fieldProfile().digitsOnly) return false
         if (holdMod != null) return false
         if (state.effectiveLayer != Layer.L1) return false
@@ -412,36 +410,29 @@ class ImeController(
         // 真机上这时的 event.isShiftPressed 已把 shift 参数置真;状态再兜一层,
         // 是因为 shiftMode=HELD 也能表达同一件事(测试替身不模拟事件参数)。
         if (state.shiftMode == ShiftMode.HELD) return false
-        if (state.hasComposition) {
-            // 组词中:长按 = 插分节符。判据只看**该键的 L2 输出是不是撇号**,与所选层无关;
-            // 两形都认 —— 半角态 L2(L)= ASCII `'`(分隔符常量本身),中文全角态 L2(L)=
-            // `’`(U+2019,标点全角化)。默认就在全角态,只认 ASCII 会让这条唯一可达的
-            // 分节路径默认失灵。插入缓冲的恒为 ASCII(引擎的 delimiter)。
-            val text = (resolveLayerOut(Layer.L2, code) as? KeyOut.Text)?.text ?: return false
-            if (text != ChineseLanguage.SEPARATOR && text != "’") return false
-            lp.arm(code, caps, separator = true, layer = Layer.L2, out = null)
-            host.scheduleLongPress(code)
-            return true
-        }
-
-        // 空闲:按设置选的层出该键的输出(Text 直接上屏;Special 走功能键)。
-        // **L6 面板开着时不武装**(2026-10-16 rebase 合流后移植):敲字母 = 收面板 +
-        // 正常输入,面板只在空闲态存在 —— 符号快捷是纯空闲态的事,面板开着时不该出符号。
-        if (l6Open) return false
-        val layer = longPressLayer ?: return false
-        val out = resolveLayerOut(layer, code) ?: return false
-        lp.arm(code, caps, separator = false, layer = layer, out = out)
-        // **不在 DOWN 跳层**(2026-10-15 用户报障修正):武装时就 beginHold 会让
-        // 每次敲字母都闪一下层芯片 —— 那是预览,而用户决策 3 定的就是
-        // "不要预览"。状态跳变推迟到 [onLongPressFire](长按确认那一刻)与输出
-        // 同时出现,松手恢复 —— 这才是"短暂的把状态跳到所选层"。
+        val l2 = language().layerMap(Layer.L2, fullWidthSymbolsInCn)?.get(code)
+            ?: layout.lookup(Layer.L2, code)
+            ?: return false
+        val text = (l2 as? KeyOut.Text)?.text ?: return false
+        // 分节符判定**两形都认**:半角态 L2(L)= ASCII `'`(分隔符常量本身),
+        // 中文全角态 L2(L)= `’`(U+2019,标点全角化) —— 默认就在全角态,
+        // 只认 ASCII 会让这条唯一可达的分节路径默认失灵。插入缓冲的恒为
+        // ASCII(引擎的 delimiter,见 ChineseLanguage.SEPARATOR)。
+        val separatorMode = state.hasComposition &&
+            (text == ChineseLanguage.SEPARATOR || text == "’")
+        // 空闲出符号这一支:**L6 面板开着时不武装**(2026-10-16 L6 分支的定案,合流时
+        // 落到这支上)——敲字母 = 收面板 + 正常输入,面板只在空闲态存在,符号快捷是
+        // 纯空闲态的事。分节符那一支不受影响(那是组词态的事,面板不在组词态存在)。
+        val symbolMode = !state.hasComposition && !l6Open && longPressSymbolEnabled
+        if (!separatorMode && !symbolMode) return false
+        lp.arm(code, caps, separatorMode, text)
+        // **不在 DOWN 跳 L2**(2026-10-15 用户报障修正):武装时就 beginHold 会让
+        // 每次敲字母都闪一下 alt 状态项 —— 那是预览,而用户决策 3 定的就是
+        // "不要预览"。状态跳变推迟到 [onLongPressFire](长按确认那一刻)与符号
+        // 同时出现,松手恢复 —— 这才是"短暂的把状态跳到 L2"。
         host.scheduleLongPress(code)
         return true
     }
-
-    /** 层输出查表:当前语言表优先、出厂键位表兜底 —— 与 [handleNormalKey] 同一套口径。 */
-    private fun resolveLayerOut(layer: Layer, code: Int): KeyOut? =
-        language().layerMap(layer, fullWidthSymbolsInCn)?.get(code) ?: layout.lookup(layer, code)
 
     /**
      * 长按到点([ImeHost.scheduleLongPress] 的 300ms 回调):键仍未松开 ⇒ 出屏。
@@ -452,25 +443,16 @@ class ImeController(
     fun onLongPressFire() {
         if (!lp.pending) return
         lp.confirm()
-        // 状态与显示一致(用户 2026-10-15 定):长按确认这一刻才把层状态跳到所选层,
-        // 与输出同帧出现;松手(endHold)恢复。**DOWN 不跳** —— 否则短按也会
-        // 闪一下该层芯片,那是预览而不是一致性。
-        beginHold(lp.layer, lp.code)
-        val out = lp.out
-        when {
-            lp.separator -> {
-                state.raw += ChineseLanguage.SEPARATOR
-                refreshQuery(from = "长按分节")
-            }
-            out is KeyOut.Text -> {
-                host.commitText(out.text)
-                host.render()
-            }
-            // L3 上多数键是功能键(方向键 / Esc / Tab / 光标首尾 …):长按要真的按下去
-            out is KeyOut.Special -> {
-                KeyOut.SPECIAL_CODES[out.name]?.let { host.sendKey(it) }
-                host.render()
-            }
+        // 状态与显示一致(用户 2026-10-15 定):长按确认这一刻才把层状态跳到 L2,
+        // 与符号同帧出现;松手(endHold)恢复。**DOWN 不跳** —— 否则短按也会
+        // 闪一下 alt 状态项,那是预览而不是一致性。
+        beginHold(Layer.L2, lp.code)
+        if (lp.separator) {
+            state.raw += ChineseLanguage.SEPARATOR
+            refreshQuery(from = "长按分节")
+        } else {
+            host.commitText(lp.symbol)
+            host.render()
         }
         haptics?.confirm()
     }
