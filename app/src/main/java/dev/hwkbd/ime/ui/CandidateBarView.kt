@@ -584,7 +584,7 @@ class CandidateBarView @JvmOverloads constructor(
         val w = width.toFloat()
         if (eventTimeMs > 0L) pageSpeed.add(eventTimeMs, x)
         val travel = pageDragTravel(x, pageDragBaseX, pageDir)
-        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageCommitPx(), pageDragDeadPx())
+        val slide = pageDragSlide(x, pageDragBaseX, pageDir, w, pageDragDeadPx())
         pageDragTravel = travel
         if (slide != pageSlide) {
             pageSlide = slide
@@ -928,7 +928,7 @@ clearPageTurn()
     /** 键盘表面横滑翻页:**跟手**。橡皮筋与翻页拖动各自喂自己那条。 */
     fun pageDragMove(x: Float, eventTimeMs: Long = 0L) {
         when {
-            rubberDrag.active -> setRubber(x, eventTimeMs)
+            rubberDrag.active -> setRubber(x)
             pageDragging -> setPageDrag(x, eventTimeMs)
         }
     }
@@ -1223,7 +1223,7 @@ pageSlide = pageSettleTarget
      * 2026-09-30 用户要求。震动只在这一处触发(首次越过阈值那一下),拖动过程中不震,
      * 免得一路嗡嗡。
      */
-    fun setFlyDrag(progress: Float, eventTimeMs: Long = 0L) {
+    fun setFlyDrag(progress: Float) {
         if (flyP < 0f || flyBack.isRunning) return
         val p = progress.coerceIn(0f, 1f)
         val crossed = flyP < 1f && p >= 1f // 本次拖动里第一次越过阈值
@@ -1410,7 +1410,7 @@ pageSlide = pageSettleTarget
                 }
                 when {
                     // 越界橡皮筋优先:到头的那一侧要给出拉伸反馈,不能跟翻页抢
-                    rubberDrag.active -> setRubber(event.x, event.eventTime)
+                    rubberDrag.active -> setRubber(event.x)
                     // 横滑翻页同样改成"拖动即反馈":整页跟手指走,松手过提交线才真的翻页
                     // (与上滑同一套模型:死区 → 跟手 → 松手判定 → 没过线反向动画收回)
                     takeOverPage || pageDragging -> setPageDrag(event.x, event.eventTime)
@@ -1442,7 +1442,7 @@ pageSlide = pageSettleTarget
                         val dx = event.x - downX
                         val dy = downY - event.y
                         if (dy > 0f && dy > kotlin.math.abs(dx)) {
-                            setFlyDrag(DragGesture.progress(dy, flyThresholdPx, flyDeadPx), event.eventTime)
+                            setFlyDrag(DragGesture.progress(dy, flyThresholdPx, flyDeadPx))
                         }
                         if (flyP >= 1f) {
                             val zone = flyZone
@@ -1459,7 +1459,7 @@ pageSlide = pageSettleTarget
                 val dy = event.y - downY
                 // 橡皮筋中 → 弹回边界(不翻页:那一侧本来就没有页)
                 if (rubberDrag.active) {
-                    setRubber(event.x, event.eventTime)
+                    setRubber(event.x)
                     endRubber()
                     return true
                 }
@@ -1576,7 +1576,7 @@ pageSlide = pageSettleTarget
     }
 
     /** 橡皮筋拖动进度。 */
-    private fun setRubber(x: Float, eventTimeMs: Long = 0L) {
+    private fun setRubber(x: Float) {
         if (!rubberDrag.tracking) return
         rubberDrag.move(x)
         invalidate()
@@ -2081,7 +2081,6 @@ internal fun pageDragProgress(
     x: Float,
     baseX: Float,
     dir: Float,
-    viewW: Float,
     commitPx: Float,
     dead: Float,
 ): Float {
@@ -2104,11 +2103,9 @@ internal fun pageDragSlide(
     baseX: Float,
     dir: Float,
     viewW: Float,
-    commitPx: Float,
     dead: Float,
 ): Float = DragGesture.slide(
     travel = pageDragTravel(x, baseX, dir),
-    threshold = commitPx,
     limit = viewW,
     dead = dead,
 )

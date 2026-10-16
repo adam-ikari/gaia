@@ -1,7 +1,6 @@
 package dev.hwkbd.ime.service
 
 import android.content.SharedPreferences
-import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
 import android.text.InputType
@@ -11,7 +10,6 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.ImageButton
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.ImeRuntime
@@ -26,9 +24,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyLayoutStore
 import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.strategy.FieldKind
@@ -37,10 +32,7 @@ import dev.hwkbd.ime.rime.RimeEngine
 import dev.hwkbd.ime.strategy.PinyinInputMethod
 import dev.hwkbd.ime.ui.CandidateBarView
 import dev.hwkbd.ime.ui.ImeRootView
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.concurrent.Executors
-import java.util.zip.GZIPInputStream
 
 /**
  * 输入法服务:KeyEvent → ImeController → InputConnection。
@@ -253,7 +245,7 @@ class ImeService : InputMethodService() {
                 // 切回主线程再碰 UI:prepare 的回调在部署线程上
                 // `from` 是这条埋点里**最要紧的字段**:2026-10-04 用户报「候选行自己
                 // 交替闪烁」时,一眼就能看出是这里在异步改候选列表。
-                mainHandler.post { if (ok) controller?.refreshQuery(from = "部署完成回调") }
+                mainHandler.post { if (ok) controller.refreshQuery(from = "部署完成回调") }
             }
         }, "rime-boot").apply { isDaemon = true }.start()
         // 触感:全应用唯一的 [Haptics] 实例,控制器(锁定类)与候选行(翻页/飞字类)共用,
@@ -1437,9 +1429,6 @@ class ImeService : InputMethodService() {
          * 时长由松手速度决定)。按键选字的完成段从 0 起,通常比手势那条更短。
          */
         private const val FLY_SETTLE_MS = 260L
-
-        /** InputDevice.SOURCE_TOUCHPAD(避免 SDK 版本差异直接用常量)。 */
-        private const val SOURCE_TOUCHPAD_MASK = 0x100008
 
         /** 键盘面平分 5 区上滑选字(每区 = 2 个物理键列;基准宽度由 FlyDetector 现取屏宽,见 zoneBasis)。 */
         private const val FLY_ZONES = 5

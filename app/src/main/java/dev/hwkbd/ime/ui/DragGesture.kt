@@ -118,11 +118,10 @@ internal object DragGesture {
      * 死区内按 [DEAD_SLIP] 打折(仍有响应),出了死区后 1:1 跟手,超过 [limit] 则夹住。
      *
      * @param travel 位移(px,已取沿手势正方向的绝对值)
-     * @param threshold 触发阈值(px)
      * @param limit 位移上限(px)。翻页传行宽——一整页就是画面该走的全部距离。
      * @param dead 死区(px),同 [progress]:[DEAD_DP] × density,**必填**
      */
-    fun slide(travel: Float, threshold: Float, limit: Float, dead: Float): Float {
+    fun slide(travel: Float, limit: Float, dead: Float): Float {
         val mag = if (travel <= dead) travel * DEAD_SLIP else travel
         return mag.coerceIn(0f, limit)
     }

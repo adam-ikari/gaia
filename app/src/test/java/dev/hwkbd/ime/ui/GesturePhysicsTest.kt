@@ -27,11 +27,8 @@ class GesturePhysicsTest {
     private fun slide(dxLeft: Float) =
         pageDragSlide(
             x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
-            commitPx = threshold, dead = dead,
+            dead = dead,
         )
-
-    private fun travel(dxLeft: Float) =
-        pageDragTravel(x = 1000f - dxLeft, baseX = 1000f, dir = 1f)
 
     // ---------------------------------------------------------------- 跟手
 
@@ -66,8 +63,8 @@ class GesturePhysicsTest {
     @Test
     fun `opposite direction yields no progress`() {
         // dir=+1(下一页)时往右拖:不认成同一次翻页(方向由 beginPageDrag 定)
-        assertEquals(0f, pageDragSlide(1300f, 1000f, 1f, viewW, threshold, dead), 0.01f)
-        assertEquals(0f, pageDragSlide(700f, 1000f, -1f, viewW, threshold, dead), 0.01f)
+        assertEquals(0f, pageDragSlide(1300f, 1000f, 1f, viewW, dead), 0.01f)
+        assertEquals(0f, pageDragSlide(700f, 1000f, -1f, viewW, dead), 0.01f)
     }
 
     @Test
@@ -84,7 +81,7 @@ class GesturePhysicsTest {
         val fromBase = externalCommitFromBase(kbCommit)
 
         fun progressAt(travelFromBase: Float, commitFromBase: Float) =
-            pageDragProgress(1000f - travelFromBase, 1000f, 1f, viewW, commitFromBase, 0f)
+            pageDragProgress(1000f - travelFromBase, 1000f, 1f, commitFromBase, 0f)
 
         assertEquals(
             "键盘面上过了基线再划满 ${kbCommit}px 就该翻页",
@@ -98,9 +95,9 @@ class GesturePhysicsTest {
             "但同一段行程在候选行的提交线(行宽 0.22)下过不了 —— 这正是量纲必须分开的原因",
             progressAt(fromBase, threshold) < 1f,
         )
-        // 跟手是两处共有的:位移 = 手指位移,与提交线无关
-        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, fromBase, 0f), 0.01f)
-        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, threshold, dead), 0.01f)
+        // 跟手只认位移:出了死区 1:1,提交线根本不进这个函数的签名(死区 0 与死区 dead 同值)
+        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, 0f), 0.01f)
+        assertEquals(200f, pageDragSlide(1000f - 200f, 1000f, 1f, viewW, dead), 0.01f)
     }
 
     @Test

@@ -127,7 +127,6 @@ object StatusRow {
         // 现在三种大写态一律 [accent]:颜色=在改变输出,字形=哪一种。
         // HELD 与 ONCE 因此同色同字形(`Ab`)——这是有意的:两者对输出的影响完全一样,
         // 区别只在"松手会不会消失",那不该由常驻的状态行去暗示。
-        val caps = state.shiftMode == ShiftMode.CAPS
         if (spec.showShift && !spec.digitsOnly && layer == Layer.L1) {
             val (label, color, desc) = when (state.shiftMode) {
                 ShiftMode.CAPS -> Triple("AB", t.accent, CAPS_LABEL)

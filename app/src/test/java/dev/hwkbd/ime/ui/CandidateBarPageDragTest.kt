@@ -26,7 +26,7 @@ class CandidateBarPageDragTest {
     /** 位移向**左**为正(左滑=下一页),与页面里 `dir` 无关的直观写法。 */
     private fun progress(dxLeft: Float): Float =
         pageDragProgress(
-            x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
+            x = 1000f - dxLeft, baseX = 1000f, dir = 1f,
             commitPx = commitPx, dead = DEAD,
         )
 
@@ -57,7 +57,7 @@ class CandidateBarPageDragTest {
         assertTrue("已越过死区,应有一点点进度", progress(old) > 0f)
         assertTrue("但不到提交线,所以不翻页", progress(old) < 1f)
         // 而且现在画面会跟手一小段(死区的 DEAD_SLIP 响应),比"纹丝不动"好
-        assertTrue("死区之外应当有跟手响应", DragGesture.slide(old, commitPx, viewW, DEAD) > 0f)
+        assertTrue("死区之外应当有跟手响应", DragGesture.slide(old, viewW, DEAD) > 0f)
     }
 
     @Test
@@ -91,12 +91,12 @@ class CandidateBarPageDragTest {
         // 往回翻要靠下一次手势接管(见 beginPageDrag 的角色对调),这是刻意的。
         assertEquals(
             0f,
-            pageDragProgress(1300f, 1000f, 1f, viewW, commitPx, DEAD),
+            pageDragProgress(1300f, 1000f, 1f, commitPx, DEAD),
             1e-6f,
         )
         assertEquals(
             0f,
-            pageDragProgress(700f, 1000f, -1f, viewW, commitPx, DEAD),
+            pageDragProgress(700f, 1000f, -1f, commitPx, DEAD),
             1e-6f,
         )
     }
@@ -104,8 +104,8 @@ class CandidateBarPageDragTest {
     @Test
     fun `previous-page direction is the mirror of next-page`() {
         // 同一段手指位移,dir=-1(上一页)且手指往右移 = 等价于往左移且 dir=+1
-        val viaNext = pageDragProgress(700f, 1000f, 1f, viewW, commitPx, DEAD)
-        val viaPrev = pageDragProgress(1300f, 1000f, -1f, viewW, commitPx, DEAD)
+        val viaNext = pageDragProgress(700f, 1000f, 1f, commitPx, DEAD)
+        val viaPrev = pageDragProgress(1300f, 1000f, -1f, commitPx, DEAD)
         assertEquals(viaNext, viaPrev, 1e-6f)
     }
 }

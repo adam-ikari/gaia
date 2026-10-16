@@ -51,19 +51,12 @@
             android:entryValues="@array/page_threshold_values"
             android:summary="%s" />
         <SwitchPreferenceCompat
-            android:key="keyboard_swipe"
-            android:defaultValue="true"
-            android:title="@string/pref_keyboard_swipe" />
-        <SwitchPreferenceCompat
             android:key="page_reverse"
             android:defaultValue="false"
             android:title="@string/pref_page_reverse" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_category_keys">
-        <Preference
-            android:key="layer_reset"
-            android:title="@string/pref_layer_reset" />
         <Preference
             android:key="select_keys"
             android:title="@string/pref_select_keys"

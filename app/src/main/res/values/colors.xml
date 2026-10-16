@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ime_bg">#FF000000</color>
-    <color name="ime_bg_light">#FFFFFFFF</color>
     <color name="status_bg">#000000</color>
     <!--
       L5 溢出行首帧兜底底色:薄薄一层黑(30%),让底下 App 的颜色透上来 ⇒ 看着和应用背景一致。
@@ -13,7 +11,6 @@
     <color name="candidate_bg">#000000</color>
     <color name="candidate_pressed">#2C313A</color>
     <color name="candidate_fg">#EDF0F5</color>
-    <color name="candidate_matched">#FFD77A3D</color>
     <color name="candidate_hint">#7C838F</color>
     <color name="candidate_divider">#2A2E36</color>
     <color name="key_bg">#23262D</color>
@@ -22,6 +19,4 @@
     <color name="key_fg">#E7EAF0</color>
     <color name="key_fn_fg">#FFB66B4A</color>
     <color name="arrow_fg">#9AA1AC</color>
-    <color name="status_l2">#FF5B8DBE</color>
-    <color name="status_l3">#FF7FA05A</color>
 </resources>

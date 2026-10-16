@@ -261,7 +261,7 @@ class L6PanelView @JvmOverloads constructor(
                 if (swipeTracking) {
                     swipeTravel = -dy * swipeDir
                     val slide =
-                        DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx(), swipeDeadPx)
+                        DragGesture.slide(swipeTravel, swipeLimitPx(), swipeDeadPx)
                     // 跟手位移要**记进字段**:松手没过线时 settle(swipeSlide, 0f) 拿它当起点,
                     // 不记的话起点永远是 0 ⇒ 回弹动画从 0 弹到 0(= 硬切),连划时还会闪跳。
                     swipeSlide = slide

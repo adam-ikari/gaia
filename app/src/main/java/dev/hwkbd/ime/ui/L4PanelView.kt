@@ -578,7 +578,7 @@ class L4PanelView @JvmOverloads constructor(
                     // 此前这里是"进度 × 行宽"两处混用,放大过 —— 见 CandidateBarView.pageSlide。
                     swipeTravel = -dx * swipeDir
                     swipeSpeed.add(ev.eventTime, -dx)
-                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx(), swipeDeadPx))
+                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeLimitPx(), swipeDeadPx))
                 }
                 return true
             }
@@ -587,7 +587,7 @@ class L4PanelView @JvmOverloads constructor(
                     val dx = ev.x - swipeDownX
                     swipeTravel = -dx * swipeDir
                     swipeSpeed.add(ev.eventTime, ev.x)
-                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeThresholdPx(), swipeLimitPx(), swipeDeadPx))
+                    setSwipeSlide(DragGesture.slide(swipeTravel, swipeLimitPx(), swipeDeadPx))
                     // 与候选行翻页同一判定:手指位移过线,或速度够快"甩"过去
                     val v = swipeSpeed.velocity() * swipeDir
                     val limit = swipeLimitPx()

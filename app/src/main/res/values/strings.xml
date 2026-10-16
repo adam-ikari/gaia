@@ -32,26 +32,19 @@
     <string name="btn_hide">隐藏</string>
     <string name="btn_l5">面板开关(展开 L5 行 / L6 虚拟键盘)</string>
     <string name="mode_cn">拼</string>
-    <string name="mode_en">En</string>
-    <string name="lock_badge">锁</string>
 
     <!-- 设置 -->
     <string name="pref_category_general">常规</string>
-    <string name="pref_show_soft_keyboard">显示屏幕键盘</string>
-    <string name="pref_show_soft_keyboard_desc">关闭后只显示候选栏，物理键盘完全接管（推荐在 Titan 2 上按习惯选择）</string>
-    <string name="pref_candidate_count">每页候选数</string>
-    <string name="pref_hz_split">键区分栏比例（上滑选字）</string>
-    <string name="pref_hz_split_12421">1 : 2 : 4 : 2 : 1</string>
-    <string name="pref_hz_split_23432">2 : 3 : 4 : 3 : 2</string>
     <!-- pref_swipe_select 2026-10-12 随「候选栏上滑选字」功能一起移除,字符串也删掉 -->
     <!-- 2026-10-16:临时做过的「关闭 / L2 / L3」三选一已按用户要求收回成单个开关(只出 L2、只支持字母键) -->
     <string name="pref_longpress_l2">长按字母键上屏符号</string>
     <string name="pref_longpress_l2_desc">空闲时长按字母键上屏该键的 L2 符号;关闭则连续上屏(系统连发)。只对字母键生效,拼音输入中长按 L 插分节符不受此开关影响。</string>
     <string name="pref_swipe_page">候选栏左右滑翻页</string>
+    <!-- 原来的「屏幕键盘上滑选字」开关(pref_keyboard_swipe / keyboard_swipe)2026-10-16 删掉:
+         它写的值没有任何读取方,那一半功能随「候选栏上滑选字」在 2026-10-12 退役 -->
     <!-- 震动反馈:开关本身;desc 列出四个反馈点,让人知道关掉的是什么 -->
     <string name="pref_haptic">震动反馈</string>
     <string name="pref_haptic_desc">大写锁定、符号层锁定、翻页、飞字确认时轻震一下</string>
-    <string name="pref_keyboard_swipe">屏幕键盘上滑选字 / 左右滑翻页</string>
     <!--
       这一项改的是**键盘**的 7 套色板(见 ui/ImeTheme.kt),不是应用外壳的深浅色;
       外壳跟着系统深色模式自动走(见 values/app_colors.xml + values-night/)。
@@ -66,7 +59,6 @@
     <string name="pref_fullwidth">中文态符号层输出全角</string>
 
     <string name="pref_category_keys">按键与层</string>
-    <string name="pref_layer_reset">恢复默认键位映射</string>
     <string name="pref_select_keys">五键选字键位</string>
 
     <string name="pref_category_dict">词库</string>
@@ -87,13 +79,6 @@
     <string name="pref_licenses">开源许可</string>
     <string name="licenses_body">本软件使用了下列开源组件。它们的著作权归各自作者所有，并按所列许可证提供。\n\nAndroidX（core-ktx / appcompat / preference / dynamicanimation）\nApache License 2.0\n\nKotlin 标准库、kotlinx-coroutines\nApache License 2.0（含 Kotlin 例外条款）\n\nRime 输入引擎（librime）\nBSD-3-Clause，Copyright (c) 2014 RIME Developers\n· 随包编译进 librime_jni.so 的第三方组件：\n  yaml-cpp（MIT）· leveldb（BSD-3-Clause）·\n  marisa-trie（BSD-2-Clause OR LGPL-2.1）· OpenCC（Apache License 2.0）\n\n内置词库数据\n· 拼音方案与词条来自 Rime 项目的 data/minimal（luna_pinyin）\n  BSD-3-Clause，Copyright (c) 2014 RIME Developers\n\n上述许可要求保留版权与声明，故此处署名。完整许可证全文见项目仓库的 THIRD_PARTY_NOTICES。</string>
 
-    <!-- 键位编辑 -->
-    <string name="layer_save">保存</string>
-    <string name="layer_reset">恢复默认</string>
-    <string name="layer_export">导出文本</string>
-    <string name="layer_import">导入文本</string>
-    <string name="layer_invalid_line">第 %1$d 行格式错误：应为 「键=输出」，功能键写 key:键名</string>
-
     <!-- 探测页 -->
     <string name="probe_hint">点击这里获得焦点，然后按任意物理键（含 Sym / Fn / 方向键），下方会实时显示键值</string>
     <string name="probe_clear">清空</string>
@@ -104,10 +89,6 @@
     <string name="probe_sym_set">已把键 %1$d 设为 Sym 键</string>
 
     <!-- 通用提示 -->
-    <string name="done_saved">已保存</string>
-    <string name="done_reset">已恢复默认</string>
-    <string name="import_result">导入成功 %1$d 条，失败 %2$d 条</string>
-    <string name="import_no_file">没有选择文件</string>
     <string name="dict_stats_engine">引擎：librime %1$s</string>
     <string name="dict_stats_user_size">学习记录：%1$s（%2$d 个文件）</string>
     <string name="dict_clear_confirm">将删除全部学习记录（用户词频与自造词）。\n\n位置：%1$s\n\n删除后需重启输入法才生效。</string>

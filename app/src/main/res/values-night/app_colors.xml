@@ -9,12 +9,9 @@
 -->
 <resources>
     <color name="app_window_bg">#FF16181D</color>
-    <color name="app_surface">#FF1E2127</color>
     <color name="app_primary">#FF3F4650</color>
     <color name="app_primary_dark">#FF0F1114</color>
-    <color name="app_on_primary">#FFEDF0F5</color>
     <color name="app_accent">#FFB66B4A</color>
 
     <color name="app_text_secondary">#FF9AA1AC</color>
-    <color name="app_divider">#FF2A2E36</color>
 </resources>

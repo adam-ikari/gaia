@@ -81,9 +81,6 @@ internal class SpringChannel(
         addEndListener { _, cancelled, _, _ -> onFinish(cancelled) }
     }
 
-    /** 逐帧埋点的行号,见 [TRACE_FRAMES]。 */
-    private var frameNo = 0
-
     /**
      * 从 [from] 朝 [target] 起跑。
      *
