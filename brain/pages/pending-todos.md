@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-16T03:20:06"
+updated: "2026-10-16T11:36:39"
 ---
 
 <!-- compiled_truth -->
@@ -102,4 +102,9 @@ updated: "2026-10-16T03:20:06"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-16 收尾"
+
+- time: 2026-10-16T11:36:39
+  kind: note
+  summary: "2026-10-16 清扫死代码时发现(未处理,记一笔):pageDragProgress 是 internal 纯函数但**生产里没有调用者** —— CandidateBarView 的跟手翻页提交判定直接用 DragGesture.progress(pageDragTravel(...), threshold, dead) 又写了一遍,于是 CandidateBarPageDragTest 钉住的是那份**没被生产用到**的实现(改生产那条路不会让这些测试变红)。要么让生产改调它(去重),要么把测试对准生产那条路。同次清扫已把它和 pageDragSlide 的无用形参删掉(编译器点名 never used)。"
+  source: "2026-10-16 死代码清扫"
   affects: [pending-todos]

@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [策略, 注册表, L4, 扩展性]
 created: "2026-09-28T19:06:35"
-updated: "2026-10-15T09:29:53"
+updated: "2026-10-16T11:36:38"
 ---
 
 <!-- compiled_truth -->
@@ -300,3 +300,9 @@ updated: "2026-10-15T09:29:53"
   summary: "2026-10-15 用户「邮箱框默认英文优先」:推翻默认语言与 restarting 的绑定 —— 此前 fieldProfile.defaultLanguageId 只在 !restarting 时套用(用户 2026-09-29 定案「换框即恢复默认;同框重启动不动,不打断框内手动切的语言」),导致邮箱框内手动切中文、离开再回来停在中文。现在:有默认语言的框(仅邮箱=英文)每次聚焦都回归默认(压过 restarting 与手动切换);defaultLanguageId=null 的框语言不变(即用户同日的「调出即初始态:状态/拼音区/候选词清空,语言不变」)。密码框强制安全语言不变。真机四态验证(邮箱→En/框内中文→拼/离开保持→拼/再回→En)。"
   source: "2026-10-15 用户定案 + 真机(TTANCN2100002663)四态验证"
   affects: [ime-interaction-model]
+
+- time: 2026-10-16T11:36:38
+  kind: reversal
+  summary: "2026-10-16 死代码清扫:键位持久化的写入侧删除 —— KeyLayoutStore.save/reset 在键位编辑器下线后零调用方,filesDir/keymap.txt 从此**只读**([load] 保留,只为读旧机器遗留的 L1-L4 段,读时仍只取 L4);loadTextOrDefault 收成 private。**同时更正本页 2026-09-29 那条「load 发现文件不存在就落盘一份出厂键位表」:现行 load 只读不写,那条讲的是更早的实现**(L5 用户短语功能也早已撤回)。设置页连删两行失效项:layer_reset「恢复默认键位映射」(没有任何点击处理,点了不做事)、keyboard_swipe「屏幕键盘上滑选字」(写的值没有读取方,那一半功能 2026-10-12 随「候选栏上滑选字」退役)。同次清扫还删掉 lint 报的 30 个未使用资源(两个没人 inflate 的布局、两个 Shift 图标、8 个色名、17 个字符串、无人引用的 ImeTheme 样式)与编译器点名的死参数/死 import(GesturePhysicsTest 的 travel 包装、SpringBridge.frameNo、StatusRow 的 val caps 等);单测全绿(345 条)。"
+  source: "2026-10-16 用户「删除死代码」+ lint/编译器逐条核对"
+  affects: [ime-strategy-registry]
