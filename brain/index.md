@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-16T06:44:50.086Z._
+_Auto-generated. Last updated 2026-10-16T07:53:44.779Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [clipboard-panel](pages/clipboard-panel.md) — category: decision | tags: [ime, clipboard, l6, ui] | <current best understanding — replace this with the real content>
@@ -19,7 +19,7 @@ _Auto-generated. Last updated 2026-10-16T06:44:50.086Z._
 - [release-flow](pages/release-flow.md) — category: project | tags: [release, ci, tooling] | ## 发版前:同一个检查在两个环境跑通,不代表它对
 - [rime-candidate-consumption](pages/rime-candidate-consumption.md) — category: decision | tags: [rime, pinyin, 选词, 消费, 选字] | ## 单位是**引擎坐标的字符偏移**,由 `GetCurrentStartPosition()` 给 —— 这条成立
 - [rime-host-probe](pages/rime-host-probe.md) — category: reference | ## 它是什么
-- [sensitivity-tiers](pages/sensitivity-tiers.md) — category: decision | tags: [gesture, threshold, sensitivity, deadzone] | ## 静默窗(按键后不响应滑动):200 → 300ms
+- [sensitivity-tiers](pages/sensitivity-tiers.md) — category: decision | tags: [gesture, threshold, sensitivity, deadzone] | ## 三条正交的防线(2026-10-16 之后的口径)
 - [site-analytics](pages/site-analytics.md) — category: decision | tags: [Cloudflare Workers 自建 Umami:analytics, umami, cloudflare] | 站点统计走**自建 Umami**,部署在 Cloudflare Workers + D1(用户从 Umami/Plausible/GoatCounter/
 - [site-copy](pages/site-copy.md) — category: decision | tags: [按 adamblog 的写作规则去 AI 味, 并对 Titan 2 量身定做的口径:copy, voice, titan2] | 站点文案的规则**不在本仓库**，在 `adamblog` 项目里。
 - [site-e2e-video](pages/site-e2e-video.md) — category: project | tags: [ci, testing, video] | 站点的演示视频由 **CI 端到端测试顺便录出来**,不手工录。
