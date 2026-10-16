@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-15T13:48:27"
+updated: "2026-10-16T08:18:37"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -528,3 +528,15 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   summary: "2026-10-15 长按字母键(用户定案,四轮设计收敛):短按出字母、长按 300ms 出该键 L2 符号;按住期间层状态跳到 L2(复用修饰键 Hold,状态与显示一致);设置开关默认开、关掉回系统连发(旧行为)。**拼音输入中长按 L 插分节符,不受开关限制** —— 补上本机手动分节符不可达的坑(Alt+L 组合被五键选字吃掉);中文全角态 L2(L)= ’(U+2019)两形都认、插入恒 ASCII。DOWN 不出屏+吞连发、输出推迟 UP/定时器:避免先出字母再出符号拼成 a';代价=开开关期间字母提交从 DOWN 挪到 UP(用户接受)。排除:数字类/已有层/Shift·Ctrl 组合。附带修正测试装置:Rig.type/key 对字母键发 down+up 一对(真实硬件键恒成对,旧装置只发 down 是蒙对)。"
   source: "2026-10-15 设计讨论四轮 + 真机四态 + E2E 16/16"
   affects: [pending-todos]
+
+- time: 2026-10-16T08:18:37
+  kind: decision
+  summary: "2026-10-16 长按字母键修正(用户报障「正常短按字母键也临时显示了 alt 状态」):根因是长按**武装时(DOWN)就 beginHold(L2)**,等于给每次敲字母都加了一次\"预览\",而用户决策本就定的是不要预览。修正:层状态跳变**推迟到 300ms 确认(onLongPressFire)**,与符号同帧出现、松手 endHold 恢复。同时把长按的 6 个松散字段(lpArmed/lpCode/lpCaps/lpFired/lpSeparator/lpSymbol)收口成显式状态对象 LongPress(arm/confirm/cancel/clear 四迁移,别处不直接改字段);UP 分支的 Hold 收尾不再写死 Layer.L2、改认 holdCode(否则 L3 长按松不了手 —— 新单测抓出来的真 bug)。真机取证:同一次长按,L 按下 7ms 截屏状态行无 alt、361ms(确认后)状态行出 alt 且输入框为 ’。"
+  source: "2026-10-16 真机取证(TTANCN2100002663)+ 331 单测全绿"
+  affects: [ime-interaction-model]
+
+- time: 2026-10-16T08:18:37
+  kind: decision
+  summary: "2026-10-16 长按字母键上屏改**三选一**(用户「可以设长按出L2还是L3」):设置 `longpress_symbol` = off / l2 / l3,默认 l2;旧的布尔 `longpress_l2` 只在没写过新键时兜底迁移(false→off、true→l2,不把用户关掉的开关悄悄打开)。**拼音中的分节符仍恒走 L2 的撇号、不受此设置影响**(不可关闭)。选 L3 时长按出该键 Sym 层输出 —— 中文全角态多为符号(L3_CN:T→《),其余落到出厂 L3 的**功能键**(Q→Esc、W→Up、A→Left、P→Tab、L→End、M→Ins…),功能键走 sendKey 真按下去(不是上屏文本)。实现:`resolveLayerOut(layer, code)` 统一\"当前语言表优先、出厂键位表兜底\"的查表(与 handleNormalKey 同一口径);LongPress 携带 layer + out(KeyOut),空闲出 Text/Special、组词出分节符。真机:L3 下长按 T 出《、长按 L 触发 move_end;设置对话框三选一渲染正常。"
+  source: "2026-10-16 用户「可以设长按出L2还是L3」+ 真机验证"
+  affects: [ime-interaction-model]

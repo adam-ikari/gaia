@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-15T13:52:16"
+updated: "2026-10-16T08:18:38"
 ---
 
 <!-- compiled_truth -->
@@ -64,4 +64,10 @@ updated: "2026-10-15T13:52:16"
   kind: decision
   summary: "2026-10-15:第 1 项(长按 L2 符号上屏)完成 —— 四态真机 + E2E 16/16 + 9 单测;撇号坐标项因长按 L 让 ' 变得可达,优先级上调"
   source: 2026-10-15
+  affects: [pending-todos]
+
+- time: 2026-10-16T08:18:38
+  kind: decision
+  summary: "2026-10-16:长按字母键从「只出 L2」扩成**三选一**(关闭/L2/L3,见 [[ime-interaction-model]]),含一个真机取证过的修正(短按不再闪层状态)+ 长按状态机收口(LongPress 四迁移);单测 331 全绿。状态机整理本身也定了口径:**sealed + 纯函数,不引库**([[state-machine-approach]]);输入机与候选栏手势机按用户决定暂不动。待办仍是撇号坐标 + five-key-slots 两条。"
+  source: "2026-10-16 收尾"
   affects: [pending-todos]
