@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, ux, keymap]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-16T08:18:37"
+updated: "2026-10-16T10:15:17"
 updated: "2026-09-27T22:55:16"
 tags: [ime ux keymap]
 ---
@@ -540,3 +540,9 @@ z \   x `   c &   v %   b #   n @   m $   , ^   . ~   / ｜(管道)
   summary: "2026-10-16 长按字母键上屏改**三选一**(用户「可以设长按出L2还是L3」):设置 `longpress_symbol` = off / l2 / l3,默认 l2;旧的布尔 `longpress_l2` 只在没写过新键时兜底迁移(false→off、true→l2,不把用户关掉的开关悄悄打开)。**拼音中的分节符仍恒走 L2 的撇号、不受此设置影响**(不可关闭)。选 L3 时长按出该键 Sym 层输出 —— 中文全角态多为符号(L3_CN:T→《),其余落到出厂 L3 的**功能键**(Q→Esc、W→Up、A→Left、P→Tab、L→End、M→Ins…),功能键走 sendKey 真按下去(不是上屏文本)。实现:`resolveLayerOut(layer, code)` 统一\"当前语言表优先、出厂键位表兜底\"的查表(与 handleNormalKey 同一口径);LongPress 携带 layer + out(KeyOut),空闲出 Text/Special、组词出分节符。真机:L3 下长按 T 出《、长按 L 触发 move_end;设置对话框三选一渲染正常。"
   source: "2026-10-16 用户「可以设长按出L2还是L3」+ 真机验证"
   affects: [ime-interaction-model]
+
+- time: 2026-10-16T10:15:17
+  kind: reversal
+  summary: "2026-10-16 长按字母键上屏**收回单开关**(用户「长按字母改为只支持字母键 只需要一个开关 默认是开启的」，推翻同日那条三选一):设置回到 SwitchPreferenceCompat `longpress_l2`(默认 true)，出屏层恒为 L2；`longPressLayer` / `resolveLayerOut` / LongPress 的 layer+out 整体删除(L3 那套能力收回，旧键 `longpress_symbol` 不再读写，残留值无害)。 **只支持字母键**：tryArmLongPress 顶上第一道闸 = A-Z 之外(数字/标点/空格/功能键)一律不长按 —— 做成结构性约束，而不是依赖「出厂 L2/L3 表里恰好只有字母」这个巧合；配了证伪单测(自定义键位表给数字键 0 配 L2，@ 没有这道闸就会被武装)。 组词中长按 L 插 ASCII 分节符**仍不可关闭、与开关无关**，行为一字未改。 与 L6 虚拟键盘分支合流：保留「L6 面板开着时不武装」，把它落在空闲出符号那一支(symbolMode)上；分节符那一支(组词态)不受影响。 真机(Titan 2)：单开关默认开、开关落盘 true/false、短按 l、长按 L 出 ’ 且按住中状态行出现 alt 芯片、长按数字 5 与逗号只连发不上符号、组词中长按 L 回车提交回 ni'；345 单测全绿。"
+  source: "2026-10-16 用户指令 + 真机验证(TTANCN2100002663) + 345 单测"
+  affects: [ime-interaction-model, l6-virtual-keyboard]
