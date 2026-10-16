@@ -131,19 +131,81 @@ class ImeController(
 
     // ------------------------------------------------------------------ 长按字母键(2026-10-15 用户定)
 
-    /** 有长按待判定的按压在进行(该键的输出被推迟到 UP 或定时器)。 */
-    private var lpArmed = false
+    /**
+     * 一次「长按待判定」的按压。四个迁移全部经本对象,别处不直接改字段:
+     *
+     * - [arm] —— DOWN:登记(输出推迟 + 吞连发的起点)
+     * - [confirm] —— 300ms 定时器到点:长按成立,**层状态这一刻才跳 L2**
+     *   (DOWN 不跳:短按会闪 alt 芯片,那是预览;用户 2026-10-15 报障修正)
+     * - [cancel] —— 按住期间又按了别的键 / 复位:这次按压作废
+     * - [clear] —— UP 收尾,归还字段
+     *
+     * 与修饰键的 Hold([holdMod]/`LayerState.Hold`)是**两件事**:那个管层显示,
+     * 这个管输入时机;两者只在 confirm 到 UP 之间共存(Hold 由 confirm 装上)。
+     */
+    private class LongPress {
+        /** 待判定的键码;0 = 没有待判定的按压。 */
+        var code = 0
+            private set
 
-    /** 待判定按压的键码与 Caps 态;Shift 恒 false(Shift+键不抢,见 [tryArmLongPress])。 */
-    private var lpCode = 0
-    private var lpCaps = false
+        /** 按下时的 Caps 态(短按补输出要用)。 */
+        var caps = false
+            private set
 
-    /** 300ms 已到并出过屏(长按成立)⇒ UP 只收尾,不再补普通输出。 */
-    private var lpFired = false
+        /** 落点:true = 组分节符(不可关闭);false = 上屏 L2 符号(受开关管)。 */
+        var separator = false
+            private set
 
-    /** 长按落点:true = 插分节符(组词中,不可关闭);false = 上屏 L2 符号(空闲,受开关管)。 */
-    private var lpSeparator = false
-    private var lpSymbol = ""
+        /** 空闲落点要上屏的符号文本。 */
+        var symbol = ""
+            private set
+
+        /** 300ms 已确认(出过屏)。 */
+        var fired = false
+            private set
+
+        /** 被作废(按住期间按了别的键)。作废后 UP 仍认得出自己(code 保留),但不出字。 */
+        var canceled = false
+            private set
+
+        /** 有效的待判定:登记了、没确认、没作废。 */
+        val pending: Boolean get() = code != 0 && !fired && !canceled
+
+        /** 连发吞断期:待判定中或已确认(已出屏,不能再溅字);作废的不吞。 */
+        val swallowing: Boolean get() = code != 0 && !canceled
+
+        fun arm(code: Int, caps: Boolean, separator: Boolean, symbol: String) {
+            this.code = code
+            this.caps = caps
+            this.separator = separator
+            this.symbol = symbol
+            fired = false
+            canceled = false
+        }
+
+        fun confirm() {
+            fired = true
+        }
+
+        /** @return true = 这一下真的作废了一个待判定(调用方要撤定时器)。 */
+        fun cancel(): Boolean {
+            if (code == 0 || canceled || fired) return false
+            canceled = true
+            return true
+        }
+
+        /** UP 收尾:归还所有字段。 */
+        fun clear() {
+            code = 0
+            caps = false
+            separator = false
+            symbol = ""
+            fired = false
+            canceled = false
+        }
+    }
+
+    private val lp = LongPress()
 
     // ------------------------------------------------------------------ 长按修饰键
 
@@ -246,7 +308,7 @@ class ImeController(
         // 代价(随开关一起给):开开关期间字母提交从 DOWN 挪到 UP,快速连打无感,
         // 慢按有"松手才出字"的感觉;关开关则完全回到旧行为。
         if (!shift && !repeat && tryArmLongPress(code, caps)) return true
-        if (repeat && lpArmed && code == lpCode) return true
+        if (repeat && lp.swallowing && code == lp.code) return true
         return handleNormalKey(code, shift, caps)
     }
 
@@ -297,17 +359,16 @@ class ImeController(
             if (!ctrlUsedCombo && state.hasComposition) selectCandidate(3)
             return true
         }
-        // 长按待判定的收尾:短按 ⇒ 补上被推迟的普通输出;长按 ⇒ 定时器已出屏,这里只收尾。
-        // **Hold 无条件收尾**(之前可能已被 markModifiersUsed 作废):先恢复层,
-        // 再让短按的字母走 L1 路径 —— 顺序反了字母会变成 L2 符号。
-        if (code == lpCode && holdMod == Layer.L2 && holdCode == lpCode) {
-            val wasArmed = lpArmed
-            val alreadyFired = lpFired
-            lpArmed = false
-            lpFired = false
+        // 长按待判定的收尾(三种到达):短按 ⇒ 撤定时器补普通输出(无 Hold,走 L1);
+        // 长按已出屏 ⇒ 撤 [onLongPressFire] 跳的 L2 Hold 恢复层;被
+        // markModifiersUsed 作废 ⇒ 什么都不出。
+        if (lp.code != 0 && code == lp.code) {
+            val emit = lp.pending // 只有"还待判定的短按"要补输出
+            val caps = lp.caps
+            lp.clear()
             host.cancelLongPress()
-            endHold()
-            if (wasArmed && !alreadyFired) return handleNormalKey(lpCode, false, lpCaps)
+            if (holdMod == Layer.L2 && holdCode == code) endHold() // 先恢复层再出字母,反了字母会变 L2 符号
+            if (emit) return handleNormalKey(code, false, caps)
             return true
         }
         return false
@@ -353,16 +414,11 @@ class ImeController(
             (text == ChineseLanguage.SEPARATOR || text == "’")
         val symbolMode = !state.hasComposition && longPressSymbolEnabled
         if (!separatorMode && !symbolMode) return false
-        lpArmed = true
-        lpCode = code
-        lpCaps = caps
-        lpFired = false
-        lpSeparator = separatorMode
-        lpSymbol = text
-        // **状态与显示一致**(用户 2026-10-15 补):按住期间把层状态跳到 L2 ——
-        // 复用修饰键的 Hold(Alt 长按同一机制),状态行亮 alt 芯片、无下划线,
-        // 松手恢复按前的层。否则"按着 L2 符号的键、状态行却显示 L1"是断裂的。
-        beginHold(Layer.L2, code)
+        lp.arm(code, caps, separatorMode, text)
+        // **不在 DOWN 跳 L2**(2026-10-15 用户报障修正):武装时就 beginHold 会让
+        // 每次敲字母都闪一下 alt 芯片 —— 那是预览,而用户决策 3 定的就是
+        // "不要预览"。状态跳变推迟到 [onLongPressFire](长按确认那一刻)与符号
+        // 同时出现,松手恢复 —— 这才是"短暂的把状态跳到 L2"。
         host.scheduleLongPress(code)
         return true
     }
@@ -374,13 +430,17 @@ class ImeController(
      * 空闲直接提交符号;两次都震一下(与飞字过阈值同一套"这次定了"的反馈)。
      */
     fun onLongPressFire() {
-        if (!lpArmed) return
-        lpFired = true
-        if (lpSeparator) {
+        if (!lp.pending) return
+        lp.confirm()
+        // 状态与显示一致(用户 2026-10-15 定):长按确认这一刻才把层状态跳到 L2,
+        // 与符号同帧出现;松手(endHold)恢复。**DOWN 不跳** —— 否则短按也会
+        // 闪一下 alt 芯片,那是预览而不是一致性。
+        beginHold(Layer.L2, lp.code)
+        if (lp.separator) {
             state.raw += ChineseLanguage.SEPARATOR
             refreshQuery(from = "长按分节")
         } else {
-            host.commitText(lpSymbol)
+            host.commitText(lp.symbol)
             host.render()
         }
         haptics?.confirm()
@@ -437,12 +497,8 @@ class ImeController(
         if (holdMod != null && code != holdCode) {
             holdUsed = true
             // 另一颗键也按了(rollover):本次长按意图作废 —— 定时器取消、不收尾出字。
-            // 仍按住的那颗键松手只恢复层(见 onKeyUp 的 lpCode 分支)。
-            if (lpArmed) {
-                lpArmed = false
-                lpFired = false
-                host.cancelLongPress()
-            }
+            // 仍按住的那颗键松手只恢复层(见 onKeyUp 的长按收尾分支)。
+            if (lp.cancel()) host.cancelLongPress()
         }
         if (symDown && code != symKeycode) symProducedKey = true
         if (shiftHolding && code != shiftHeldCode) shiftUsedAsModifier = true
@@ -1088,8 +1144,7 @@ class ImeController(
         // 敲击计数 / 敲击窗口 / 按住时长 / 吸收窗:全在一处,一次清干净
         gestures.resetAll()
         // 长按字母键的待判定一起取消:窗口都收了,还挂着个 300ms 定时器会莫名出符号
-        lpArmed = false
-        lpFired = false
+        lp.clear()
         host.cancelLongPress()
         host.render()
     }

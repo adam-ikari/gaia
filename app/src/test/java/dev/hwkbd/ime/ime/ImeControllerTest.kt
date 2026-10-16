@@ -1705,16 +1705,29 @@ class ImeControllerTest {
         r.c.onKeyUp(42)
     }
 
-    /** 按住期间层状态跳到 L2(状态与显示一致),松手恢复。 */
+    /**
+     * 按住期间层状态跳到 L2(状态与显示一致),松手恢复。
+     * **且短按不闪**:2026-10-15 用户报障修正 —— 武装时就跳 L2 会让每次敲字母
+     * 都闪一下 alt 芯片(那是预览;用户决策 3 定的就是不要预览)。跳变只在
+     * 长按确认([ImeController.onLongPressFire])那一刻发生。
+     */
     @Test
-    fun `holding shows L2 state and release restores`() {
+    fun `L2 state jumps at confirm only and short tap never flashes`() {
         val r = rig()
+        // 长按路径:DOWN 不跳(不要预览),confirm 才跳,UP 恢复
         r.down(40)
-        assertEquals(Layer.L2, r.c.state.effectiveLayer)
+        assertEquals("DOWN 阶段就该是 L1(不要预览)", Layer.L1, r.c.state.effectiveLayer)
         r.c.onLongPressFire()
-        assertEquals(Layer.L2, r.c.state.effectiveLayer) // 按住期间一直是 L2
+        assertEquals(Layer.L2, r.c.state.effectiveLayer)
         r.c.onKeyUp(40)
-        assertEquals(Layer.L1, r.c.state.effectiveLayer) // 松手恢复
+        assertEquals(Layer.L1, r.c.state.effectiveLayer)
+
+        // 短按全程 L1(不闪 alt 芯片)
+        r.down(40)
+        assertEquals(Layer.L1, r.c.state.effectiveLayer)
+        r.c.onKeyUp(40)
+        assertEquals(Layer.L1, r.c.state.effectiveLayer)
+        assertEquals("l", r.c.state.raw)
     }
 
     /** 数字类框:L2 已聚焦锁定,长按无额外语义,不武装。 */
