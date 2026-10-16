@@ -956,9 +956,10 @@ class ImeService : InputMethodService() {
             if (alt > 0) intArrayOf(alt) else intArrayOf(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)
 
         candidateBar?.swipePageEnabled = p.getBoolean(PREF_SWIPE_PAGE, true)
-        // 长按字母键上屏 L2 符号(2026-10-15 用户定,默认开)。**拼音输入中长按 L
-        // 插分隔符不受它管** —— 那条不可关闭,见 ImeController.tryArmLongPress。
-        controller.longPressSymbolEnabled = p.getBoolean(PREF_LONGPRESS_L2, true)
+        // 长按字母键出哪一层(2026-10-16 用户「可以设长按出L2还是L3」):l2 / l3 / off。
+        // **拼音输入中长按 L 插分隔符不受它管** —— 那条恒走 L2、不可关闭,
+        // 见 ImeController.tryArmLongPress。
+        controller.longPressLayer = longPressLayer(p)
         // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
         haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
         migrateFlyThreshold(p)
@@ -1003,6 +1004,21 @@ class ImeService : InputMethodService() {
         l5Divider?.setBackgroundColor(theme.divider) // 分割线取主题分隔线色
         l4PanelSig = null // 主题可能变了,下次渲染重建键帽
         updateUi()
+    }
+
+    /**
+     * 长按字母键上屏的设置 → 出屏层:`l2` / `l3` / `off`(null = 关)。
+     *
+     * 兼容旧键:2026-10-16 之前是布尔 `longpress_l2`(默认开)。老机器上没写过新键时按
+     * 旧值迁移 —— `false` 迁成 `off`(**不把用户关掉的开关悄悄打开**),`true` 迁成 `l2`。
+     */
+    private fun longPressLayer(p: SharedPreferences): Layer? = when (
+        p.getString(PREF_LONGPRESS_SYMBOL, null)
+            ?: if (p.getBoolean(PREF_LONGPRESS_L2, true)) "l2" else "off"
+    ) {
+        "l2" -> Layer.L2
+        "l3" -> Layer.L3
+        else -> null
     }
 
     /**
@@ -1365,6 +1381,9 @@ class ImeService : InputMethodService() {
         // PREF_SWIPE_SELECT("swipe_select")2026-10-12 退役:候选栏上滑选字整条路移除,
         // 上屏收敛为点选。key 留着不管(老设置里的残留值无害),但不再有开关读它。
         const val PREF_SWIPE_PAGE = "swipe_page"
+        // PREF_LONGPRESS_L2 保留只为一次性迁移(见 longPressLayer):2026-10-16 起值改成
+        // 三选一的字符串,键换成 PREF_LONGPRESS_SYMBOL(l2 / l3 / off)。
+        const val PREF_LONGPRESS_SYMBOL = "longpress_symbol"
         const val PREF_LONGPRESS_L2 = "longpress_l2"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
 

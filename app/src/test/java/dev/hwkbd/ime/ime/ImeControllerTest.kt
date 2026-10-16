@@ -1640,11 +1640,11 @@ class ImeControllerTest {
     }
     // ---------------------------------------------------------- 长按字母键(2026-10-15 用户定)
 
-    /** 默认开:空闲长按 L ⇒ 上屏它的 L2 符号;DOWN 不出屏、定时器挂起。 */
+    /** 默认 L2:空闲长按 L ⇒ 上屏它的 L2 符号;DOWN 不出屏、定时器挂起。 */
     @Test
     fun `idle long press commits the L2 symbol by default`() {
         val r = rig()
-        assertTrue("开关默认应为开", r.c.longPressSymbolEnabled)
+        assertEquals("默认应出 L2(Alt 层)", Layer.L2, r.c.longPressLayer)
         r.down(40) // KEYCODE_L,不松手
         assertEquals("DOWN 阶段不应出屏(等 300ms 判定)", emptyList<String>(), r.h.commits)
         assertEquals(40, r.pendingLongPress())
@@ -1670,7 +1670,7 @@ class ImeControllerTest {
     @Test
     fun `switch off restores key repeat`() {
         val r = rig()
-        r.c.longPressSymbolEnabled = false
+        r.c.longPressLayer = null
         r.down(40)
         assertEquals("l", r.c.state.raw) // DOWN 就进缓冲(旧行为)
         assertEquals(null, r.pendingLongPress()) // 没有挂起的长按判定
@@ -1684,7 +1684,7 @@ class ImeControllerTest {
     fun `composing long press inserts separator even with switch off`() {
         val r = rig()
         r.type("ni")
-        r.c.longPressSymbolEnabled = false
+        r.c.longPressLayer = null
         r.down(40)
         assertEquals(emptyList<String>(), r.h.commits) // DOWN 不出(letter 也不出)
         r.c.onLongPressFire()
@@ -1747,5 +1747,53 @@ class ImeControllerTest {
         r.down(40)
         assertEquals("’", r.h.commits.single()) // DOWN 即出(中文全角 L2)
         assertEquals(null, r.pendingLongPress())
+    }
+
+    /**
+     * 设成 L3:空闲长按出该键的 L3 输出(中文全角态符号),层状态也跳到 L3
+     * —— 与出 L2 时同形,只是换了一层(2026-10-16 用户「可以设长按出L2还是L3」)。
+     */
+    @Test
+    fun `l3 setting commits the L3 output and jumps to L3`() {
+        val r = rig()
+        r.c.longPressLayer = Layer.L3
+        r.down(KeyEvent.KEYCODE_T)
+        assertEquals("DOWN 不出屏", emptyList<String>(), r.h.commits)
+        assertEquals(KeyEvent.KEYCODE_T, r.pendingLongPress())
+        r.c.onLongPressFire()
+        assertEquals("《", r.h.commits.single()) // 中文全角 L3(T)= 《(见 ChineseLanguage.L3_CN)
+        assertEquals("按住中状态应跳到 L3", Layer.L3, r.c.state.effectiveLayer)
+        r.c.onKeyUp(KeyEvent.KEYCODE_T)
+        assertEquals("《", r.h.commits.single()) // UP 只收尾
+        assertEquals(Layer.L1, r.c.state.effectiveLayer)
+    }
+
+    /** L3 上多数键是功能键:长按要真的按下去(走 sendKey),不是往上屏文本。 */
+    @Test
+    fun `l3 setting fires function keys through sendKey`() {
+        val r = rig()
+        r.c.longPressLayer = Layer.L3
+        r.down(KeyEvent.KEYCODE_Q) // 全角 L3 表没有 Q ⇒ 落到出厂 L3(Q)= key:esc
+        r.c.onLongPressFire()
+        assertEquals(emptyList<String>(), r.h.commits)
+        assertEquals("${KeyEvent.KEYCODE_ESCAPE}/false/false", r.h.keys.single())
+        r.c.onKeyUp(KeyEvent.KEYCODE_Q)
+    }
+
+    /**
+     * 层设置与拼音分节符无关:即便设成 L3,组词中长按 L 仍**只**插 ASCII 分节符
+     * (L2 的撇号那条路不可关闭,见 [ImeController.tryArmLongPress])。
+     */
+    @Test
+    fun `composing separator stays on L2 even when the layer is L3`() {
+        val r = rig()
+        r.c.longPressLayer = Layer.L3
+        r.type("ni")
+        r.down(40) // L
+        r.c.onLongPressFire()
+        assertEquals("ni'", r.c.state.raw)
+        assertEquals(emptyList<String>(), r.h.commits) // 不出 L3 的东西
+        r.c.onKeyUp(40)
+        assertEquals("ni'", r.c.state.raw)
     }
 }

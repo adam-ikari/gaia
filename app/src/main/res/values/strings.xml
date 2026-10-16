@@ -44,8 +44,9 @@
     <string name="pref_hz_split_12421">1 : 2 : 4 : 2 : 1</string>
     <string name="pref_hz_split_23432">2 : 3 : 4 : 3 : 2</string>
     <!-- pref_swipe_select 2026-10-12 随「候选栏上滑选字」功能一起移除,字符串也删掉 -->
-    <string name="pref_longpress_l2">长按字母键上屏符号</string>
-    <string name="pref_longpress_l2_desc">开启:长按字母键直接上屏该键的 L2 符号(按住期间状态跳到 L2);关闭:长按连续上屏(连发)。拼音输入中长按 L 输入分节符不受此开关影响。</string>
+    <!-- 2026-10-16:开关→三选一(关闭 / L2 / L3),旧的 pref_longpress_l2* 两条随之改名 -->
+    <string name="pref_longpress_symbol">长按字母键上屏</string>
+    <string name="pref_longpress_symbol_desc">空闲时长按字母键:L2 = 该键的 Alt 符号;L3 = Sym 编程层(多为方向键 / Esc / Tab 这类功能键);关闭 = 连续上屏。拼音输入中长按 L 插分节符不受此设置影响。</string>
     <string name="pref_swipe_page">候选栏左右滑翻页</string>
     <!-- 震动反馈:开关本身;desc 列出四个反馈点,让人知道关掉的是什么 -->
     <string name="pref_haptic">震动反馈</string>

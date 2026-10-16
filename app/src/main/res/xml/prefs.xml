@@ -21,11 +21,14 @@
             android:key="fullwidth_symbols_in_cn"
             android:defaultValue="true"
             android:title="@string/pref_fullwidth" />
-        <SwitchPreferenceCompat
-            android:key="longpress_l2"
-            android:defaultValue="true"
-            android:title="@string/pref_longpress_l2"
-            android:summary="@string/pref_longpress_l2_desc" />
+        <!-- 2026-10-16:开关→三选一(关闭 / L2 / L3),旧的 longpress_l2 布尔值由 ImeService 兜底迁移 -->
+        <ListPreference
+            android:key="longpress_symbol"
+            android:defaultValue="l2"
+            android:title="@string/pref_longpress_symbol"
+            android:entries="@array/longpress_symbol_entries"
+            android:entryValues="@array/longpress_symbol_values"
+            android:summary="@string/pref_longpress_symbol_desc" />
         <SwitchPreferenceCompat
             android:key="swipe_page"
             android:defaultValue="true"
