@@ -50,6 +50,13 @@
             android:entries="@array/page_threshold_entries"
             android:entryValues="@array/page_threshold_values"
             android:summary="%s" />
+        <ListPreference
+            android:key="key_gate_ms"
+            android:defaultValue="300"
+            android:title="@string/pref_key_gate"
+            android:entries="@array/key_gate_entries"
+            android:entryValues="@array/key_gate_values"
+            android:summary="%s" />
         <SwitchPreferenceCompat
             android:key="page_reverse"
             android:defaultValue="false"

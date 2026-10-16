@@ -28,7 +28,7 @@ class CandidateBarView @JvmOverloads constructor(
     /**
      * **本次手势允许走滑动吗**:起手那一下问一次,整条手势记住结论。
      *
-     * service 注入 [dev.hwkbd.ime.ime.KeyEventGate](按键后 200ms 静默窗)。
+     * service 注入 [dev.hwkbd.ime.ime.KeyEventGate](**按住键期间 + 抬手后一段**都不接滑动)。
      * **候选行也在其列**(2026-10-02 用户定「所有的键盘滑动都无效」)—— 键盘表面上敲完键
      * 紧接着划一下,和在候选行上划,是同一种"手还没离开键盘"的惯性。
      *

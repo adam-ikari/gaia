@@ -169,7 +169,8 @@ class L6PanelView @JvmOverloads constructor(
 
     /**
      * 本次手势的翻页许可(在 DOWN 时向 [swipeGate] 问一次)。默认 true = 没接门就是全放行。
-     * 与 L4/L5 同一套:静默窗(用户 2026-10-02「所有的键盘滑动都无效」)只挡滑动,**点键不看它**。
+     * 与 L4/L5 同一套:静默窗(用户 2026-10-02「所有的键盘滑动都无效」;2026-10-16 起是
+     * "按住键期间 + 抬手后一段",见 [dev.hwkbd.ime.ime.KeyEventGate])只挡滑动,**点键不看它**。
      */
     var swipeGate: (() -> Boolean)? = null
 

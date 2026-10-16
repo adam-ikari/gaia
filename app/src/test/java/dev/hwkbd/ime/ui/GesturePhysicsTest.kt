@@ -77,9 +77,9 @@ class GesturePhysicsTest {
         // 整条拖动不画位移、到头什么都不发生 ⇒ 「弹性动画和跟手动画还是没有」)。
         // 现在它走候选栏同一套 begin/move/end,所以跟手与橡皮筋只有一份实现。
         //
-        // **但提交线必须各按各的**:键盘面能划的距离小,按行宽 0.22(=317px)取的话
+        // **但提交线必须各按各的**:键面能划的距离小,按行宽 0.22(=317px)取的话
         // 轻轻一划根本翻不动 —— 所以那边用指尖位移档位注入。
-        val kbCommit = 8f // = FlyDetector.pageThresholdPx 标准档,口径是**死区之外**
+        val kbCommit = 24f // = FlyDetector.pageThresholdPx 标准档(2026-10-16 前是 8f),口径是**死区之外**
 
         // 档位换算过一次就够了:它本来就是从基线量的
         val fromBase = externalCommitFromBase(kbCommit)

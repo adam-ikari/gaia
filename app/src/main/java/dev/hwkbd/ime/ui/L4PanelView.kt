@@ -51,7 +51,8 @@ class L4PanelView @JvmOverloads constructor(
     /**
      * **本次手势允许走横滑吗**:起手那一下问一次,整条手势记住结论。
      *
-     * service 注入 [dev.hwkbd.ime.ime.KeyEventGate](按键后 200ms 静默窗)。**L5 横滑也在其列**
+     * service 注入 [dev.hwkbd.ime.ime.KeyEventGate](**按住键期间 + 抬手后一段**都不接滑动)。
+     * **L5 横滑也在其列**
      * (2026-10-02 用户定「所有的键盘滑动都无效」)。**键帽点按不走这里** —— 它走子 View 的
      * `setOnClickListener`,与手势分支无关,所以「敲一个键、紧接着点 L4 上的键」不受影响。
      *

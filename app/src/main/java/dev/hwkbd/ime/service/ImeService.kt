@@ -43,11 +43,11 @@ class ImeService : InputMethodService() {
     private lateinit var controller: ImeController
 
     /**
-     * 按键之后的滑动静默窗(2026-10-02 用户定案:按键后 200ms 不响应键盘滑动事件,
-     * 补定「无论是否消费」、再补定「**所有的**键盘滑动都无效」)。
+     * 按键与滑动之间的门。2026-10-02 定案「按键后不响应键盘滑动」,2026-10-16 扩成两段:
+     * **按住键期间一直挡 + 抬手后 [KeyEventGate.blockMs] 内也挡**(长度可配置,见 [PREF_KEY_GATE_MS])。
      *
-     * **三个滑动入口全查**:飞字手势(本类 [handleFlyMotion],键盘表面 TOUCHPAD)、
-     * 候选行([CandidateBarView])、L5 横滑([L4PanelView] tailMode)。
+     * **四个滑动入口全查**:飞字手势(本类 [handleFlyMotion],键盘表面 TOUCHPAD)、
+     * 候选行([CandidateBarView])、L5 横滑([L4PanelView] tailMode)、L6 横滑([L6PanelView])。
      * 点按与长按一律不查 —— 完整理由见 [dev.hwkbd.ime.ime.KeyEventGate] 的类注释。
      */
     private val keyGate = KeyEventGate()
@@ -464,10 +464,13 @@ class ImeService : InputMethodService() {
     // ------------------------------------------------------------------ 键事件
 
     /**
-     * 点 L4/L5 键帽:和物理键同等对待 —— 先记一次按键事件(起滑动静默窗),再走同一条提交路径。
+     * 点 L4/L5/L6 键帽:和物理键同等对待 —— 先记一次按键事件(起抬手后的静默窗),再走同一条提交路径。
      *
      * 屏上键帽和物理键的区别只在事件来源,不在后果:两者都会让候选重排。
      * 漏记的话就是「刚点完屏上的键,马上划一下却生效了」—— 同一种手速,两种结果。
+     *
+     * 走 [KeyEventGate.onKeyEvent] 而不是 onKeyDown/onKeyUp:点按没有"按住"这段,
+     * 它本身就是在抬手那一刻结算的,只需要抬手后的窗口。
      */
     private fun commitL4Tapped(out: dev.hwkbd.ime.keymap.KeyOut) {
         keyGate.onKeyEvent()
@@ -475,9 +478,10 @@ class ImeService : InputMethodService() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // **任何按键都起窗,不看消费与否**(用户 2026-10-02 补定「无论是否消费」)。
-        // 记在 null 检查之前 —— "有过一次按键"这件事不需要 KeyEvent 才成立。
-        keyGate.onKeyEvent()
+        // **任何按键都记,不看消费与否**(用户 2026-10-02 补定「无论是否消费」)。
+        // 记在 null 检查之前 —— "这个键正被按着"这件事不需要 KeyEvent 才成立。
+        // 按住期间手势整条不接(2026-10-16 用户「按键 down 的时候忽略手势」)。
+        keyGate.onKeyDown(keyCode)
         event ?: return super.onKeyDown(keyCode, event)
         // 新一次用户输入开始:上一次写入的确认窗口到此为止(见 [expireComposingAck])。
         expireComposingAck()
@@ -493,6 +497,9 @@ class ImeService : InputMethodService() {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        // 抬手也要记:**静默窗从抬手起算**(2026-10-16 用户「up 之后 300ms 以内也忽略」)。
+        // 同样记在 null 检查之前 —— 理由同 onKeyDown。
+        keyGate.onKeyUp(keyCode)
         event ?: return super.onKeyUp(keyCode, event)
         if (controller.onKeyUp(keyCode)) return true
         return super.onKeyUp(keyCode, event)
@@ -693,7 +700,7 @@ class ImeService : InputMethodService() {
          * **横向**翻页所需的指尖位移(px):键盘表面上左右划翻页的判据。
          *
          * 原先写死 60f,2026-10-02 用户「左右滑动阈值需要可调节性」改为由设置页档位注入
-         * (见 [ImeService.PAGE_THRESHOLD_TIERS])。**字段默认值随默认档走**(标准档 = 8f),
+         * (见 [ImeService.PAGE_THRESHOLD_TIERS])。**字段默认值随默认档走**(标准档 = 24f),
          * 没有偏好时先用它顶着,`applyPrefs` 会立刻用真档位覆盖。
          *
          * **口径 = 死区之外还要走多远**,不是手指总行程。拖动基线定在死区被跨过的那一帧,
@@ -702,11 +709,15 @@ class ImeService : InputMethodService() {
          * 旧口径下 [dev.hwkbd.ime.ui.CandidateBarView] 减了、下面 ACTION_UP 的兜底忘了减,
          * 两处量纲对不上。死区因此也不再暗中影响灵敏度。
          *
-         * **它与候选行的阈值不是同一个量纲**:键盘面上横向能走到的距离本来就小
-         * (8px ≈ 行宽 0.22 的四十分之一),照搬候选行那个比例会变成"几乎划不动"。
+         * **它与候选行的阈值不是同一个量纲**:键面上横向能走到的距离本来就小
+         * (标准档 24px ≈ 候选行标准档 317px 的 1/13),照搬候选行那个比例会变成"几乎划不动"。
          * 所以档位表对两处分别给值。
+         *
+         * **2026-10-16 与死区一起调大**(第二列 4/8/20 → 12/24/60):死区只管"手放在键面上、
+         * 还没打算划"的噪声,真去翻一页要划多远由这一列决定 —— 那张总行程表在
+         * [dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE] 的注释里。
          */
-        var pageThresholdPx = 8f
+        var pageThresholdPx = 24f
 
         /**
          * 上滑死区:**固定值**,不随 [threshold] 变
@@ -714,7 +725,8 @@ class ImeService : InputMethodService() {
          *
          * 此前是 `threshold / 4`,于是三档给出 25 / 40 / 60px —— 调上滑距离时死区跟着动,
          * 手感会连带乱掉,而且「灵敏」档的起手空白只有 12.5dp、「保守」档 30dp,
-         * 差的不只是触发点。现在与横滑共用 [dev.hwkbd.ime.ui.DragGesture.DEAD_DP]。
+         * 差的不只是触发点。现在键面上横纵共用 [dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE]
+         * (12dp;2026-10-16 从 8dp 调大,理由见那条)。
          *
          * 键距在屏幕坐标里,`FlyDetector` 拿不到 density(它是脱离 View 的内部类),
          * 所以由 service 用本机 density 注入 —— 见构造处的 `deadPx`。
@@ -725,7 +737,8 @@ class ImeService : InputMethodService() {
          * **横滑**(翻页)的死区(px)。与 [deadPx](上滑)**分开**(2026-10-04)。
          *
          * 本类里横纵两向都要判死区,而用户要「翻页更灵」但「不改上滑」——
-         * 共用一个字段时这两条是冲突的,所以拆开注入。
+         * 共用一个字段时这两条是冲突的,所以拆开注入(两个字段留着,便于将来只调一轴;
+         * 2026-10-16 两边喂的是**同一个** [dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE])。
          * 键距在屏幕坐标里,本类拿不到 density,所以两个都由 service 注入。
          */
         var swipeDeadPx = 0f
@@ -759,7 +772,7 @@ class ImeService : InputMethodService() {
                         listener.onPageDragMove(x, eventTime)
                         return null
                     }
-                    // 横向占优且过了死区 → 起手翻页拖动(与候选行同一个死区常量)。
+                    // 横向占优且过了死区 → 起手翻页拖动(死区吃键面那一档 DEAD_DP_SURFACE)。
                     // 必须在 MOVE 里接管:抬手才判的话整条拖动不画位移,跟手动画就没有。
                     if (adx > swipeDeadZone && adx > dy) {
                         val dir = if (dx < 0f) 1f else -1f
@@ -1001,15 +1014,23 @@ class ImeService : InputMethodService() {
         controller.longPressSymbolEnabled = p.getBoolean(PREF_LONGPRESS_L2, true)
         // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
         haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
+        // 按键与滑动之间的门:按住键期间一律不接手势,抬手后再挡 blockMs 那么久
+        // (2026-10-16 用户「按键 down 的时候忽略手势,up 之后 300ms 以内也忽略,并且可配置」)。
+        // **按住那段不受这个值影响** —— 它是物理判据,不是手感偏好(见 [KeyEventGate])。
+        keyGate.blockMs = p.getString(PREF_KEY_GATE_MS, KEY_GATE_MS_DEFAULT)?.toLongOrNull()
+            ?: KEY_GATE_MS_DEFAULT.toLong()
         migrateFlyThreshold(p)
         val flyThreshold = p.getString(PREF_FLY_THRESHOLD, FLY_THRESHOLD_DEFAULT)?.toFloatOrNull()
             ?: FLY_THRESHOLD_DEFAULT.toFloat()
         flyDetector.threshold = flyThreshold
         // 死区固定(density 相关,见 FlyDetector.deadPx / swipeDeadPx)。
-        // **横滑与上滑是两个常量**(2026-10-04 用户:翻页要更灵、上滑不动)。
+        // **键盘表面吃自己那一档**([dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE],12dp;
+        // 2026-10-16 用户「键盘面死区调大 8dp → 12dp」)。屏幕上那两块真触摸板
+        // (候选行 / L5 / L6)仍用 DEAD_DP / DEAD_DP_SWIPE(8dp)。
+        // 键面上横纵用**同一个值**:上滑飞字与横滑翻页在同一种手上,不分开调。
         val density = resources.displayMetrics.density
-        flyDetector.deadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP * density
-        flyDetector.swipeDeadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SWIPE * density
+        flyDetector.deadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE * density
+        flyDetector.swipeDeadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE * density
         // 左右滑翻页的阈值:一个开关同时喂候选行、L5、键盘表面三处
         val (pageFrac, pagePx) = pageThreshold(p)
         candidateBar?.pageCommitFrac = pageFrac
@@ -1448,6 +1469,20 @@ class ImeService : InputMethodService() {
         const val PREF_PAGE_THRESHOLD = "page_threshold"
 
         /**
+         * 按键与滑动之间的间隔(2026-10-16 用户「并且可配置」)。值是毫秒字符串,**0 = 关掉抬手后那段**。
+         *
+         * 只配「抬手后」那一段:**按住键期间一律不接手势**(物理判据)不受这个值影响,
+         * 理由见 [dev.hwkbd.ime.ime.KeyEventGate] 的类注释。
+         */
+        const val PREF_KEY_GATE_MS = "key_gate_ms"
+
+        /**
+         * [PREF_KEY_GATE_MS] 的默认档(ms 字符串)。与 [dev.hwkbd.ime.ime.KeyEventGate.DEFAULT_BLOCK_MS]
+         * 同值 —— 后者是判定实现的默认值,这里是设置页的默认档,由 `KeyEventGateTest` 钉住两者相等。
+         */
+        const val KEY_GATE_MS_DEFAULT = "300"
+
+        /**
          * 默认档:`normal`。它现在的取值 = 用户真机认可的手感(2026-10-02
          * 「灵敏这档的横向滑动手感算正常」+「手感允许变化」)。
          *
@@ -1462,7 +1497,7 @@ class ImeService : InputMethodService() {
          * 改名会让老机器读到旧值静默回落(见 [pageThreshold])。这次连迁移都不需要 ——
          * 老偏好里的 `normal` 读出来仍是"标准档",只是数值比旧版灵敏了一点,那正是本次要的方向。
          *
-         * 与两处出厂常量一致(候选行/L5 = 行宽 0.22,键盘表面 = 死区外 8px)。
+         * 与两处出厂常量一致(候选行/L5 = 行宽 0.22,键盘表面 = 死区外 24px)。
          */
         private const val PAGE_THRESHOLD_DEFAULT = "normal"
 
@@ -1470,8 +1505,8 @@ class ImeService : InputMethodService() {
          * 档位表:一行 = [候选行/L5 的行宽比例, **死区之外**还要走的 px]。
          *
          * **为什么不给一个量纲**:两处的可滑距离差一个量级 —— 候选行 1440px 宽,
-         * 默认档 0.22 就是 317px;而键盘表面上能横向划的距离本就小,8px 就该翻页。
-         * 照搬同一个比例会让键盘面"几乎划不动"。所以档位名共用、数值分别给,
+         * 默认档 0.22 就是 317px;而键面上能横向划的距离本就小,24px(2026-10-16 前是 8px)
+         * 就该翻页。照搬同一个比例会让键盘面"几乎划不动"。所以档位名共用、数值分别给,
          * 用户看到的仍然只有一个开关。
          *
          * ## 键盘面那一列为什么是"死区外"(2026-10-02 用户定)
@@ -1483,18 +1518,27 @@ class ImeService : InputMethodService() {
          *    只有 8px,想再加一档更灵敏的加不出来(死区已经是它的地板)。
          *
          * 改成"死区外"之后,档位就是用户真正在调的那个数:基线定在死区被跨过的那一帧,
-         * 死区已经走完了,所以提交线直接拿来比,三档也终于均匀(4 / 8 / 20,各差一档)。
+         * 死区已经走完了,所以提交线直接拿来比,三档也终于均匀。
          *
          * **顺带得到一条独立性**:死区改小时提交距离不受影响(改之前两者纠缠在一起 ——
          * 死区一小,总行程那一列的等效提交距离就跟着变,等于暗中改了灵敏度)。
+         * 2026-10-16 死区从 8dp 调到 12dp 时这条独立性就顶上了:档位表不必跟着动,
+         * 只有"总行程"变长(见 DragGesture.DEAD_DP_SURFACE 里那张表)。
+         *
+         * ## 第二列 4/8/20 → 12/24/60(2026-10-16 用户「连横滑阈值档位一起调大」)
+         *
+         * 起因是误触:8px ≈ 0.5mm,指尖压键时滚一下就过线,等于"一碰就翻"。
+         * **每档 ×3**,档间倍差(2× / 2.5×)不变 —— 那条被 [PageThresholdTierTest] 钉着,
+         * 所以放大只能整列放大,不能顺手改台阶形状。
          *
          * 比例这一列改动要同步 [dev.hwkbd.ime.ui.PAGE_COMMIT_FRAC] 与
          * [dev.hwkbd.ime.ui.L4PanelView.L5_COMMIT_FRAC] —— 那是**无偏好时**的出厂值。
+         * (本次只动第二列,比例那一列一个数都没改。)
          */
         private val PAGE_THRESHOLD_TIERS = mapOf(
-            "sensitive" to (0.16f to 4f),
-            "normal" to (0.22f to 8f),
-            "conservative" to (0.33f to 20f),
+            "sensitive" to (0.16f to 12f),
+            "normal" to (0.22f to 24f),
+            "conservative" to (0.33f to 60f),
         )
 
         /**

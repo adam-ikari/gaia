@@ -53,6 +53,9 @@
     <string name="pref_theme">输入法主题</string>
     <string name="pref_fly_threshold">飞字触发滑动距离</string>
     <string name="pref_page_threshold">左右滑翻页所需距离</string>
+    <!-- 这个「间隔」是按键与滑动之间的门:按住键期间不接滑动(与下面的档位无关),
+         抬手后还要再挡选中的时长 —— 见 KeyEventGate -->
+    <string name="pref_key_gate">按键后忽略键盘滑动</string>
     <string name="titan2_fn_hint_title">Titan 2 用户必读：Fn 键需设为 Ctrl</string>
     <string name="titan2_fn_hint_body">五键选字里的「Ctrl 单击」以及 Ctrl 组合键（Ctrl+C 等）依赖 Fn 键。\n\n请先在系统设置中把 Fn 键指派为 Ctrl：\n设置 → 快捷键与手势（或键盘设置）→ Fn 键 → 选「Ctrl」。\n\nAlt / Sym / Shift 无需设置，直接可用。</string>
     <string name="pref_page_reverse">翻页方向反转</string>

@@ -426,37 +426,42 @@ class PageSettleTest {
      */
     @Test
     fun `横滑死区必须大于生理性手抖`() {
-        // 1mm ≈ 3.9dp @400dpi;取其一半做下限 ⇒ 死区至少要 ~5dp 才拦得住最轻的抖。
+        // 1mm ≈ 6.3dp @400dpi(density 2.5;1dp = 1/160 inch = 0.159mm),
+        // 取 5dp(≈0.8mm)做下限 ⇒ 死区至少要盖住最轻的抖。
         val minDeadDp = 5f
-        assertTrue(
-            "横滑死区 ${DragGesture.DEAD_DP_SWIPE}dp 太小,拦不住手指抖动(下限 ${minDeadDp}dp)",
-            DragGesture.DEAD_DP_SWIPE >= minDeadDp,
-        )
-        // 在 Titan 2 的密度上折成毫米,让「为什么是这个数」留在断言里。
-        val mm = DragGesture.DEAD_DP_SWIPE * 2.5f / 25.4f
-        assertTrue(
-            "横滑死区在 400dpi 上是 ${"%.2f".format(mm)}mm,应 ≥0.6mm 才能盖住最轻的抖",
-            mm >= 0.5f,
-        )
+        // 两个面各有一个横滑死区常量,两个都得过这条线:
+        // 键面([DEAD_DP_SURFACE])是误触发生的地方 —— 2026-10-16 从 8dp 调大到 12dp,
+        // 屏幕上那两块真触摸板([DEAD_DP_SWIPE])沿用 8dp。
+        for ((name, dp) in listOf(
+            "键面 DEAD_DP_SURFACE" to DragGesture.DEAD_DP_SURFACE,
+            "屏幕触摸板 DEAD_DP_SWIPE" to DragGesture.DEAD_DP_SWIPE,
+        )) {
+            assertTrue("$name = ${dp}dp 太小,拦不住手指抖动(下限 ${minDeadDp}dp)", dp >= minDeadDp)
+            val mm = dp / 6.3f
+            assertTrue(
+                "$name 在 400dpi 上是 ${"%.2f".format(mm)}mm,应 ≥0.6mm 才能盖住最轻的抖",
+                mm >= 0.6f,
+            )
+        }
     }
 
     /**
      * 死区与提交线必须留出余量。
      *
-     * 键盘表面的接管门槛是 `死区 + 提交线`([FlyDetector] 的
-     * `adx > swipeDeadZone + pageThresholdPx`),而基线定在**跨过门槛那一帧** ——
-     * 所以真正要翻页的总行程 ≈ `2× 死区 + 提交线`。
+     * 键面上「真去翻一页」要划的距离 ≈ `死区 + 提交线`([FlyDetector] 的 MOVE 接管门槛是
+     * `adx > swipeDeadZone`、基线定在那一帧,抬手兜底那条线是 `swipeDeadZone + pageThresholdPx`)。
      * 死区一大就把这条总行程一起放大,灵敏度档位之间的差异被压扁,
      * 那正是 2026-10-02 拆开死区/提交线要避免的事(见 PAGE_THRESHOLD_TIERS 的注释)。
      */
     @Test
     fun `死区放大后总行程仍在可用范围内`() {
-        // 死区 8dp = 20px @400dpi;conservative 档提交线 20px。
-        // 总行程 ≈ 20(门槛内的死区) + 20(跨门槛那帧) + 20(提交) = 60px ≈ 24dp。
-        val deadPx = DragGesture.DEAD_DP_SWIPE * 2.5f
-        val totalPx = deadPx * 2 + 20f
+        // 键面死区 12dp = 30px @400dpi;最粗档提交线 60px(2026-10-16 与死区一起调大)。
+        // 总行程 ≈ 30(跨死区那帧) + 60(提交) = 90px ≈ 0.63 个键列(一列 ≈ 144px ≈ 9mm)。
+        val deadPx = DragGesture.DEAD_DP_SURFACE * 2.5f
+        val roughestCommitPx = 60f
+        val totalPx = deadPx + roughestCommitPx
         assertTrue(
-            "最粗档的总行程 ${totalPx.toInt()}px 太长,横滑会划不动(应 ≤120px)",
+            "最粗档的总行程 ${totalPx.toInt()}px 太长,横滑会划不动(应 ≤120px,约 0.83 个键列)",
             totalPx <= 120f,
         )
     }

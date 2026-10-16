@@ -18,9 +18,9 @@ class PageThresholdTierTest {
      * 改表时**两处必须一起改** —— 这正是本测试要盯的。
      */
     private val tiers = mapOf(
-        "sensitive" to (0.16f to 4f),
-        "normal" to (0.22f to 8f),
-        "conservative" to (0.33f to 20f),
+        "sensitive" to (0.16f to 12f),
+        "normal" to (0.22f to 24f),
+        "conservative" to (0.33f to 60f),
     )
 
     @Test
@@ -46,7 +46,7 @@ class PageThresholdTierTest {
             "默认档应等于 L4PanelView.L5_COMMIT_FRAC",
             dev.hwkbd.ime.ui.L4PanelView.L5_COMMIT_FRAC, frac, 1e-6f,
         )
-        assertEquals("键盘表面默认值是死区外 8px", 8f, px, 1e-6f)
+        assertEquals("键盘表面默认值是死区外 24px", 24f, px, 1e-6f)
     }
 
     @Test
@@ -62,9 +62,11 @@ class PageThresholdTierTest {
     fun `键盘面那列是死区外的距离 三档台阶不被死区压扁`() {
         // 旧口径是"手指总行程"(含 32px 死区),三档 40/60/90 减掉死区后只剩 8/28/58,
         // 最灵敏那档离死区只有 8px —— 想再加一档更灵敏的加不出来,死区已经是它的地板。
-        // 现在档位就是死区外的提交距离(4/8/20),数值本身远小于死区,比例不再是意义。
+        // 现在档位就是死区外的提交距离(12/24/60),它跟死区是**两个独立的数** —— 
+        // 2026-10-16 死区 8dp→12dp 时这一列一个数都没动。
         //
         // **要验的是"倍差",不是绝对值**:改死区时档位不该跟着变。
+        // (2026-10-16 把整列 ×3 就是因为这条:4/8/20 → 12/24/60,台阶形状一个数没动。)
         val (_, sensitive) = tiers.getValue("sensitive")
         val (_, normal) = tiers.getValue("normal")
         val (_, conservative) = tiers.getValue("conservative")
@@ -93,11 +95,12 @@ class PageThresholdTierTest {
 
     @Test
     fun `键盘面与候选行的比例不同量纲 不该被当成同一个数`() {
-        // 键盘面上横向能走到的距离本就小:候选行 1440px 宽时 1/3 是 475px,
-        // 而键盘面 60px 就该翻页。档位表对两处分别给值就是为这个 ——
+        // 键面上横向能走到的距离本就小:候选行 1440px 宽时 1/3 是 475px,
+        // 而键面 90px 就该翻页。档位表对两处分别给值就是为这个 ——
         // 这条测试是提醒后来的人别"顺手统一"成同一个比例。
-        // 候选行 1440px 宽时标准档是 317px,键盘面只要 8px(死区之外)。
-        // 差 40 倍 —— 这不是标定失误,是两个量纲:触摸面板上横向能划的距离本就那么点。
+        // 候选行 1440px 宽时标准档是 317px,键面只要 24px(死区之外)。
+        // 差 13 倍 —— 这不是标定失误,是两个量纲:键面(固件映射的 10 个键列)上横向能划的距离
+        // 只有那么点,而且它还有静默窗([dev.hwkbd.ime.ime.KeyEventGate])分担防误触。
         val (frac, px) = tiers.getValue("normal")
         val rowWidth = 1440f
         val rowPx = rowWidth * frac
