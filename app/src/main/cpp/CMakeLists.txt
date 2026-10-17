@@ -211,9 +211,14 @@ if(NOT EXISTS ${_STAMP})
 set(_DEP_PY)
 if(DEFINED ENV{PYTHON_EXECUTABLE})
     set(_DEP_PY -DPYTHON_EXECUTABLE=$ENV{PYTHON_EXECUTABLE})
-elseif(WIN32)
+endif()
+if(NOT _DEP_PY)
     # Windows 上 `python` 是 Microsoft Store 的 App Execution Alias 存根:
-    # 文件在,跑起来提示「去商店安装」。所以按名字找**不可靠**。
+    # 文件在,跑起来提示「去商店安装」。所以按名字找**不可靠** —— find_program
+    # 会挑中存根,词典若真跑起来就在运行期出花。给 python3 排在前面找。
+    # **不只 Windows**:2026-10-17 冷配置实测,Linux 上 CI/本地若没导出
+    # PYTHON_EXECUTABLE,这里同样是死路 —— 需要解释器的是 opencc 的 configure 检查,
+    # 与构建机是什么 OS 无关,当初把 find_program 只写在 WIN32 分支是配方的漏洞。
     foreach(_p python3 python)
         find_program(_py_${_p} NAMES ${_p})
         if(_py_${_p})
@@ -334,6 +339,14 @@ endif()
 file(COPY ${_oc_lib} DESTINATION ${DEPS_STAGE}/lib)
 file(COPY ${RIME_SRC}/deps/opencc/src/ DESTINATION ${DEPS_STAGE}/include/opencc
      FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+
+# 2026-10-17:fork 的 RimeDepProvenance 判据要「解析到的 opencc 版本」,
+# 它读库旁的 `pkgconfig/opencc.pc` 或 cmake/opencc/OpenCCConfigVersion.cmake
+# (见 librime/cmake/RimeDepProvenance.cmake 的 rime_detect_opencc_version)。
+# 我们不跑 opencc 的 install(挂在词典上),这两个文件得**自己带进 stage**,
+# 否则版本报 unknown、每次 configure 都弹一条版本无从核对的 WARNING。
+file(COPY ${_oc_build}/opencc.pc DESTINATION ${DEPS_STAGE}/lib/pkgconfig)
+file(COPY ${_oc_build}/OpenCCConfigVersion.cmake DESTINATION ${DEPS_STAGE}/cmake/opencc)
 
 # 判据:库在、头文件在。**词典不在验收条件里。**
 if(NOT EXISTS ${DEPS_STAGE}/lib/libopencc${CMAKE_STATIC_LIBRARY_SUFFIX})
