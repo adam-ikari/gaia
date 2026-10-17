@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [architecture, state-machine]
 created: "2026-10-16T08:18:37"
-updated: "2026-10-16T08:18:37"
+updated: "2026-10-17T05:16:37"
 ---
 
 <!-- compiled_truth -->
@@ -44,3 +44,9 @@ updated: "2026-10-16T08:18:37"
   summary: "建立状态机方针页:sealed 状态 + 纯 transition 函数 + 单测,不引状态机库(调研 Tinder 0.2.0/kapt/体积/许可证四条理由),范围只维持长按、其余两块暂不动"
   source: "2026-10-16 用户「使用状态机库解决状态的复杂性」+ 选定 B 方案"
   affects: [state-machine-approach]
+
+- time: 2026-10-17T05:16:37
+  kind: decision
+  summary: "raw/rawBase 写权限收敛(本方针落地实例):ImeState 的 raw/rawBase 改 private set,写入收成 appendRaw/dropLastRaw/consumeRaw/rebuildRaw/clearRaw 五个语义方法,每个按语义正确配对 raw/base(片段内编辑 base 不变/消费 base=consumed/重建 base=0/清空全清)。非法组合(raw 截了 base 忘归零)从写不出来。根因同 2026-10-16 连续消费 bug:三处手写复位点漏一处就漂。7 处调用点改方法,读取点零改动。"
+  source: "2026-10-17 用户「修复」+ 选方案 B(收敛写权限,不加值对象类)"
+  affects: [state-machine-approach, rime-candidate-consumption]
