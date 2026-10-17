@@ -180,6 +180,7 @@ class ImeState {
 
     /** 拼音缓冲(中文态),也是编辑框里的组词区内容。 */
     var raw = ""
+        private set
 
     /**
      * [raw] 的起点在**引擎当前输入串**里的偏移(2026-10-16 修连续消费丢候选的真 bug)。
@@ -192,6 +193,24 @@ class ImeState {
      * 而**消费不重建**(引擎自己前进),此时 [raw] 的起点 = 引擎已经吃掉的绝对量。
      */
     var rawBase: Int = 0
+        private set
+
+    /**
+     * 组词缓冲写入入口(2026-10-17 收敛):`raw` 与 `rawBase` 是同一事实的两份表示
+     * (raw=当前拼音片段,相对当前片段;rawBase=该片段在引擎输入串里的绝对起点)。
+     * 曾各留 var 字段、靠三处手写复位点维持一致 —— 漏一处就漂(`raw` 截了 `rawBase` 忘归零
+     * ⇒ 下次消费多截、剩余拼音丢光,即 2026-10-16 连续消费 bug 的根因)。
+     * 收敛后 base 只能经这组方法改,每个方法按语义正确配对 raw/base:
+     * - [appendRaw] / [dropLastRaw]:当前片段内编辑,引擎串从同一起点继续增长 ⇒ base 不变;
+     * - [consumeRaw]:选词消费,引擎吃到 [consumed](绝对量),raw 截尾、base=consumed;
+     * - [rebuildRaw]:引擎以 [newRaw] 重建 composition,起点回 0 ⇒ base=0;
+     * - [clearRaw]:组词开端/换框/收面板,raw 与 base 一起清。
+     */
+    fun appendRaw(s: String) { raw += s }
+    fun dropLastRaw() { raw = raw.dropLast(1) }
+    fun consumeRaw(newRaw: String, consumed: Int) { raw = newRaw; rawBase = consumed }
+    fun rebuildRaw(newRaw: String) { raw = newRaw; rawBase = 0 }
+    fun clearRaw() { raw = ""; rawBase = 0 }
 
     /**
      * 拼音的**显示串**(带自动分隔符的拼写,如 `xi'an`);空 = 用 [raw] 原样显示。

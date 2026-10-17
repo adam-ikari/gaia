@@ -448,7 +448,7 @@ class ImeController(
         // 闪一下 alt 状态项,那是预览而不是一致性。
         beginHold(Layer.L2, lp.code)
         if (lp.separator) {
-            state.raw += ChineseLanguage.SEPARATOR
+            state.appendRaw(ChineseLanguage.SEPARATOR)
             refreshQuery(from = "长按分节")
         } else {
             host.commitText(lp.symbol)
@@ -780,8 +780,7 @@ class ImeController(
             // 都归到这里 —— 动作相同,但含义不同,埋点那一行分得开。
             clearComposition()
         } else {
-            state.raw = rem.raw
-            state.rawBase = consumed ?: 0 // 引擎已吃掉的绝对量 = 新 raw 的起点
+            state.consumeRaw(rem.raw, consumed!!) // 引擎已吃掉的绝对量 = 新 raw 的起点
             state.page = 0
             state.highlight = -1
             state.candidates = rem.candidates
@@ -896,7 +895,7 @@ class ImeController(
                 // (拼音策略**不改写字母** —— 理由见 Language.mapText)
                 val text = language().mapText(out.text, state)
                 if (language().composes(text, state)) {
-                    state.raw += text
+                    state.appendRaw(text)
                     refreshQuery(from = "L4 文本键")
                 } else {
                     flushComposition()
@@ -1048,7 +1047,7 @@ class ImeController(
         }
         if (state.raw.isNotEmpty()) {
             state.candidates = inputMethod().query(state.raw, CANDIDATE_LIMIT)
-            state.rawBase = 0 // 引擎以 raw 重建,坐标从 raw 头算起
+            state.rebuildRaw(state.raw) // 引擎以 raw 重建,坐标从 raw 头算起
             state.page = 0
             state.highlight = -1
             // 显示拼写跟着新菜单走(新查询恒回第 0 页,故中央槽 index=0)。
@@ -1138,8 +1137,7 @@ class ImeController(
     }
 
     fun clearComposition() {
-        state.raw = ""
-        state.rawBase = 0
+        state.clearRaw()
         state.candidates = emptyList()
         // 清空本身不调 [logCandidates],所以在这里把签名失效 ——
         // 否则「清空后再敲同一个键」因为 (raw,n) 与上一次相同而**不打日志**。
@@ -1371,7 +1369,7 @@ class ImeController(
             }
             KeyEvent.KEYCODE_DEL -> {
                 if (state.hasComposition) {
-                    state.raw = state.raw.dropLast(1)
+                    state.dropLastRaw()
                     refreshQuery(from = "退格")
                 } else {
                     host.sendKey(KeyEvent.KEYCODE_DEL)
@@ -1415,7 +1413,7 @@ class ImeController(
                 if (digitsOnly && !digitAllowed(text)) return true
                 if (lang.composes(text, state)) {
                     // 进组词缓冲(拼音字母;分隔符只在组词中被接纳)
-                    state.raw += text
+                    state.appendRaw(text)
                     refreshQuery(from = "字符键")
                 } else {
                     // 语言策略决定上屏形态:英文跟大写、中文按开关全角;**数字类放行的字符强制半角**

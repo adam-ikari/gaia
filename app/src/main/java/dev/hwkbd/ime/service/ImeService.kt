@@ -92,11 +92,13 @@ class ImeService : InputMethodService() {
         android.content.ClipboardManager.OnPrimaryClipChangedListener { readClipboard() }
 
     /**
-     * 读一次系统剪贴板并记进历史。剪贴板监听回调里调 —— 前台 IME 有焦点,能读 `primaryClip`
-     * (Android 10+ 的后台读取限制不影响输入法)。敏感标记(密码管理器会设)只有 Android 13+ 有。
+     * 读一次系统剪贴板并记进历史。剪贴板监听在 onCreate 注册、全程生效(含 IME 隐藏时
+     * 别的 App 复制触发回调)。Android 10+ 的后台读取限制对当前 IME 多半豁免,但豁免边界
+     * 未在真机确证 —— `primaryClip` 读取包 try/catch 防一次 SecurityException 崩进程。
+     * 敏感标记(密码管理器会设)只有 Android 13+ 有。
      */
     private fun readClipboard() {
-        val clip = clipManager?.primaryClip ?: return
+        val clip = try { clipManager?.primaryClip ?: return } catch (_: SecurityException) { return }
         if (clip.itemCount == 0) return
         val text = clip.getItemAt(0).coerceToText(this)?.toString() ?: return
         val sensitive = if (android.os.Build.VERSION.SDK_INT >= 33) {
