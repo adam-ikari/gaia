@@ -69,7 +69,7 @@ class PinyinConsumptionTest {
     }
 
     /**
-     * `consumed` 超过 raw 里**非撇字符**的个数 ⇒ 空串(`ni'hao` 走 6 个同样全清)。
+     * `consumed` 超过 raw 的长度(含撇的下标也按 raw.length 夹)⇒ 空串。
      *
      * 宁可全清,也不能留半个词:留 `"ni"` 那样用户会以为按键没生效。
      */
@@ -77,83 +77,78 @@ class PinyinConsumptionTest {
     fun `consumed 超过长度时给空串`() {
         assertEquals("", rawAfterConsuming("nihao", 99))
         assertEquals("", rawAfterConsuming("ni", 5))
-        assertEquals("", rawAfterConsuming("ni'hao", 6)) // 只有 5 个非撇字符,6 吃不到
+        assertEquals("", rawAfterConsuming("ni'hao", 6)) // 含撇长度 = 6
     }
 
     // ---------------- 分节符的坐标桥
 
     /**
-     * [consumed] 数的是**非撇字符**(喂引擎时 `'` 被跳过,坐标就去撇;
-     * 详见 [rawAfterConsuming] 的口径)。`ni'hao` 吃 2 ⇒ 第 2 个非撇字符
-     * 是 `i`,切点紧跟其后 —— 正好压在分节符上 ⇒ 撇一起丢。
+     * [consumed] 是**含撇下标**(喂撇定案:引擎覆盖段把撇算进门,
+     * `ni'hao` 的「你」end=3,探针实测)。所以 `ni'hao` 吃 2 ⇒ 切点落在下标 2 ——
+     * 那正好是一个分节符,这个用例钉的是「切点落撇丢撇」的兜底
+     * (正常引擎 consume 不会指到撇上,见 [rawAfterConsuming] 的病态输入说明)。
      */
     @Test
     fun `切点正好落在分节符上时那个分节符一起丢`() {
-        // 「那个分节符标着上一个音节到此为止」——它属于**被吃掉**的那一段。
         // 留着会得到 "'hao",下一次 query 拿到的是以分节符开头的串。
         assertEquals("hao", rawAfterConsuming("ni'hao", 2))
     }
 
     /**
-     * **这条钉的是坐标系本身(2026-10-17 梳理定案,2026-10-06 那版口径被推翻)。**
+     * **这条钉 2026-10-17 喂撇定案后的引擎 consumption 账**(探针,同族):
      *
-     * `zhong'guo` 选「中古」(覆盖 `zhong` 5 个母音档位的非撇字符)⇒
-     * `consumed=5`,正解 `"guo"`。按旧口径(把 consumed 当**含撇下标**切),
-     * 同一笔账切在 `'` 前一位 —— 恰好被「切点落撇丢撇」的兜底救场,
-     * 所以 5 那一格两种口径同值;**真正的分家在 6/7/8**:
-     * 每多留正常字符一格,旧口径都把切点借撇偏移一位、留下多一段残余
-     * (6 得 `"guo"` 而正确是 `"uo"`,7 得 `"uo"` 而正确是 `"o"`,8 得 `"o"`
-     * 而**正确是 `""` —— 旧口径在这里把已吃干净的事说成「还剩一个 o」)。
+     * ```
+     * run.sh "zhong'guo" 选「中古」(index 8)→ consumed=8,剩 "o"
+     * run.sh "ni'hao"    选「你」  (index 4)→ consumed=3,剩 "hao"
+     * ```
+     *
+     * 覆盖段把撇算进end(你 in `ni'hao` = [0,3))、两音节间的撇也在段中
+     * (中古 in `zhong'guo` = [0,8))。
+     * 2026-10-17 上半场那版「数非撇字符」的预期(4/2)是跳撇时代的账,
+     * 前提已被推翻;本测试恢复 2026-10-06 时代的值,但口径的证明今天才补严:
+     * **不是**「坐标天生含撇」,而是「喂撇了,喂串 == raw,坐标才含撇」。
      */
     @Test
-    fun `坐标数非撇字符 撇不占位`() {
+    fun `坐标含撇 覆盖段把撇一起算`() {
+        // 探针真实锚点:"zhong'guo" 选「中古」= consumed=8 ⇒ 剩 "o"。
+        // 尾撇属于覆盖段(参「你」end=3),所以 中=zhong' ⇒ 6、中古=zhong'gu ⇒ 8。
+        assertEquals("guo", rawAfterConsuming("zhong'guo", 6))
+        assertEquals("o", rawAfterConsuming("zhong'guo", 8))
+        // 切点恰好压撇 / 压在半节字母上的兜底:丢撇、方向不变
         assertEquals("guo", rawAfterConsuming("zhong'guo", 5)) // 切点落在撇上,撇一起丢
-        assertEquals("uo", rawAfterConsuming("zhong'guo", 6))
-        assertEquals("o", rawAfterConsuming("zhong'guo", 7))
-        assertEquals("", rawAfterConsuming("zhong'guo", 8))   // 8 个非撇字符齐了
+        assertEquals("uo", rawAfterConsuming("zhong'guo", 7))
+        // 全吃干净 ⇒ 空(9 = "zhong'guo" 的含撇长度)
+        assertEquals("", rawAfterConsuming("zhong'guo", 9))
     }
 
     /**
-     * **这条钉的是 2026-10-05 那个真机 bug 的姊妹篇:跨撇后切点不偏。**
+     * **跨撇消费:引擎覆盖端点越过撇,剩余串回到字母起点。**
      *
-     * `ni'si'ji`(用户长按 L 插了两个撇)选一个覆盖 `nisi` 的两字候选
-     * ⇒ 非撇字符吃了 4 个 ⇒ 正解 `"ji"`。按下标切得 `"i'ji"` ——
-     * 剩余串从撇后半位开始,下一轮整串全错。
-     *
-     * 下方注释里旧口径的账(2026-10-06 版):它引探针 `run.sh "ni'ha'o"`
-     * 选「你」consumed=3 佐证「撇算在坐标里」。**那探针把撇喂进了引擎**
-     *(`probe.cc` 的 `simulate_key_sequence` 原样喂;luna_pinyin 原生认撇),
-     * 给的是含撇坐标系的值 —— 生产跳撇,这两族不可混引。生产里
-     * 同一个「你」报的是 `consumed=2`(非撇个数为 2),坐标族对上了,
-     * 探针的证词不再成立。(2026-10-10 看过的 raw 断言见 E2E `consume-partial`:
-     * 它用 `nihao` 无撇,两种语义同值,做不了这个裁判。)
+     * 探针同族推算(`ni'si'ji` = n i ' s i ' j i):
+     * 「吃掉 ni'si」⇒ end=6(含撇)⇒ 剩 `"ji"`;「只吃 ni」⇒ end=3 ⇒ 剩 `"si'ji"`。
+     * 2026-10-17 喂撇前的错误预期是 eaten=4/2(去撇计数)——
+     * 那条 bug(`ni'si'ji` 吃 4 切出 `"i'ji"`)在喂撇后**不存在**了:引擎自己把撇算进球门。
      */
     @Test
-    fun `坐标数非撇字符 跨撇不切错位`() {
-        // 下标(non-apostrophe 计数):n=1 i=2 | s=3 i=4 | j=5 i=6 加上两个撇
-        assertEquals("ji", rawAfterConsuming("ni'si'ji", 4))   // 跨一个撇
-        assertEquals("si'ji", rawAfterConsuming("ni'si'ji", 2)) // 只吃 ni
-        // 探针同名场景的生产族口径:你 覆盖 ni ⇒ 2 个非撇字符
-        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 2))
-    }
-    /** 最后一个非撇字符吃掉后,切的正好是换段撇本身 ⇒ 空串 —— 与「全吃掉」同值。 */
-    @Test
-    fun `全吃掉得空串 撇不占位`() {
-        assertEquals("", rawAfterConsuming("nihao", 5))
+    fun `跨撇消费 覆盖端点越过撇`() {
+        assertEquals("ji", rawAfterConsuming("ni'si'ji", 6))
+        assertEquals("si'ji", rawAfterConsuming("ni'si'ji", 3))
+        // 探针实测的原证:「你」覆盖 ni' ⇒ 3 ⇒ 剩 ha'o
+        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 3))
     }
 
     /**
      * 切点落在撇上 ⇒ 那个撇跟着丢;再往后的撇要**保留**(它标着「这里是两段」)。
      *
-     * 口径(2026-10-17 梳理):`ni'ha'o` 里「吃掉 `niha`」对应非撇字符 **4**,
-     * 切点落在 `a` 后的撇上 ⇒ 撇丢,剩 `"o"`。2026-10-06 那版把它说成
-     * 「下标 5」,依据是探针的含撇坐标(已推翻,见上一条测试的说明)。
-     * 生产族里「你」覆盖 `ni` ⇒ consumed=2 ⇒ 剩 `"ha'o"`,后面的撇原样保留。
+     * 口径(2026-10-17 喂撇定案):`ni'ha'o` 里「吃掉 `ni'ha'`」对应含撇下标,
+     * 必须数上两个撇 ⇒ 下标 6,不是 4/5。生产族里「你」覆盖 `ni'` ⇒ consumed=3
+     * ⇒ 剩 `"ha'o"`,后面的撇原样保留(探针同族实测)。
+     * (中间 2026-10-17 上半场还试过「4」的「非撇计数」口径,一并废除。)
      */
     @Test
     fun `切点落在撇上撇一起丢 后面的撇保留`() {
-        assertEquals("o", rawAfterConsuming("ni'ha'o", 4))
-        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 2))
+        assertEquals("o", rawAfterConsuming("ni'ha'o", 6))
+        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 3))
     }
 
     /** raw 以分节符结尾时,吃掉前面全部音节 ⇒ 空串。 */

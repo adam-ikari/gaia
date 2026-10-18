@@ -816,9 +816,9 @@ class ImeController(
      * 「缓冲里是 hao、候选栏却是 hao 别的段」,极难查。
      * 打包成一份就只有一个真相来源。
      *
-     * @param consumed 引擎给的消费长度(**绝对坐标** = 相对引擎当前输入串开头数出的**非撇字符**个数;
-     *   喂引擎时 `'` 被跳过,引擎坐标不含撇 —— 与 `displaySpelling` 同族,
-     *   口径详见 [dev.hwkbd.ime.rime.rawAfterConsuming]);
+     * @param consumed 引擎给的消费长度(**绝对坐标** = 相对引擎当前输入串开头的下标,
+     *   **含 `'`** —— 2026-10-17 喂撇定案,手工分节符生效,引擎坐标含撇且喂串 == raw,
+     *   切点可直接当下标用;口径详见 [dev.hwkbd.ime.rime.rawAfterConsuming]);
      *   `null` 或 `<= 0` ⇒ `null`。与当前 `state.raw` 之间差一个 [ImeState.rawBase]。
      */
     private fun readRemainder(consumed: Int?): Remainder? {
@@ -1517,14 +1517,13 @@ class ImeController(
          * 几个音节(`nihao` 翻页后中央槽是「你」= 只覆盖 "ni")。它的音节拼写
          * 只该替换它覆盖的那一段,剩下的 raw 尾巴原样接在后面。
          *
-         * ## 坐标系:引擎坐标**不含撇号**
+         * ## 坐标系:引擎坐标**含撇**(2026-10-17 喂撇定案)
          *
-         * [SyllableSpelling.start] / [SyllableSpelling.end] 是喂进引擎那串里的下标,
-         * 而 `RimeEngine.query` 重建时**跳过 `'`**(分节符不喂引擎)。
-         * 所以映射回 raw 时数的是**非撇字符** —— [rawAfterConsuming] 的消费切点
-         * 在 2026-10-17 梳理后也已经改成同一口径(以代码为准);当年那次
-         * 「两边意见相反、以代码为准」的经过记在 brain `unverified-as-fact`。
-         * 消费切点与撇口径见 [dev.hwkbd.ime.rime.rawAfterConsuming]。
+         * [SyllableSpelling.start] / [SyllableSpelling.end] 是喂进引擎那串里的下标。
+         * 2026-10-17 起 `'` 原样喂引擎(见 `RimeEngine.query`),喂串 == raw,
+         * 引擎坐标就是 raw 的**直接下标** —— 跳撇时代「数非撇字符折算」的映射表撤掉。
+         * 消费切点的撇口径见 [dev.hwkbd.ime.rime.rawAfterConsuming];
+         * 「当年两边意见相反、以代码为准」的经过记在 brain `unverified-as-fact`。
          *
          * ## 每一段边界都补撇(2026-10-14 用户定)
          *
@@ -1538,21 +1537,27 @@ class ImeController(
          */
         internal fun displaySpelling(raw: String, sp: SyllableSpelling): String {
             if (raw.isEmpty()) return ""
-            // 非撇字符在 raw 里的下标表:rawStart[k] = 第 k 个(0 起)非撇字符的下标。
-            val rawStart = ArrayList<Int>(raw.length)
-            for ((i, c) in raw.withIndex()) if (c != '\'') rawStart += i
-            val s = sp.start.coerceIn(0, rawStart.size)
-            val e = sp.end.coerceIn(s, rawStart.size)
-            val prefix = if (s == 0) "" else raw.substring(0, rawStart[s])
-            val tail = if (e >= rawStart.size) "" else raw.substring(rawStart[e])
+            // 2026-10-17 喂撇定案:引擎坐标**含撇**且喂串 == raw(入口不变量,
+            // 见 `RimeEngine.query`),start/end 就是 raw 的直接下标 —— 映射表撤掉。
+            // (跳撇时代这里按「非撇字符个数」折算,口径随坐标族一起翻。)
+            val s = sp.start.coerceIn(0, raw.length)
+            val e = sp.end.coerceIn(s, raw.length)
+            val prefix = raw.substring(0, s)
+            val tail = raw.substring(e)
             return buildString {
                 if (prefix.isNotEmpty()) append(prefix)
                 if (sp.text.isNotEmpty()) {
+                    // 接缝只补缺:prefix 以撇结尾(前一音节的界线)则不再补
                     if (isNotEmpty() && last() != '\'') append('\'')
                     append(sp.text)
                 }
                 if (tail.isNotEmpty()) {
-                    if (isNotEmpty() && last() != '\'') append('\'')
+                    // tail 以撇开头(覆盖段终点 = 尾撇之前,撇属于下一段的界线)时,
+                    // tail 自带的那个撇就是接缝 —— 再补就是双撇(入口不变量保证
+                    // raw 里撇不连续,tail 顶多带一个)
+                    if (isNotEmpty() && last() != '\'' && !tail.startsWith('\'')) {
+                        append('\'')
+                    }
                     append(tail)
                 }
             }

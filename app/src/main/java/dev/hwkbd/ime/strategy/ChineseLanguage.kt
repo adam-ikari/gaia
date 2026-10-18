@@ -16,19 +16,17 @@ import dev.hwkbd.ime.keymap.Layer
  * - **半角态** = 键位表出厂值 = 键盘上印着的那个字符,**按眼所见**;
  * - **全角态** = 那个字符的**全角形态**,位子一位不挪。
  *
- * **分节符:屏上不提供,靠自动分割**(2026-10-06 用户「自动分割 无需分隔符」)。
+ * **分节符:屏上不提供**(2026-10-06 用户「自动分割 无需分隔符」)。
+ * 方案里挂着一整条 segmentor 链(`luna_pinyin.schema.yaml:82`),靠
+ * `affix_segmentor@pinyin` **自动按拼音音节切**:`xian` 就能出西安
+ * (用户 2026-10-06 实测),不需要手动撇,主键盘也不再摆分隔符键。
  *
- * 方案里挂着一整条 segmentor 链(`luna_pinyin.schema.yaml:82`):
- * `ascii_segmentor` / `abc_segmentor` / `affix_segmentor@alphabet` /
- * `affix_segmentor@pinyin` / `punct_segmentor` / `fallback_segmentor` ——
- * 其中 `affix_segmentor@pinyin` 就是**自动按拼音音节切**的主力。
- *
- * 连读分节的效果:**`xian` 就能出西安**(用户 2026-10-06 实测,已支持),
- * 不需要手动撇。
- *
- * ⇒ 屏上不做分隔符键。**但能力没丢**:`ascii_segmentor` 仍在链上,
- *   而 [composes] 认 [SEPARATOR] ⇒ **真机键盘直接敲 `'` 仍然能强制切分**。
- *   Titan 2 有物理键盘,逃生舱在那里。
+ * **但手工分节没丢**(2026-10-17 喂撇定案):[composes] 认 [SEPARATOR],
+ * `'` 进 raw 后 `RimeEngine.query` **原样喂引擎** —— luna_pinyin 的
+ * `speller.delimiter: " '"` 原生认识撇,喂进去就地**强制音节切分**
+ * (探针实测:`xi'an` 直出西安,而不是引擎自读的「席安」类解)。
+ * 入口:`'` 键本身、长按 L 的分节符插入(见 `ImeController.onLongPressFire`),
+ * 都只在**组词中**生效。
  *
  * ## 而 `v` 必须回到字母
  *

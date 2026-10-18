@@ -65,10 +65,15 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
          * 查询前归一:滤掉字母与 `'` 以外的字符、连续 `'` 并成一个、丢掉开头的 `'`
          * (开头没有前一个音节,分节位无意义)。**末尾 `'` 保留** —— 它表示"本音节到此为止"。
          *
-         * 归一**不喂引擎**:`RimeEngine.query` 拿这份串时还会把 `'` 跳过
-         * (分节由引擎自己断,详见 [dev.hwkbd.ime.rime.rawAfterConsuming] 的口径)。
-         * 归一要做的是保证「喂引擎的那串」与「上层 state.raw」同一字符域,
-         * 而且分节意图要保留,将来接带分节规则的方案时不用重写这一层。
+         * ## 2026-10-17 喂撇定案:归一在生产输入上是**恒等**的
+         *
+         * 分隔符的「不开头、不连续」已由**入口**保证(`ImeState.appendRaw` 去重),
+         * 生产 `state.raw` ⊆ 字母 ∪ `'` ⇒ 归一什么都不改,**喂引擎的串 == raw**
+         * —— 这是「引擎坐标 = 含撇 raw 的直接下标」的恒等性前提
+         * (坐标族详见 [dev.hwkbd.ime.rime.rawAfterConsuming])。
+         * 这个函数留下的价值是**兜底**:入口 invariant 万一破(新调用点忘了过
+         * `appendRaw`),归一保证喂引擎的串仍合法,错坐标出『多截』这类可追的账,
+         * 而不是把垃圾字符喂给引擎。两层口径必须一起看,单独读到哪层都像多余的。
          */
         internal fun normalize(raw: String): String =
             raw.filter { it in 'a'..'z' || it == '\'' }

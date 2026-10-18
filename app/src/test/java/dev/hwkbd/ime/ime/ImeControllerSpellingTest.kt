@@ -40,16 +40,25 @@ class ImeControllerSpellingTest {
         assertEquals("ni'ha'o", ImeController.displaySpelling("nihao", sp("ha'o", 2, 5)))
     }
 
+    /**
+     * 引擎坐标**含撇**(2026-10-17 喂撇定案:喂串 == raw,直接下标):
+     * 「你」在 `ni'hao` 里覆盖 `ni'` ⇒ [0,3),探针同族实测;尾撇归属覆盖段。
+     */
     @Test
-    fun `apostrophe coordinates count non-apostrophe chars`() {
-        // 引擎坐标不含撇号(query 重建时 ' 不喂):raw="ni'hao" 里前两个
-        // 非撇字符是 0,1 —— 覆盖 [0,2) ⇒ 切点落在撇上,撇跟着被覆盖段一起替换,
-        // 接缝由新规则补。
-        assertEquals("ni'hao", ImeController.displaySpelling("ni'hao", sp("ni", 0, 2)))
-        assertEquals("ni'hao", ImeController.displaySpelling("ni'hao", sp("ni'hao", 0, 5)))
-        // 覆盖段只剩最后一个非撇字符(raw 下标 5 的 'o'):前缀补到第 4 个为止,
-        // 接缝补撇 ⇒ 前缀里原有的撇不动,新接缝再加一个
-        assertEquals("ni'ha'o", ImeController.displaySpelling("ni'hao", sp("o", 4, 5)))
+    fun `coordinates are direct indices including apostrophe`() {
+        assertEquals("ni'hao", ImeController.displaySpelling("ni'hao", sp("ni", 0, 3)))
+        assertEquals("ni'hao", ImeController.displaySpelling("ni'hao", sp("ni'hao", 0, 6)))
+        // 覆盖段吃掉尾撇前的最后一字:前缀 "ni'ha" + 文本 "o",接缝撇照补
+        assertEquals("ni'ha'o", ImeController.displaySpelling("ni'hao", sp("o", 5, 6)))
+        // 中间撇随覆盖段一起吃(泥哈 = ni'ha' ⇒ [0,6)):
+        // prefix 以撇结尾 ⇒ 文本前不再补缝
+        assertEquals("ni'ha'o", ImeController.displaySpelling("ni'ha'o", sp("ni'ha", 0, 6)))
+        // raw 以分节符收尾而覆盖端把它算进覆盖段([0,3)):撇随被替换的区间一起消失,
+        // 显示串收尾就是文本本身 —— tail 为空,不新增任何接缝
+        assertEquals("ni", ImeController.displaySpelling("ni'", sp("ni", 0, 3)))
+        // 病态兜底(正常引擎把尾撇算进覆盖段,不会出现 end<=2 的这类切点):
+        // end 落在撇前时,撇留在 tail —— displaySpelling 只补缺,不叠双撇
+        assertEquals("ni'", ImeController.displaySpelling("ni'", sp("ni", 0, 2)))
     }
 
     @Test

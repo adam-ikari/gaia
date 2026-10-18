@@ -205,8 +205,24 @@ class ImeState {
      * - [consumeRaw]:选词消费,引擎吃到 [consumed](绝对量),raw 截尾、base=consumed;
      * - [rebuildRaw]:引擎以 [newRaw] 重建 composition,起点回 0 ⇒ base=0;
      * - [clearRaw]:组词开端/换框/收面板,raw 与 base 一起清。
+     *
+     * ## raw 的分隔符不变量(2026-10-17 喂撇定案的**坐标恒等性前提**)
+     *
+     * [appendRaw] 保证:raw 里 `'` **不开头、不连续** —— 分隔符标着「上一音节到此
+     * 为止」,开头的撇没有「上一音节」,连续两个撇是同一条界线不是两条。
+     * 这条不变量让 `PinyinInputMethod.normalize` 在生产输入上**恒等**,
+     * 于是「喂引擎的串 == raw」(`RimeEngine.query` 2026-10-17 起原样喂撇),
+     * 引擎坐标(consumed / `SyllableSpelling.start/end`)才能当 raw 的
+     * **直接下标**用 —— `rawAfterConsuming` / `displaySpelling` 因此不需要映射表。
+     * 呼应 `normalize` 的注释:那里是**喂引擎前**的兜底,这里是**入口**的保证,
+     * 两层都有,恒等性坏掉时会先在单测里现形。
      */
-    fun appendRaw(s: String) { raw += s }
+    fun appendRaw(s: String) {
+        // 分隔符去重:开头的撇、连续的撇,接受它们就是同一条界线的哑变体 —— 吞掉。
+        // (长按 L 连按两下、物理 `'` 键连按两下,都是这条。)
+        if (s == SEPARATOR && (raw.isEmpty() || raw.endsWith(SEPARATOR))) return
+        raw += s
+    }
     fun dropLastRaw() { raw = raw.dropLast(1) }
     fun consumeRaw(newRaw: String, consumed: Int) { raw = newRaw; rawBase = consumed }
     fun rebuildRaw(newRaw: String) { raw = newRaw; rawBase = 0 }
@@ -323,5 +339,12 @@ class ImeState {
 
         /** 不足 5 候选:同规则紧凑(槽2=首选,槽1=候选2,槽3=候选3,槽0=候选4…),从中间往两侧补。 */
         val COMPACT_ORDER = intArrayOf(3, 1, 0, 2, 4)
+
+        /** 拼音分节符。值与 [dev.hwkbd.ime.strategy.ChineseLanguage.SEPARATOR] 相同 ——
+         *  不能反过来 import:strategy 包依赖 ime 包,ime 不准反向依赖。
+         *  ([appendRaw] 的分隔符不变量要用它;值必须两处一起改,
+         *  而且它已进引擎坐标(2026-10-17 喂撇),schema 的 `speller/delimiter`
+         *  也要跟着一起换。) */
+        private const val SEPARATOR = "'"
     }
 }

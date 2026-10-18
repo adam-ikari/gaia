@@ -197,8 +197,8 @@ interface InputMethod {
  * 选「你」  (只覆盖 ni) → consumed=2,剩下 [2,5) 与它的 45 个候选
  * ```
  *
- * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:**不含** `'`,
- *   查询把撇跳过不喂引擎,详见 [rawAfterConsuming] 的撇口径)。`0` = 整串吃干净。
+ * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:**含** `'`,
+ *   2026-10-17 喂撇定案,见 [rawAfterConsuming] 的撇口径)。`0` = 整串吃干净。
  *   这是**绝对坐标** ——
  *   相对**引擎当前输入串**的开头,**不是**相对 `state.raw`:连续消费时后者已是尾巴,
  *   两者差一个 `ImeState.rawBase`(引擎此前吃掉的绝对量),由
@@ -218,9 +218,9 @@ data class PinyinConsumption(
  * @property text 音节拼写,`'` 分节(如 `xi'an`)。引擎给的是空格分节
  *   (`ScriptSyllabifier::GetPreeditString` 取 schema delimiter 首字符),
  *   换成项目规范的 `'` 是 rime 层 `topSpelling()` 做的事。
- * @property start / end 候选覆盖的输入区间,**引擎输入坐标、不含撇号**
- *   (引擎重建时 `'` 不喂,见 `RimeEngine.query`)。拼回 raw 显示要数非撇字符,
- *   见 `ImeController.displaySpelling`。
+ * @property start / end 候选覆盖的输入区间,**引擎输入坐标、含撇号**
+ *   (2026-10-17 喂撇定案:`'` 原样喂引擎,手工切分生效;喂串 == raw,
+ *   直接当下标用,见 `ImeController.displaySpelling`)。
  */
 data class SyllableSpelling(
     val text: String,

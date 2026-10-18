@@ -131,7 +131,23 @@ class RimeEngine(private val context: Context) : InputMethod {
     }
 
     /**
-     * 查询候选。[raw] 是**累积的拼音串**(上层 `state.raw`,可含 `'` 分隔符)。
+     * 查询候选。[raw] 是**累积的拼音串**(上层 `state.raw`,含 `'` 分隔符)。
+     *
+     * ## 分隔符现在**原样喂给引擎**(2026-10-17 喂撇定案)
+     *
+     * luna_pinyin 的 `speller.delimiter: " '"` 原生认识撇:喂进去就**强制音节切分**
+     * (探针实测:`xi'an` 直出西安;不喂撇时引擎按自己的读法把 `xian` 整音节解,
+     * 手工切分对候选毫无作用)。2026-10-17 之前这里把 `'` 跳过不喂(「librime
+     * 不认识」的注释是错的),坐标因此成了去撇族 —— 今天起全链统一为**含撇族**
+     * (consumed / `SyllableSpelling.start/end` 都是含撇 raw 的直接下标),
+     * 生产与宿主机探针从此同族,探针证词直接有效。
+     *
+     * ## 坐标恒等性(消费切点不错位的前提)
+     *
+     * 喂给引擎的必须与 `state.raw` **相同**(撇不跳、不合并):
+     * [ImeState.appendRaw] 在入口保证「raw 里撇不开头、不连续」,
+     * 所以 `PinyinInputMethod.normalize` 在生产输入上是**恒等**的,
+     * 喂串 == raw,引擎坐标可直接当下标用(见 `rawAfterConsuming` / `displaySpelling`)。
      *
      * 与旧引擎同名同义,内部先重建 session 状态再取候选,见类注释。
      */
@@ -143,7 +159,6 @@ class RimeEngine(private val context: Context) : InputMethod {
             // 以 raw 为准重建 librime 的内部状态
             RimeNative.reset(s)
             for (c in raw) {
-                if (c == '\'') continue // 分节符是本项目自己的概念,librime 不认识
                 RimeNative.processKey(s, c.code)
             }
         }
@@ -287,9 +302,10 @@ class RimeEngine(private val context: Context) : InputMethod {
      * ## 坐标系
      *
      * [SyllableSpelling.start] / [SyllableSpelling.end] 是**引擎输入坐标**
-     * (与 `selectAndRemain` 的 consumed 同一坐标系)。`query()` 重建时把 `'`
-     * 跳过了(分节符不喂引擎),所以这是**不含撇号**的坐标 —— 拼回 raw 显示时
-     * 要数非撇字符,不能当下标记用(见 `displaySpelling` 的映射)。
+     * (与 `selectAndRemain` 的 consumed 同一坐标系)。2026-10-17 喂撇定案:
+     * `'` 原样喂引擎(schema delimiter 原生认它,手工切分从此生效),所以这是
+     * **含撇**的坐标 —— 且由入口不变量(`ImeState.appendRaw` 保证撇不开头、
+     * 不连续)喂串 == raw,**直接当下标**拼回 raw(见 `displaySpelling`),无需映射表。
      *
      * @return 取不到(空菜单/没就绪/异常)→ `null`,调用方回退显示原始拼写。
      *   **空比错安全**:回退只是没有分隔符,错坐标会拼出错的拼音。
@@ -371,25 +387,26 @@ class RimeEngine(private val context: Context) : InputMethod {
  * 那一段(`nihao` 的首选是「你好」,但列表里也有只覆盖 "ni" 的「你」),
  * 所以那条错路在真机上天天走。
  *
- * ## [consumed] 是**非撇字符的个数**(喂串跳撇,坐标就不含撇)
+ * ## [consumed] 是**含撇 raw 的直接下标**(喂撇定案,坐标回到恒等)
  *
- * 2026-10-17 梳理定案(2026-10-06 那版 KDoc 的判断此番推翻,理由见下):
- * [consumed] 是数出来的**字符个数**,数的是**非撇字符**。
+ * 2026-10-17 喂撇定案:[query] 现在**原样喂**,撇进引擎(luna_pinyin 原生认撇,
+ * 手工切分从此生效:`xi'an` 出西安)。同日早些试过「数非撇字符」的口径,
+ * 一并撤回 —— 那是**跳撇时代**的正确答案,跳撇本身被这轮推翻后,
+ * 「撇占不占坐标位」的答案反过来了。两族坐标系的问题就此终结:
+ * 生产坐标与宿主机探针同一个族,**探针的证词直接有效**:
  *
- * - `query()` 重建时把 `'` **跳过不喂引擎**(见 [query];分节由引擎自己断,
- *   手工撇不进引擎)。所以引擎的 `GetCurrentStartPosition()` 给的是
- *   **去撇串**里的起点 —— 在去撇坐标里,它就是「吃掉了几个非撇字符」的个数。
- * - 把它当**含撇 raw 的下标**切是**错的**:撇数 > 0 时切点差撇数个字符。
- *   `ni'si'ji`(用户长按 L 插撇)选覆盖 `nisi` 的两字词,consumed=4 ⇒
- *   正解 `"ji"`,按下标切得 `"i'ji"` —— 下一轮整串全错。
- * - `displaySpelling` 早就按「数非撇字符」映射(2026-10-12,它的注释还记着
- *   「与 readRemainder 相反;以代码为准」)—— 本函数现在与它**同族**了。
+ * ```
+ * 探针 run.sh "ni'hao":   选「你」(菜单 index 4)→ consumed=3,剩 "hao"
+ *   (seg [0,3) 把撇一起算进覆盖段 —— 分节符属于被吃掉的那一段)
+ * 探针 run.sh "zhong'guo": 选「中古」→ consumed=8,剩 "o"
+ * ```
  *
- * **为什么 2026-10-06 的判断错了**:它引探针 `zhong'guo` 选「中古」consumed=8
- * 作「坐标含撇」的证据。但探针(`probe.cc` 的 `feed`)经
- * `simulate_key_sequence` 把撇**原样喂了进去** —— librime 的 luna_pinyin
- * `speller.delimiter: " '"` 原生认识撇,所以探针给出的是**含撇坐标系**的值;
- * 生产跳撇,两族不可混引。那个 8 在喂撇串里是下标,但生产根本不喂撇。
+ * 历史包袱(为什么这条注释一天翻两次):2026-10-06 起生产跳撇,坐标成了去撇族,
+ * 而 KDoc 拿探针的**含撇**证词(`zhong'guo`=8)去裁决,得出「下标语义」——
+ * 对了结论、错了它自己的前提;今天喂撇后下标语义**连同前提一起再次成立**。
+ * 跳撇 11 天里的完整经过、被它埋掉的 bug(`ni'si'ji` 切错位)与
+ * 「探针证据不等于生产证据」的教训,见 brain `rime-candidate-consumption`
+ * / `unverified-as-fact` —— 那个教训的**形状**今天又走了一遍,不是白记。
  *
  * ## [consumed] 是**相对当前 [raw] 的量**(上层已折算)
  *
@@ -401,29 +418,23 @@ class RimeEngine(private val context: Context) : InputMethod {
  *
  * ## 分节符:切点正好落在撇上时,那个撇跟着一起丢
  *
- * 撇标的是「上一个音节到此为止」,属于**被吃掉的那一段**。
+ * 喂撇后引擎的覆盖段**总是含撇**(探针:「你」在 `ni'hao` 里 end=3,把撇算进去),
+ * 所以正常路径切点落在**下一个字母**上;这条兜底只为「consumed 恰好指到撇上」的
+ * 病态输入留(如 rawBase 与编辑后的 raw 错位),行为仍是「撇属于被吃掉的那一段」:
  * 留着会得到以撇开头的串(下一次 `normalize` 还得再 `trimStart` 一次)。
  *
  * ```
- * "nihao"   吃 2 ⇒ "hao"     "ni'hao"   吃 2 ⇒ "hao"   (切点落在撇上,撇一起丢)
- * "ni'si'ji" 吃 4 ⇒ "ji"      "ni'ha'o"  吃 4 ⇒ "o"     (跨撇:按非撇字符定位)
- * "hao"     吃 99 ⇒ ""                     (宁可全清,不留半个词)
+ * "nihao"    吃 2 ⇒ "hao"     "ni'hao"   吃 3 ⇒ "hao"   (「你」,撇被引擎算进覆盖段)
+ * "ni'ha'o"  吃 6 ⇒ "o"        "hao"     吃 99 ⇒ ""    (宁可全清,不留半个词)
  * ```
  *
  * 中间的分节符要**保留**:它标着「这里是两段」,下一轮 query 靠它定界。
  */
 internal fun rawAfterConsuming(raw: String, consumed: Int): String {
     if (consumed <= 0) return raw
-    // consumed 数的是**非撇字符**:撇出杠杆,切点要扫到第 consumed 个非撇字符。
-    var i = 0
-    var n = 0
-    while (i < raw.length && n < consumed) {
-        if (raw[i] != '\'') n++
-        i++
-    }
-    // 非撇字符不够吃(含 consumed 超长)⇒ 夹到空(宁可全清,不留半个词)。
-    if (n < consumed) return ""
-    // 切点正好落在分节符上时,那个分节符是**被吃掉那段**的边界 —— 一起丢。
+    // 下标语义,超长夹到末尾(宁可全清,不留半个词)
+    var i = consumed.coerceAtMost(raw.length)
+    // 切点正好落在分隔符上时,那个分隔符是**被吃掉那段**的边界 —— 一起丢。
     while (i < raw.length && raw[i] == '\'') i++
     return raw.substring(i)
 }

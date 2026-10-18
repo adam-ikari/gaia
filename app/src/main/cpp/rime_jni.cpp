@@ -309,9 +309,10 @@ JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeCandidat
  * - [preedit]:音节拼写,**空格分节**(`GetPreeditString` 取
  *   `delimiters().at(0)`,本 schema 的 `speller/delimiter` = " '",第一个字符是空格)。
  *   换成项目约定的 `'` 是 Kotlin 侧的事 —— 显示规范不属于引擎层。
- * - [start] / [end]:候选覆盖的**输入区间**,全输入坐标。注意 `RimeEngine.query`
- *   重建时把 `'` 跳过了(它不喂引擎),所以这是**不含撇号**的坐标 ——
- *   与 `selectAndRemain` 返回的 `consumed` 同一坐标系,映射回 raw 要数非撇字符。
+ * - [start] / [end]:候选覆盖的**输入区间**,全输入坐标。2026-10-17 喂撇定案:
+ *   `RimeEngine.query` 把 `'` 原样喂引擎(luna_pinyin 原生认撇,手工切分生效),
+ *   所以这是**含撇**的坐标 —— 与 `selectAndRemain` 返回的 `consumed` 同族,
+ *   且喂串 == `state.raw`(入口不变量,Kotlin 侧保证),Kotlin 侧直接当下标用。
  */
 JNIEXPORT jobjectArray JNICALL Java_dev_hwkbd_ime_rime_RimeNative_nativeTopSpelling(
     JNIEnv* env, jobject, jlong session, jint index) {

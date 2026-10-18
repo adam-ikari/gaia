@@ -5,64 +5,58 @@ category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-18T01:42:27"
+updated: "2026-10-18T02:14:54"
 ---
 
 <!-- compiled_truth -->
-## 单位是**引擎坐标的非撇字符个数**,由 `GetCurrentStartPosition()` 给 —— 这条成立
+## 单位是**含撇 raw 的直接下标**,由 `GetCurrentStartPosition()` 给 —— 第三次定案(2026-10-18)
 
 2026-10-05 修过一次(`commit_text_preview` 那条路是错的),2026-10-06 又推翻过一次,
-**第二次推翻是错的,已撤回**。2026-10-17 第三层事实补齐:**坐标系本身有两族**。
+**第二次推翻是错的,已撤回**。2026-10-17 曾把结论定为「两族坐标系、生产数非撇字符」,
+**同日用户选路线「做分隔符的提交」:手工分节符直接喂引擎。生产的 `'` 不再跳过,
+探针族与生产族合并 —— 两族问题就此终结。**
 
-### 源码链(继续成立,见下文详证)
+### 依据(探针 = 生产,坐标同族,证词直接有效)
 
-`Context::Select` → `select_notifier_` → `ConcreteEngine::OnSelect`(`engine.cc:259`)
-→ `seg.Close()`(`Segment::Close` 实现部分消费)+ `Forward()`(推出起点 = 刚吃掉末尾的空段)
-⇒ 选完后 `back().start` = 被选中那段的终点,`GetCurrentStartPosition()` 就是它。
+- 探针 `run.sh "ni'hao"`:菜单含「你」(index 4),选中 ⇒ `consumed=3`,
+  seg `[0,3)` **把撇一起算进覆盖段**(撇属于被吃掉的那一段),剩 `"hao"`。
+- 探针 `run.sh "zhong'guo"`:选「中古」⇒ `consumed=8`,剩 `"o"`
+  (两音节**之间**的撇也在覆盖段中:zhong'gu = [0,8))。
+- 探针 `run.sh "ni'"`(尾撇)、`run.sh "xi'an"`(手工强制切分,直出西安):
+  尾撇正常被引擎处理,`speller.delimiter: " '"` 原生认识撇,喂进去就是强制音节边界。
 
-### 两族坐标系(2026-10-17 定案,此前混为一谈就是拖延至今的根)
+`Context::Select` → `ConcreteEngine::OnSelect` → `seg.Close()` + `Forward()`
+的源码链不变;变的只是喂进引擎的串:**喂串 == state.raw**(见下)。
 
-**生产族(env: `RimeEngine.query`)**:逐字喂,遇 `'` **跳过不喂**
-(`if (c == '\'') continue`)。luna_pinyin 的 `speller.delimiter: " '"` 原生认识撇,
-**跳过是有意为之**(分节由引擎自断,手工撇不进引擎)⇒ 引擎全部坐标
-(consumed、`SyllableSpelling.start/end`)是**去撇串**上的:数非撇字符。
+### 坐标恒等性(新前提,违反即消费切点错位)
 
-**探针族(env: `tools/rimeprobe/probe.cc` 的 `feed`)**:`simulate_key_sequence`
-**原样喂**,撇一并进引擎 ⇒ 探针打出的是**含撇串**上的下标。
+引擎坐标当 raw 的**直接下标**,靠的是「喂引擎的串 == `state.raw`」。
+这条由**入口**保证:`ImeState.appendRaw` 吞掉开头的撇与连续的撇
+(raw 里撇不连续、不开头),于是 `PinyinInputMethod.normalize` 在生产输入上恒等。
+入口 invariant 与 normalize 兜底两层都要在;破坏时会先在单测里现形
+(`ImeStateRawInvariantTest` / `PinyinConsumptionTest`)。
 
-两族只在 raw 无撇时同值 —— 这就是 10-06/10-12 两轮反复的根源:
-KDoc 拿探针的证词(`zhong'guo` 选「中古」consumed=8 是**含撇**下标)去裁决
-生产(**去撇**)的语义。**探针证据不等于生产证据,这回是坐标系级的版本。**
+### 已修(2026-10-18,#1 项最终形态)
 
-### 已修(2026-10-17,#1 项的代码侧完成)
+- `RimeEngine.query`:跳撇循环删除,`'` 原样喂(旧注释「librime 不认识分节符」是错的)。
+- `rawAfterConsuming`:**下标语义**(夹长 + 切点落撇丢撇的兜底)。
+- `displaySpelling`:映射表撤掉,直接下标;接缝补撇只补缺(prefix 尾撇 / tail 首撇已有则不再补)。
+- `ImeState.appendRaw`:分隔符去重(开头/连续吞掉)—— 恒等性的入口保证。
+- 注释全链统一含撇口径:`readRemainder` @param、`PinyinConsumption` @param、
+  `SyllableSpelling` @property、`PinyinInputMethod.normalize`、`nativeTopSpelling`(cpp)。
+- 单测:`PinyinConsumptionTest` 13 条重钉(含 zhong'guo 下标 6/8 探针锚点)、
+  `ImeControllerSpellingTest` 撇号用例重钉、新增 `ImeStateRawInvariantTest` 7 条;全量 377 绿。
 
-`rawAfterConsuming`(RimeEngine.kt)由「含撇下标切」改成**数非撇字符定位**:
+### 教训(续写)
 
-```
-"ni'si'ji" 吃 4 ⇒ "ji"        (跨撇;按下标切得 "i'ji",下一轮整串全错)
-"zhong'guo" 吃 8 ⇒ ""          (8 个非撇字符齐了;按下标切得 "o")
-```
-
-与 `displaySpelling`(2026-10-12 已按非撇字符映射)同族。注释四处统一同一口径
-(`rawAfterConsuming` KDoc、`readRemainder` @param、`PinyinConsumption` @param、
-`PinyinInputMethod.normalize`)。单测:`PinyinConsumptionTest` 13 条全绿
-(含跨撇反例 `ni'si'ji` 与全吃 `zhong'guo`@8);全量 370 用例全绿。
-
-### 遗留的设计问题(未定,不是 bug)
-
-**手工分节符对引擎无效**:长按 L 插的 `'` 在生产里被跳过,不改变引擎分段
-(librime 若喂撇本可强制 `xi`|`an` 这样的切分,现在 `xi'an` 被喂成 `xian`)。
-功能现只影响**显示侧**(raw 尾巴里的撇原样显示)。要不要把撇喂进去、
-坐标全族换成含撇,是一个待定案的方向(动它则 `rawAfterConsuming` /
-`displaySpelling` 映射全都要反过来翻)。今天不做,先记下。
-
-### 教训(继续成立 + 增写)
-
-- 涉及 `Select` 的任何结论,必须把 notifier 链走完。
 - **推翻一个结论的门槛要高于建立它**;观测要标明**在哪一族坐标系**里取的——
-  探针与生产不入一族时,证词不可迁移(本次误引持续了整整 11 天才清账)。
-- 两处同族口径(`displaySpelling` vs `rawAfterConsuming`)不一致时,
-  「以代码为准」只能救显示,救不了消费 —— 两处必须一起修。
+  当两族并存时,证词不可迁移(那次误引持续了 11 天才清账)。
+  终极解法不是「分清两族」,而是**把族合并**:上午分清了两族,下午发现
+  正确答案是消灭一族 —— 分清是必要的,却不是终点。
+- 同日同一问题的答案是「跳过」「数非撇」「喂进去」三次反转:每次反转都要
+  把**全链注释 + 单测期望**一起翻,留半链注释就得错半路(这次两把都翻干净了)。
+- 拿「引擎不认识 X」当跳过 X 的理由之前,先喂一次试试 —— `delimiter`
+  明明白白写在 schema 里。
 
 
 ## Timeline
@@ -149,4 +143,16 @@ KDoc 拿探针的证词(`zhong'guo` 选「中古」consumed=8 是**含撇**下�
   kind: decision
   summary: "2026-10-17 梳理撇号坐标:两族坐标系分家定案 —— 生产跳撇(去撇坐标)vs 探针喂撇(含撇坐标,luna_pinyin 原生认撇);rawAfterConsuming 修成非撇字符计数,与 displaySpelling 同族"
   source: "2026-10-17 梳理拼音消费(用户指令)"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-18T02:14:54
+  kind: decision
+  summary: "2026-10-18(喂撇定案):手工分节符直接喂引擎,坐标全族统一为含撇下标,两族问题终结"
+  source: "2026-10-17 用户挑路线「做分隔符的提交」;探针 run.sh ni'hao/z hong'guo 端点实测"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-18T02:14:54
+  kind: reversal
+  summary: "喂撇定案:手工分节符原样喂引擎(query 跳撇删除),坐标全族统一为含撇下标,探针与生产并族;rawAfterConsuming 切回下标语义、displaySpelling 直映,ImeState.appendRaw 增加分隔符去重恒等性前提,全量 377 测试绿"
+  source: "2026-10-17 用户「做分隔符的提交」;探针 ni'hao end=3 / zhong'guo consumed=8 实测"
   affects: [rime-candidate-consumption]
