@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [librime, android, ndk, cmake, jni, rime]
 created: "2026-10-03T11:24:13"
-updated: "2026-10-14T14:00:10"
+updated: "2026-10-17T18:01:12"
 ---
 
 <!-- compiled_truth -->
@@ -214,3 +214,11 @@ librime 1.x 公开的 C API **只有一个符号** `rime_get_api()`,返回 `Rime
   summary: "2026-10-14 dev 发布构建暴露子模块 0d00afba 的两处配方漂移(已修 1868bb5):①opencc 上游化后 OPENCC_BUILD_DATA 默认开,与 TOOLS=OFF 冲突——erro『OPENCC_BUILD_DATA generates the dictionaries by running the opencc_dict tool』。我们只要 libopencc.a(.ocd2 词典在真机首次部署时由 librime 自己转),目标 configure 补 -DOPENCC_BUILD_DATA=OFF;②库 target 名回到上游 libopencc(旧子模块那份叫 opencc),四处 --target 全改。**为什么 debug 没暴露**:Debug 的 .cxx opencc 缓存是子模块更新前配的,ninja 复用旧图;dev(RelWithDebInfo)冷配置全撞上。附带:dev 构建还需要 Python 解释器给 _DEP_PY(本机 C:/Users/fod/AppData/Local/Programs/py312embed/python.exe;PYTHON_EXECUTABLE 环境变量或 find_program)。教训形状:submodule 更新后**冷配置的变体**才是试验田,热缓存变体全绿不代表配方还对。"
   source: "2026-10-14 dev 发布构建"
   affects: [windows-native-build]
+
+- time: 2026-10-17T18:01:12
+  kind: evidence
+  summary: "2026-10-17 更新 librime:0d00afba → 4ea39b33(21 提交,tag v1.17.0-rime-stack)。范围经确认含词典:assets 的 luna_pinyin.dict.yaml 原冻结在 d6006f73(10-11),本次覆盖为 fork dict/ 最新(10-13 两轮读音校准,删149死读音/补59现代读;实测 diff +59/-149);essay.txt 无变化。这轮主要是构建图:deps.mk flag 表漂移守卫、RIME_DEPS_PREFIX 硬门、RimeDepProvenance 报告、Android 图不再生成 tools/;JNI 用的 C++ API 面零变化。配方两处对齐(撞出):
+①冷配置(.cxx 全删)暴露:原 WIN32-only 的 find_program(python3) 分支漏了 Linux —— 无 PYTHON_EXECUTABLE 环境变量时外层 configure 必死于 opencc 解释器检查。之前每次都过是因为某次带上了环境变量/CI。修法:find_program 提成平台无关,fallback 链不变。
+②fork 新的 RimeDepProvenance 说『我们链的 opencc 版本无从核对』:stage 不做 install(挂在词典上),pkgconfig/opencc.pc + OpenCCConfigVersion.cmake 不在;配方补拷这两个文件到 lib/pkgconfig 与 cmake/opencc,configure 报 resolved 1.1.9 / vendored pin 1.1.9,WARNING 消失。
+验证:双 ABI 冷配置编过、JVM 单测 --rerun 强制重跑全绿(26 套 0 失败)、rimeprobe nihao→你好/ni hao 分节、shenme→什么、sheme→色么,consumed 位与分段结构不变。真机冒烟待补(adb 无设备)。教训形状重演:「热缓存变体全绿不代表配方还对」,这次是 Linux 冷配置替 Windows 上的教训再交一次学费。"
+  affects: [librime-android-build]
