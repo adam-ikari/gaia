@@ -5,122 +5,64 @@ category: decision
 status: active
 tags: [rime, pinyin, 选词, 消费, 选字]
 created: "2026-10-05T05:08:57"
-updated: "2026-10-16T02:51:22"
+updated: "2026-10-18T01:42:27"
 ---
 
 <!-- compiled_truth -->
-## 单位是**引擎坐标的字符偏移**,由 `GetCurrentStartPosition()` 给 —— 这条成立
+## 单位是**引擎坐标的非撇字符个数**,由 `GetCurrentStartPosition()` 给 —— 这条成立
 
-2026-10-05 我修过一次(`commit_text_preview` 那条路是错的),2026-10-06 又**推翻**过一次。
-**第二次推翻是错的,已撤回。**
+2026-10-05 修过一次(`commit_text_preview` 那条路是错的),2026-10-06 又推翻过一次,
+**第二次推翻是错的,已撤回**。2026-10-17 第三层事实补齐:**坐标系本身有两族**。
 
-### 为什么不许只读 `Context::Select` 就下结论
+### 源码链(继续成立,见下文详证)
 
-`Context::Select`(`context.cc:118`)确实只做了两件事:
+`Context::Select` → `select_notifier_` → `ConcreteEngine::OnSelect`(`engine.cc:259`)
+→ `seg.Close()`(`Segment::Close` 实现部分消费)+ `Forward()`(推出起点 = 刚吃掉末尾的空段)
+⇒ 选完后 `back().start` = 被选中那段的终点,`GetCurrentStartPosition()` 就是它。
 
-```cpp
-Segment& seg(composition_.back());
-seg.selected_index = index;
-seg.status = Segment::kSelected;
-select_notifier_(this);   // ← 我 2026-10-06 漏掉了这一行
-```
+### 两族坐标系(2026-10-17 定案,此前混为一谈就是拖延至今的根)
 
-`select_notifier_` 是**承重**的:`engine.cc:75` 订阅了它
+**生产族(env: `RimeEngine.query`)**:逐字喂,遇 `'` **跳过不喂**
+(`if (c == '\'') continue`)。luna_pinyin 的 `speller.delimiter: " '"` 原生认识撇,
+**跳过是有意为之**(分节由引擎自断,手工撇不进引擎)⇒ 引擎全部坐标
+(consumed、`SyllableSpelling.start/end`)是**去撇串**上的:数非撇字符。
 
-```cpp
-context_->select_notifier().connect([this](Context* ctx) { OnSelect(ctx); });
-```
+**探针族(env: `tools/rimeprobe/probe.cc` 的 `feed`)**:`simulate_key_sequence`
+**原样喂**,撇一并进引擎 ⇒ 探针打出的是**含撇串**上的下标。
 
-`ConcreteEngine::OnSelect`(`engine.cc:259`)才是真正干活的:
+两族只在 raw 无撇时同值 —— 这就是 10-06/10-12 两轮反复的根源:
+KDoc 拿探针的证词(`zhong'guo` 选「中古」consumed=8 是**含撇**下标)去裁决
+生产(**去撇**)的语义。**探针证据不等于生产证据,这回是坐标系级的版本。**
 
-```cpp
-Segment& seg(ctx->composition().back());
-seg.Close();
-if (seg.end == ctx->input().length()) {
-  seg.status = Segment::kConfirmed;
-  if (ctx->get_option("_auto_commit")) ctx->Commit();   // 本项目**没配**这个开关
-  else ctx->composition().Forward();
-} else {
-  ctx->composition().Forward();
-  ... Compose(ctx);
-}
-```
+### 已修(2026-10-17,#1 项的代码侧完成)
 
-**两处关键:**
-
-1. `Segment::Close()`(`segmentation.cc:17`)**明确实现了部分消费**:
-
-   ```cpp
-   void Segment::Close() {
-     auto cand = GetSelectedCandidate();
-     if (cand && cand->end() < end) {
-       // having selected a partially matched candidate, split it into 2 segments
-       end = cand->end();
-       tags.insert(kPartialSelectionTag);
-     }
-   }
-   ```
-
-   librime 本来就为「选中只覆盖一段的候选」设计了这个行为,并给它打了标记。
-
-2. `Segmentation::Forward()`(`segmentation.cc:114`)追加一个**起点 = 刚吃掉那段末尾**的空段:
-
-   ```cpp
-   if (empty() || back().start == back().end) return false;
-   push_back(Segment(back().end, back().end));
-   ```
-
-⇒ 选完之后 `back().start` = 刚吃掉那段的长度,`GetCurrentStartPosition()` 就是它。
-
-**所以 `rime_jni.cpp` 那个注释是对的,`GetCurrentStartPosition()` 不是「末尾段起点」那么笼统的说法 —— 在 `Select` 之后,它是「被选中的那段的终点」。**
-
-### 分词链是全的(`luna_pinyin.schema.yaml:82`)
-
-```yaml
-segmentors:
-  - ascii_segmentor
-  - matcher
-  - abc_segmentor
-  - affix_segmentor@alphabet
-  - affix_segmentor@pinyin     # ← 自动按拼音音节切,连读分节的主力
-  - punct_segmentor
-  - fallback_segmentor
-```
-
-`xian` → 西安 走的是 **`matcher`**(按整串查词典),不是音节切分。
-`xian` 恰好也是合法音节所以不矛盾,但**两条路是两条**,说成一条就是错的。
-
-### 仍然没有定论的那一件
-
-`Select` 走完之后「剩下的部分」到底以什么形态存在,以及为什么真机上候选栏会空,
-**至今没有运行时证据**。手头唯一的运行时记录是 2026-10-05 的:
+`rawAfterConsuming`(RimeEngine.kt)由「含撇下标切」改成**数非撇字符定位**:
 
 ```
-consume: index=0 word="妳" consumed=0 preview="null"
+"ni'si'ji" 吃 4 ⇒ "ji"        (跨撇;按下标切得 "i'ji",下一轮整串全错)
+"zhong'guo" 吃 8 ⇒ ""          (8 个非撇字符齐了;按下标切得 "o")
 ```
 
-按上面的源码链,单音节 `ni` 选「妳」时 `Forward()` 应推出 `Segment(2,2)`,
-`GetCurrentStartPosition()` 应当是 **2**,且 composition 非空 ⇒ preview 不该是 null。
-**实测与源码推导不符,差在哪没查清。**
+与 `displaySpelling`(2026-10-12 已按非撇字符映射)同族。注释四处统一同一口径
+(`rawAfterConsuming` KDoc、`readRemainder` @param、`PinyinConsumption` @param、
+`PinyinInputMethod.normalize`)。单测:`PinyinConsumptionTest` 13 条全绿
+(含跨撇反例 `ni'si'ji` 与全吃 `zhong'guo`@8);全量 370 用例全绿。
 
-用户没有 adb、给不了 logcat,本机模拟器不可用 ⇒ **拿运行时证据的三条路全断**。
-所以现在的状态是:**模型可信(源码支持),但与实测有矛盾,矛盾未解释。**
+### 遗留的设计问题(未定,不是 bug)
 
-要往下走必须先有一条**用户能看见**的通道(比如状态行上显示
-`raw / consumed / rest / n`),而不是继续推理。
+**手工分节符对引擎无效**:长按 L 插的 `'` 在生产里被跳过,不改变引擎分段
+(librime 若喂撇本可强制 `xi`|`an` 这样的切分,现在 `xi'an` 被喂成 `xian`)。
+功能现只影响**显示侧**(raw 尾巴里的撇原样显示)。要不要把撇喂进去、
+坐标全族换成含撇,是一个待定案的方向(动它则 `rawAfterConsuming` /
+`displaySpelling` 映射全都要反过来翻)。今天不做,先记下。
 
-### 教训(比结论本身更值钱)
+### 教训(继续成立 + 增写)
 
-2026-10-06 我因为只读了 `Context::Select` 的函数体,就把一个**成立了两天**的结论
-推翻并写进这一页的正文,还顺手把标题也改成新结论 —— 形态上是「纠正」,实质是
-**把对的换成了错的**。
-
-- **涉��� `Select` 的任何结论,必须把 notifier 链走完**
-  (`Context::Select` → `select_notifier_` → `ConcreteEngine::OnSelect`)。
-- **推翻一个结论的门槛要高于建立它**:至少要有一条与新结论矛盾的**观测**,
-  而不是一段「看起来更深的源码阅读」。
-- 同一天我还因为 `rg -A12` 截断,得出「方案里只有两个 segmentor」的相反误判。
-  两次都是**没读全就开始推**。
+- 涉及 `Select` 的任何结论,必须把 notifier 链走完。
+- **推翻一个结论的门槛要高于建立它**;观测要标明**在哪一族坐标系**里取的——
+  探针与生产不入一族时,证词不可迁移(本次误引持续了整整 11 天才清账)。
+- 两处同族口径(`displaySpelling` vs `rawAfterConsuming`)不一致时,
+  「以代码为准」只能救显示,救不了消费 —— 两处必须一起修。
 
 
 ## Timeline
@@ -201,4 +143,10 @@ consume: index=0 word="妳" consumed=0 preview="null"
   kind: reversal
   summary: "2026-10-16 连续消费真 bug:consumed 是**绝对坐标**(相对最初输入),不是相对当前 composition。探针新增 RIMEPROBE_CHAIN(同一 session 反复选单字)实测 zhongguoren:选「中」GetCurrentStartPosition 给 5、再选「国」给 8(不是相对新段的 3)、选完给 0。上层 readRemainder 一律拿它当**相对量**去截,而 state.raw 在第一次消费后已是尾巴 ⇒ 第二次起按绝对坐标多截、coerceAtMost 夹到尾部后 substring 得空串,剩余拼音连候选一起丢光(症状:连续单字消费几个字后剩余拼音不再出候选)。修:ImeState 加 rawBase(当前 raw 起点在引擎输入串里的偏移):refreshQuery 的 query 重建后归 0,消费后置 = 绝对 consumed,readRemainder 截前先算 rel=consumed-rawBase。cd04b5a 的探针只测单次 Select,而两种语义在单次下同值,所以这个累积错结构性不可见 —— 单测也一直绿。新增 ImeControllerTest 连续消费用例 + FakePinyinInputMethod.withConsumedSeq(绝对坐标序列)。"
   source: "2026-10-16 探针 chain + 单测"
+  affects: [rime-candidate-consumption]
+
+- time: 2026-10-18T01:42:27
+  kind: decision
+  summary: "2026-10-17 梳理撇号坐标:两族坐标系分家定案 —— 生产跳撇(去撇坐标)vs 探针喂撇(含撇坐标,luna_pinyin 原生认撇);rawAfterConsuming 修成非撇字符计数,与 displaySpelling 同族"
+  source: "2026-10-17 梳理拼音消费(用户指令)"
   affects: [rime-candidate-consumption]

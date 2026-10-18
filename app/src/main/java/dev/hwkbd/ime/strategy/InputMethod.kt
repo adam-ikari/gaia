@@ -197,8 +197,9 @@ interface InputMethod {
  * 选「你」  (只覆盖 ni) → consumed=2,剩下 [2,5) 与它的 45 个候选
  * ```
  *
- * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:**含** `'`,见
- *   `rawAfterConsuming` 的撇口径)。`0` = 整串吃干净。这是**绝对坐标** ——
+ * @param consumed 这个候选**吃掉了几个输入字符**(引擎坐标:**不含** `'`,
+ *   查询把撇跳过不喂引擎,详见 [rawAfterConsuming] 的撇口径)。`0` = 整串吃干净。
+ *   这是**绝对坐标** ——
  *   相对**引擎当前输入串**的开头,**不是**相对 `state.raw`:连续消费时后者已是尾巴,
  *   两者差一个 `ImeState.rawBase`(引擎此前吃掉的绝对量),由
  *   [ImeController.selectCandidate] 折成相对量后再截(2026-10-16 修连续消费丢候选)。

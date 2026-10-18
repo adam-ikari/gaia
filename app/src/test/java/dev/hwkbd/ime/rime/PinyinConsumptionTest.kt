@@ -69,7 +69,7 @@ class PinyinConsumptionTest {
     }
 
     /**
-     * `consumed` 超过 raw 的长度 ⇒ 空串。
+     * `consumed` 超过 raw 里**非撇字符**的个数 ⇒ 空串(`ni'hao` 走 6 个同样全清)。
      *
      * 宁可全清,也不能留半个词:留 `"ni"` 那样用户会以为按键没生效。
      */
@@ -77,17 +77,15 @@ class PinyinConsumptionTest {
     fun `consumed 超过长度时给空串`() {
         assertEquals("", rawAfterConsuming("nihao", 99))
         assertEquals("", rawAfterConsuming("ni", 5))
+        assertEquals("", rawAfterConsuming("ni'hao", 6)) // 只有 5 个非撇字符,6 吃不到
     }
 
     // ---------------- 分节符的坐标桥
 
     /**
-     * [consumed] 是**喂给引擎那串里的下标**,而那串**含** `'`
-     * (`PinyinInputMethod.normalize` 只合并连续的、去掉开头的,不剥)。
-     * 所以 `ni'hao` 吃 2 ⇒ 切点落在下标 2 —— 那正好是一个分节符。
-     *
-     * 原文这里写着「喂给 librime 之前 `'` 被剥掉了」,那句是假的,
-     * 详见 [rawAfterConsuming] 的说明与下面的 `zhong'guo` 那条。
+     * [consumed] 数的是**非撇字符**(喂引擎时 `'` 被跳过,坐标就去撇;
+     * 详见 [rawAfterConsuming] 的口径)。`ni'hao` 吃 2 ⇒ 第 2 个非撇字符
+     * 是 `i`,切点紧跟其后 —— 正好压在分节符上 ⇒ 撇一起丢。
      */
     @Test
     fun `切点正好落在分节符上时那个分节符一起丢`() {
@@ -97,48 +95,65 @@ class PinyinConsumptionTest {
     }
 
     /**
-     * **这条钉的是 2026-10-06 修掉的那个真 bug:坐标口径错了。**
+     * **这条钉的是坐标系本身(2026-10-17 梳理定案,2026-10-06 那版口径被推翻)。**
      *
-     * 探针实测(`tools/rimeprobe/run.sh "zhong'guo"`,9 字符含 1 个撇):
-     *
-     * ```
-     * 选「中古」→ consumed=8,引擎剩下的是 "o"（preedit="中古o"）
-     * ```
-     *
-     * `8` 是**下标**。旧实现数的是**非撇字符**,8 个非撇字符正好把那 8 个
-     * 字母数完 ⇒ 返回 `""`,**把 `o` 弄丢**。
-     *
-     * 两种语义只在 raw 里没有撇时相同,所以单测里那几条(`nihao`、`ni'hao`)
-     * 全都同值 —— 这个 bug 在单测里**结构性不可见**,只有加上撇才现形。
-     * 项目自己的 E2E 场景断言的 `after === raw_before.slice(consumed)`
-     * 本来就是下标语义:断言一直对,只有实现错。
+     * `zhong'guo` 选「中古」(覆盖 `zhong` 5 个母音档位的非撇字符)⇒
+     * `consumed=5`,正解 `"guo"`。按旧口径(把 consumed 当**含撇下标**切),
+     * 同一笔账切在 `'` 前一位 —— 恰好被「切点落撇丢撇」的兜底救场,
+     * 所以 5 那一格两种口径同值;**真正的分家在 6/7/8**:
+     * 每多留正常字符一格,旧口径都把切点借撇偏移一位、留下多一段残余
+     * (6 得 `"guo"` 而正确是 `"uo"`,7 得 `"uo"` 而正确是 `"o"`,8 得 `"o"`
+     * 而**正确是 `""` —— 旧口径在这里把已吃干净的事说成「还剩一个 o」)。
      */
     @Test
-    fun `坐标是下标 撇算在里面`() {
-        // 下标:0=z 1=h 2=o 3=n 4=g 5=' 6=g 7=u 8=o
-        assertEquals("o", rawAfterConsuming("zhong'guo", 8))
-        assertEquals("uo", rawAfterConsuming("zhong'guo", 7))
-        assertEquals("guo", rawAfterConsuming("zhong'guo", 6))
+    fun `坐标数非撇字符 撇不占位`() {
         assertEquals("guo", rawAfterConsuming("zhong'guo", 5)) // 切点落在撇上,撇一起丢
-        // 无撇时两种语义相同 —— 旧实现在这些用例上「看起来一直是对的」
-        assertEquals("hao", rawAfterConsuming("nihao", 2))
+        assertEquals("uo", rawAfterConsuming("zhong'guo", 6))
+        assertEquals("o", rawAfterConsuming("zhong'guo", 7))
+        assertEquals("", rawAfterConsuming("zhong'guo", 8))   // 8 个非撇字符齐了
+    }
+
+    /**
+     * **这条钉的是 2026-10-05 那个真机 bug 的姊妹篇:跨撇后切点不偏。**
+     *
+     * `ni'si'ji`(用户长按 L 插了两个撇)选一个覆盖 `nisi` 的两字候选
+     * ⇒ 非撇字符吃了 4 个 ⇒ 正解 `"ji"`。按下标切得 `"i'ji"` ——
+     * 剩余串从撇后半位开始,下一轮整串全错。
+     *
+     * 下方注释里旧口径的账(2026-10-06 版):它引探针 `run.sh "ni'ha'o"`
+     * 选「你」consumed=3 佐证「撇算在坐标里」。**那探针把撇喂进了引擎**
+     *(`probe.cc` 的 `simulate_key_sequence` 原样喂;luna_pinyin 原生认撇),
+     * 给的是含撇坐标系的值 —— 生产跳撇,这两族不可混引。生产里
+     * 同一个「你」报的是 `consumed=2`(非撇个数为 2),坐标族对上了,
+     * 探针的证词不再成立。(2026-10-10 看过的 raw 断言见 E2E `consume-partial`:
+     * 它用 `nihao` 无撇,两种语义同值,做不了这个裁判。)
+     */
+    @Test
+    fun `坐标数非撇字符 跨撇不切错位`() {
+        // 下标(non-apostrophe 计数):n=1 i=2 | s=3 i=4 | j=5 i=6 加上两个撇
+        assertEquals("ji", rawAfterConsuming("ni'si'ji", 4))   // 跨一个撇
+        assertEquals("si'ji", rawAfterConsuming("ni'si'ji", 2)) // 只吃 ni
+        // 探针同名场景的生产族口径:你 覆盖 ni ⇒ 2 个非撇字符
+        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 2))
+    }
+    /** 最后一个非撇字符吃掉后,切的正好是换段撇本身 ⇒ 空串 —— 与「全吃掉」同值。 */
+    @Test
+    fun `全吃掉得空串 撇不占位`() {
         assertEquals("", rawAfterConsuming("nihao", 5))
     }
 
     /**
      * 切点落在撇上 ⇒ 那个撇跟着丢;再往后的撇要**保留**(它标着「这里是两段」)。
      *
-     * 2026-10-06 改过:原文是 `rawAfterConsuming("ni'ha'o", 4)` == `"o"`,
-     * 建立在「consumed 数的是非撇字符」那个**已被探针否证**的前提上。
-     * 引擎实测(`run.sh "ni'ha'o"` 选「你」)= **consumed=3**,而它自己剩下的
-     * 输入是 `ha'o` —— 正是 `"ni'ha'o".slice(3)`。撇算在坐标里。
-     * 于是「吃掉 ni'ha」对应下标 **5**,不是 4。
+     * 口径(2026-10-17 梳理):`ni'ha'o` 里「吃掉 `niha`」对应非撇字符 **4**,
+     * 切点落在 `a` 后的撇上 ⇒ 撇丢,剩 `"o"`。2026-10-06 那版把它说成
+     * 「下标 5」,依据是探针的含撇坐标(已推翻,见上一条测试的说明)。
+     * 生产族里「你」覆盖 `ni` ⇒ consumed=2 ⇒ 剩 `"ha'o"`,后面的撇原样保留。
      */
     @Test
     fun `切点落在撇上撇一起丢 后面的撇保留`() {
-        assertEquals("o", rawAfterConsuming("ni'ha'o", 5))
-        // 引擎实测那条:consumed=3 ⇒ 剩 ha'o,撇在切点之前所以原样留下
-        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 3))
+        assertEquals("o", rawAfterConsuming("ni'ha'o", 4))
+        assertEquals("ha'o", rawAfterConsuming("ni'ha'o", 2))
     }
 
     /** raw 以分节符结尾时,吃掉前面全部音节 ⇒ 空串。 */

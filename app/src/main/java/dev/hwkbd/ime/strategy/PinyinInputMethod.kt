@@ -65,9 +65,10 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
          * 查询前归一:滤掉字母与 `'` 以外的字符、连续 `'` 并成一个、丢掉开头的 `'`
          * (开头没有前一个音节,分节位无意义)。**末尾 `'` 保留** —— 它表示"本音节到此为止"。
          *
-         * 即使 librime 自己不认识 `'`,归一仍必须做:
-         * 归一后的串既喂引擎也进上层 `state.raw`,两边要一致;
-         * 而且分节意图要保留，将来接带分节规则的方案时不用重写这一层。
+         * 归一**不喂引擎**:`RimeEngine.query` 拿这份串时还会把 `'` 跳过
+         * (分节由引擎自己断,详见 [dev.hwkbd.ime.rime.rawAfterConsuming] 的口径)。
+         * 归一要做的是保证「喂引擎的那串」与「上层 state.raw」同一字符域,
+         * 而且分节意图要保留,将来接带分节规则的方案时不用重写这一层。
          */
         internal fun normalize(raw: String): String =
             raw.filter { it in 'a'..'z' || it == '\'' }

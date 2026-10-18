@@ -816,7 +816,9 @@ class ImeController(
      * 「缓冲里是 hao、候选栏却是 hao 别的段」,极难查。
      * 打包成一份就只有一个真相来源。
      *
-     * @param consumed 引擎给的消费长度(**绝对坐标** = 相对引擎当前输入串开头的下标,含 `'`);
+     * @param consumed 引擎给的消费长度(**绝对坐标** = 相对引擎当前输入串开头数出的**非撇字符**个数;
+     *   喂引擎时 `'` 被跳过,引擎坐标不含撇 —— 与 `displaySpelling` 同族,
+     *   口径详见 [dev.hwkbd.ime.rime.rawAfterConsuming]);
      *   `null` 或 `<= 0` ⇒ `null`。与当前 `state.raw` 之间差一个 [ImeState.rawBase]。
      */
     private fun readRemainder(consumed: Int?): Remainder? {
@@ -1519,9 +1521,10 @@ class ImeController(
          *
          * [SyllableSpelling.start] / [SyllableSpelling.end] 是喂进引擎那串里的下标,
          * 而 `RimeEngine.query` 重建时**跳过 `'`**(分节符不喂引擎)。
-         * 所以映射回 raw 时数的是**非撇字符** —— 这一点与
-         * [ImeController] 的 `readRemainder` 注释(写的是「含 '」)相反;
-         * 以代码为准(2026-10-12 发现,已记 brain `unverified-as-fact`)。
+         * 所以映射回 raw 时数的是**非撇字符** —— [rawAfterConsuming] 的消费切点
+         * 在 2026-10-17 梳理后也已经改成同一口径(以代码为准);当年那次
+         * 「两边意见相反、以代码为准」的经过记在 brain `unverified-as-fact`。
+         * 消费切点与撇口径见 [dev.hwkbd.ime.rime.rawAfterConsuming]。
          *
          * ## 每一段边界都补撇(2026-10-14 用户定)
          *

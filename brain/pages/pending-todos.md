@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-18T01:30:16"
+updated: "2026-10-18T01:42:34"
 ---
 
 <!-- compiled_truth -->
@@ -186,3 +186,9 @@ updated: "2026-10-18T01:30:16"
   summary: "2026-10-17 librime 更新收尾:新增第 6 项(librime 4ea39b33 设备冒烟欠账),第 0 项保持;撇号坐标(第 1 项)与误触前瞻否决(第 5 项)未动;另记 CI 账单红线(基础设施,非代码)"
   source: "2026-10-17 整理状态"
   affects: [pending-todos]
+
+- time: 2026-10-18T01:42:34
+  kind: decision
+  summary: "待办 1(撇号坐标)代码侧完成:rawAfterConsuming 改数非撇字符(displaySpelling 同族),四处注释统一,单测 13 条+全量 370 全绿。真机取证(长按 L 插撇 + 跨撇选词)并入 #0/#6 冒烟一起还。新发现遗留设计问题记入 rime-candidate-consumption:手工撇对引擎无效,是否喂撇待用户定案"
+  source: "2026-10-17 梳理拼音消费"
+  affects: [pending-todos, rime-candidate-consumption]
