@@ -191,7 +191,8 @@ class L5Ui(
          * **不做「控制」tab**(2026-10-19 用户「不需要控制tab」):Tab/Esc/Enter
          * 等控制键由物理键或 L3 承担,面板只留字符盘。
          *
-         * 标点/技术各两页 ⇒ 上下翻页有东西可翻(单页的面板验不了翻页)。
+         * 标点/技术两盘内容不少(先过滤再按 [ROWS_PER_PAGE] 行网格分页)⇒ 上下翻页有东西可翻
+         * (单页的面板验不了翻页)。
          *
          * ## 无键的 tab 不出现(2026-10-19 用户定案)
          *
@@ -233,13 +234,11 @@ class L5Ui(
         }
 
         private fun t(s: String) = L5Key(s, KeyOut.Text(s))
-        private fun page(vararg keys: L5Key) = L5Page(keys.toList())
-        private fun chars(s: String) = page(*s.map { t(it.toString()) }.toTypedArray())
 
         /**
          * 场景 tab = **原 L5 溢出行**(L4 装不下的尾巴,见 [ImeController.setOverflowCut])。
          * 与符号盘共用 [GRID_COLUMNS] 列网格;长域名/短语按 [gridSpan] 跨格,
-         * 换行/分页都按格算(每页 [SCENE_ROWS_PER_PAGE] 行)。没有可显示的键时返回 null。
+         * 换行/分页都按格算(每页 [ROWS_PER_PAGE] 行)。没有可显示的键时返回 null。
          */
         private fun sceneTab(keys: List<L5Key>, allowText: (String) -> Boolean): L5Tab? {
             val visible = keys.filter { it.allowedBy(allowText) }
@@ -247,7 +246,7 @@ class L5Ui(
             if (visible.isEmpty()) return null
             return L5Tab(
                 SCENE_TAB_ID, "场景",
-                paginateGrid(visible, GRID_COLUMNS, SCENE_ROWS_PER_PAGE),
+                paginateGrid(visible, GRID_COLUMNS, ROWS_PER_PAGE),
                 columns = GRID_COLUMNS,
             )
         }
@@ -297,39 +296,35 @@ class L5Ui(
             allowText: (String) -> Boolean,
             producible: Set<String>,
         ): List<L5Tab> = listOfNotNull(
-            buildTab(
+            buildGridTab(
                 "punct", "标点",
-                listOf(
-                    chars("，。！？：；…—（）《》【】「」“”‘’～·"),
-                    chars("＋－×÷＝≠≈±∞√°′″№§¶†"),
-                ),
-                allowText,
-                producible,
+                "，。！？：；…—（）《》【】「」“”‘’～·＋－×÷＝≠≈±∞√°′″№§¶†",
+                allowText, producible,
             ),
-            buildTab(
+            buildGridTab(
                 "tech", "技术",
-                listOf(
-                    chars("αβγδεζηθλμπσφωΔΣΩ"),
-                    chars("{}[]()<>|\\"),
-                ),
-                allowText,
-                producible,
+                "αβγδεζηθλμπσφωΔΣΩ{}[]()<>|\\",
+                allowText, producible,
             ),
         )
 
-        /** 滤掉本框非法 / L1-L3 已能敲出的键;空页丢弃,整 tab 没键就返回 null。 */
-        private fun buildTab(
+        /**
+         * 出厂字符盘:先把整盘键过一遍「本框合法 / L1-L3 已能敲出」的筛,**再**统一按
+         * [GRID_COLUMNS] 列 × [ROWS_PER_PAGE] 行的网格分页。
+         *
+         * 顺序不能颠倒(2026-10-20):先分页再过滤,被滤掉的位置会留下空格 —— 全角态
+         * 标点盘会被 L3 带走一大片,页面看着坑坑洼洼。先滤后分页,剩下的键自然压紧成页。
+         */
+        private fun buildGridTab(
             id: String,
             label: String,
-            pages: List<L5Page>,
+            source: String,
             allowText: (String) -> Boolean,
             producible: Set<String>,
         ): L5Tab? {
-            val visiblePages = pages
-                .map { p -> L5Page(p.keys.filter { it.allowedBy(allowText, producible) }) }
-                .filter { it.keys.isNotEmpty() }
-            if (visiblePages.isEmpty()) return null
-            return L5Tab(id, label, visiblePages)
+            val keys = source.map { t(it.toString()) }.filter { it.allowedBy(allowText, producible) }
+            if (keys.isEmpty()) return null
+            return L5Tab(id, label, paginateGrid(keys, GRID_COLUMNS, ROWS_PER_PAGE))
         }
 
         /** 剪贴板 tab:每条一行(2026-10-16 用户「每条占用一行 显示最近十条」)。 */
@@ -339,7 +334,7 @@ class L5Ui(
             val keys = visible.map { L5Key(clipLabel(it), KeyOut.Text(it.text)) }
             return L5Tab(
                 CLIP_TAB_ID, "剪贴板",
-                keys.chunked(CLIP_ROWS_PER_PAGE).map { L5Page(it) },
+                keys.chunked(ROWS_PER_PAGE).map { L5Page(it) },
                 L5Layout.ROWS,
             )
         }
@@ -351,11 +346,15 @@ class L5Ui(
          */
         const val GRID_COLUMNS = 8
 
-        /** 场景 tab 每页两行(与旧 L5 溢出行的高度手感一致);行数满后换页。 */
-        private const val SCENE_ROWS_PER_PAGE = 2
-
-        /** 每条占一行,一页放这么多行(10 条分两页,与出厂 tab「每 tab 两页」手感一致)。 */
-        private const val CLIP_ROWS_PER_PAGE = 5
+        /**
+         * 面板高度**固定两行**(2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」):
+         * GRID tab 每页最多 [GRID_COLUMNS]×[ROWS_PER_PAGE] 格(跨格键也按格算),
+         * ROWS(剪贴板)每页最多 [ROWS_PER_PAGE] 条;装不下的翻页。
+         *
+         * 定死行数(而不是按内容现算)是为了**切 tab / 翻页时面板高度不跳** —— 视图
+         * ([dev.hwkbd.ime.ui.L5PanelView]) 会照这个值补空行,内容不足两行也占两行。
+         */
+        const val ROWS_PER_PAGE = 2
 
         /**
          * 剪贴板条目的键帽文字:**敏感内容遮罩**,普通内容截断到 [CLIP_LABEL_MAX]。

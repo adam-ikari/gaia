@@ -25,6 +25,8 @@ import kotlin.math.abs
  * 落在同一套 [L5Ui.GRID_COLUMNS] 列基础网格上,长键按 [L5Key.span] 跨格,不裁字、键帽按 L4 的样式画)。点键 → 交还 [onKey],走与 L4
  * 面板**同一条**上屏通路([dev.hwkbd.ime.ime.ImeController.commitL4Key])——
  * 虚拟键盘的键与状态行里的键在「干什么」上没区别,只是长在不同面板上。
+ * **高度固定 [L5Ui.ROWS_PER_PAGE] 行**(2026-10-20):这一页装不满就补空行,多出来的进下一页,
+ * 于是切 tab / 翻页时面板高矮不跳。
  *
  * ## 上下滑 = tab 内翻页(2026-10-15 定案「不跨 tab」)
  * 定方向那一下判**垂直**(死区 [DragGesture.DEAD_DP_SWIPE] 固定、不随阈值变,
@@ -82,8 +84,9 @@ class L5PanelView @JvmOverloads constructor(
      * 照状态机当前态重建 tab 条 + 键格。键格与 L4 同一套色:键帽 [ImeTheme.pressed]、
      * 描边 [ImeTheme.divider]、字 [ImeTheme.fg];面板底取 [ImeTheme.barBg](整条带子同色)。
      *
-     * @return 是否真的重建了。切 tab/翻页会改变面板高度(场景一页可能只有一行,标点三行),
-     *   服务层据此补一次 `notifyInsetsChanged()`;否则 App 的让位边界停在旧高度上。
+     * @return 是否真的重建了。面板高度**固定 [L5Ui.ROWS_PER_PAGE] 行**(2026-10-20),
+     *   切 tab / 翻页不再改高度 ⇒ 这里其实不必再补报 insets;仍返回重建与否,服务层照旧
+     *   在重建后报一次,免得将来某页又需要不同高度时漏报(报少了顶裁)。
      */
     fun setContent(ui: L5Ui, theme: ImeTheme): Boolean {
         fg = theme.fg
@@ -138,6 +141,7 @@ class L5PanelView @JvmOverloads constructor(
         val columns = if (rowsLayout) 1 else ui.tab.columns.coerceAtLeast(1)
         val gap = dip(3)
         var idx = 0
+        var rows = 0
         while (idx < keys.size) {
             val row = LinearLayout(context).apply { orientation = HORIZONTAL }
             var used = 0
@@ -170,8 +174,25 @@ class L5PanelView @JvmOverloads constructor(
                 row.addView(View(context), LinearLayout.LayoutParams(0, dip(36), (columns - used).toFloat()))
             }
             grid.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            rows++
+        }
+        // 面板高度**固定 [L5Ui.ROWS_PER_PAGE] 行**(2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」):
+        // 这一页装不满两行(如场景 4 颗跨格键只占一行)时补空行,切 tab / 翻页高度不跳。
+        while (rows < L5Ui.ROWS_PER_PAGE) {
+            grid.addView(emptyRow(columns, gap), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            rows++
         }
     }
+
+    /** 一行占位空格(整行权重铺满),只为把面板垫到固定行高。 */
+    private fun emptyRow(columns: Int, gap: Int): LinearLayout =
+        LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(
+                View(context),
+                LinearLayout.LayoutParams(0, dip(36), columns.toFloat()).apply { bottomMargin = gap },
+            )
+        }
 
     private fun makeKey(k: L5Key, direct: Boolean = false): View = TextView(context).apply {
         text = k.label

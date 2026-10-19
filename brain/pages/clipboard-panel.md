@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, clipboard, l6, ui]
 created: "2026-10-16T03:19:16"
-updated: "2026-10-19T23:21:23"
+updated: "2026-10-20T00:28:50"
 ---
 
 <!-- compiled_truth -->
@@ -15,7 +15,8 @@ updated: "2026-10-19T23:21:23"
 场景/标点/技术/剪贴板),不新建面板。
 
 - **每条一行**:`L5Layout.ROWS`(整行宽),与符号盘的 `GRID`(8 列基础网格,长键跨格)并存
-  —— 键格排布是 tab 的属性,不是面板的。
+  —— 键格排布是 tab 的属性,不是面板的。**一页两行**(面板固定两行高,见 [[l6-virtual-keyboard]]),
+  超过两条翻页。
 - **空 tab 隐藏**:没有条目、或条目全被当前输入框的 `allowText` 滤掉时,整个剪贴板 tab 消失
   (2026-10-19 与「没有可显示键的 tab 整个隐藏」同一条规则)。密码框只留可打印 ASCII,
   数字/电话框只留数字与该类型放行字符;过滤后无合法条目就不显示 tab。
@@ -62,4 +63,10 @@ updated: "2026-10-19T23:21:23"
   kind: decision
   summary: "2026-10-19 更新:剪贴板是 L5 第 4 个 tab(无控制 tab);不参与 L1-L3 单字去重,整段文本仍可粘贴"
   source: "2026-10-19 L5 去重定案"
+  affects: [clipboard-panel]
+
+- time: 2026-10-20T00:28:50
+  kind: decision
+  summary: "2026-10-20 面板固定两行高(见 l6-virtual-keyboard):剪贴板一页由 5 条改为 2 条(CLIP_ROWS_PER_PAGE 撤并到 L5Ui.ROWS_PER_PAGE),超过两条翻页;每条仍一行整行宽、敏感遮罩/截断/点即粘贴不变。"
+  source: "2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」"
   affects: [clipboard-panel]

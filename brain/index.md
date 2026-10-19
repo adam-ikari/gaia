@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-19T16:02:33.032Z._
+_Auto-generated. Last updated 2026-10-19T16:28:50.172Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [clipboard-panel](pages/clipboard-panel.md) — category: decision | tags: [ime, clipboard, l6, ui] | ## 剪贴板历史面板(2026-10-16 定案,2026-10-17 补读取防御)

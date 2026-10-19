@@ -368,17 +368,22 @@ class L5PanelTest {
     }
 
     @Test
-    fun `出厂 tab 都有内容且页数一致`() {
-        // 只看**出厂**字符盘(场景是动态内容、剪贴板随条目数变,都不在此列)。
+    fun `出厂 tab 每页最多两行网格`() {
+        // 2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」:不再预设每盘几页,
+        // 而是「先过滤、再按 8 列 × ROWS_PER_PAGE 行的网格分页」,所以只钉两条:
+        // 每页有键、且每页占格不超过两行(跨格键也按格算,不能被页边界劈开)。
         val tabs = L5Ui.factory().tabs.filter { it.id in setOf("punct", "tech") }
         assertTrue("至少两个出厂 tab", tabs.size >= 2)
+        val capacity = L5Ui.GRID_COLUMNS * L5Ui.ROWS_PER_PAGE
         for (t in tabs) {
             assertTrue("${t.id} 有页", t.pages.isNotEmpty())
             for ((i, p) in t.pages.withIndex()) {
                 assertTrue("${t.id} 第 ${i + 1} 页有键", p.keys.isNotEmpty())
+                val cells = p.keys.sumOf { it.span.coerceIn(1, L5Ui.GRID_COLUMNS) }
+                assertTrue("${t.id} 第 ${i + 1} 页 $cells 格,不该超过两行($capacity)", cells <= capacity)
             }
         }
-        assertEquals("每个出厂 tab 页数相同(便于翻页手感一致)", 1, tabs.map { it.pages.size }.distinct().size)
+        assertTrue("内容超过一页的盘能翻", tabs.any { it.pages.size >= 2 })
     }
 
     @Test
@@ -447,6 +452,7 @@ class L5PanelTest {
         assertEquals("出厂 tab 仍是网格排布", L5Layout.GRID, ui.tabs.first { it.id == "punct" }.layout)
         val keys = clip.pages.flatMap { it.keys }
         assertEquals("三条各一行", 3, keys.size)
+        assertEquals("剪贴板一页最多两行(与面板固定两行一致)", 2, clip.pages.maxOf { it.keys.size })
         assertEquals("普通条目原样显示", "normal text", keys[0].label)
         assertEquals("敏感条目遮罩", "••••", keys[1].label)
         assertTrue("长条目截断", keys[2].label.endsWith("…"))
