@@ -11,7 +11,7 @@ package dev.hwkbd.ime.ime
 data class ClipItem(val text: String, val sensitive: Boolean)
 
 /**
- * 剪贴板历史(2026-10-16 用户「剪贴板功能:历史面板,复用 L6 浮层」)。
+ * 剪贴板历史(2026-10-16 用户「剪贴板功能:历史面板,复用 L5 浮层」)。
  *
  * ## 形态
  *

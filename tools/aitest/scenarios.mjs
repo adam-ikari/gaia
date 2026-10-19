@@ -1179,27 +1179,27 @@ const selOf = (log) => {
   },
 
   {
-    name: 'l6-keyboard',
-    desc: 'L6 虚拟键盘:空闲态 Sym+Space 开面板(AI 判卷),Sym+Space 与 Sym+Q(Esc) 都能关',
-    // **本机无真机,此场景尚未跑过**(2026-10-15 新增)—— 见 brain `pending-todos`
+    name: 'l5-panel',
+    desc: 'L5 面板:空闲态 Sym+Space 开面板(AI 判卷),Sym+Space 与 Sym+Q(Esc) 都能关',
+    // **尚未跑过**(2026-10-15 新增 L6,2026-10-19 合并为 L5)—— 见 brain `pending-todos`
     // 的设备冒烟欠账。跑通后再去掉这条备注。
     judge: [
-      { shot: 'l6-open', question: '这是 Android 输入法条区域的截图。条的上方是否出现了一块面板:顶上一行有几个文字标签(如 标点/技术/控制),下面是一片方形小键帽?简短回答。' },
-      { shot: 'l6-closed', question: '这是 Android 输入法条区域的截图。条的上方是否**没有**那块带标签页与键格的面板(只剩一条状态栏)?简短回答。' },
+      { shot: 'l5-open', question: '这是 Android 输入法条区域的截图。条的上方是否出现了一块面板:顶上一行至少有一个文字标签(如 标点/技术;场景有 L4 溢出键、剪贴板有条目时才出现),下面是一片方形小键帽(没有标签的 tab 会被隐藏;不再有控制 tab)?简短回答。' },
+      { shot: 'l5-closed', question: '这是 Android 输入法条区域的截图。条的上方是否**没有**那块带标签页与键格的面板(只剩一条状态栏)?简短回答。' },
     ],
     steps: [
       async (c) => {
         // 空闲态 Sym+Space:idle 才抢这把键(组词中仍是空格),开面板不写任何字符
         c.device.combo(K.sym, K.space)
         await sleep(800)
-        c.shot('l6-open')
+        c.shot('l5-open')
         c.device.combo(K.sym, K.space) // 再按一次 = 关
         await sleep(700)
         c.device.combo(K.sym, K.space) // 再开
         await sleep(600)
         c.device.combo(K.sym, K.q) // Sym+Q = 出厂 L3 的 Esc,也关面板
         await sleep(700)
-        c.shot('l6-closed')
+        c.shot('l5-closed')
       },
     ],
   },

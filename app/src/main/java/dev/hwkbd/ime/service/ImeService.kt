@@ -47,7 +47,7 @@ class ImeService : InputMethodService() {
      * **按住键期间一直挡 + 抬手后 [KeyEventGate.blockMs] 内也挡**(长度可配置,见 [PREF_KEY_GATE_MS])。
      *
      * **四个滑动入口全查**:飞字手势(本类 [handleFlyMotion],键盘表面 TOUCHPAD)、
-     * 候选行([CandidateBarView])、L5 横滑([L4PanelView] tailMode)、L6 横滑([L6PanelView])。
+     * 候选行([CandidateBarView])、L4([L4PanelView],预留)、L5 面板([L5PanelView])。
      * 点按与长按一律不查 —— 完整理由见 [dev.hwkbd.ime.ime.KeyEventGate] 的类注释。
      */
     private val keyGate = KeyEventGate()
@@ -66,21 +66,16 @@ class ImeService : InputMethodService() {
     private var statusShift: TextView? = null
     private var statusFullWidth: TextView? = null
     private var preeditRow: TextView? = null
-    private var l6Panel: dev.hwkbd.ime.ui.L6PanelView? = null
+    private var l5PanelView: dev.hwkbd.ime.ui.L5PanelView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
     /** L4 面板当前键帽对应的签名([ImeController.l4Signature]);变了才重建键帽。 */
     private var l4PanelSig: String? = null
 
-    /** 浮层面板态(三态循环,见 [dev.hwkbd.ime.ime.PanelMode])。L5 行的**溢出有无**由 L4 测量回调喂。 */
-    private var l5HasOverflow = false
-    private var l5Composing = false
-    /** 上次同步给按钮/行的面板态;变才重设图标(免得每帧重建 drawable)。 */
+    /** L4 最近一次测出的溢出切点:场景 tab = `l4Keys().drop(l5Cut)`。 */
+    private var l5Cut = 0
+    /** 上次同步给按钮的面板态;变才重设图标(免得每帧重建 drawable)。 */
     private var syncedPanelMode: dev.hwkbd.ime.ime.PanelMode? = null
-    private var l5Panel: dev.hwkbd.ime.ui.L4PanelView? = null
-
-    /** L5 行与状态行之间的 1dp 分割线:显隐跟 L5 行同步,颜色跟主题(见 [syncL5] 与 [applyPrefs])。 */
-    private var l5Divider: View? = null
     private var btnL5: ImageButton? = null
 
     // ------------------------------------------------------------- 剪贴板历史(2026-10-16 用户定案)
@@ -108,7 +103,7 @@ class ImeService : InputMethodService() {
             false
         }
         clipHistory.record(text, sensitive)
-        controller.setL6Clipboard(clipHistory.entries)
+        controller.setL5Clipboard(clipHistory.entries)
     }
 
     private var candidateBar: CandidateBarView? = null
@@ -294,7 +289,6 @@ class ImeService : InputMethodService() {
         imeRoot?.flyHandler = { ev -> handleFlyMotion(ev) }
         statusRow = root.findViewById(R.id.status_row)
         candidateRow = root.findViewById(R.id.candidate_row)
-        l5Divider = root.findViewById(R.id.l5_divider)
         statusMode = root.findViewById<TextView>(R.id.status_mode).apply {
             // 语言项点击 = 切换拼音/En(锁定层时也能切;层状态不响应触摸是另一套约定)
             setOnClickListener { controller.cycleLanguage() }
@@ -311,59 +305,41 @@ class ImeService : InputMethodService() {
                 // 偏好监听器会回调 applyPrefs(),但 SharedPreferences 的 apply() 是异步落盘的,
                 // 立刻改内存值 + 走一遍渲染,点下去当场就变,不等回调
                 controller.fullWidthSymbolsInCn = next
+                // 面板开着时字符盘也要按新的 L1-L3 敲出集合重算(否则会停在旧的全角/半角一套)
+                controller.refreshL5Content()
                 updateUi()
             }
         }
         preeditRow = root.findViewById(R.id.preedit_row)
-        l5Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l5_panel).apply {
-            tailMode = true // L5 行 = L4 装不下的尾巴([tailFrom] 起)+ 用户短语(排在后面)
-            onL4Key = { commitL4Tapped(it) } // 漏接则 L5 键点了没反应(2026-09-29 修)
-            // L5 横滑也接静默窗(用户 2026-10-02 定「所有的键盘滑动都无效」)
-            swipeGate = { keyGate.swipeBlocked() }
-            onPageChange = { p, total ->
-                // 页数可能随输入类型/主题变少,夹一下免得指到不存在的页
-                if (p >= total) page = (total - 1).coerceAtLeast(0)
-            }
-            // 横滑翻页(2026-09-29 用户定案选方案 2,和候选行手感统一):
-            // 页码**夹住不循环** —— 与候选行一致(候选行到头就停),横滑也该有头有尾。
-            // 键盘图标仍是循环前进(见 btnL5),两条路各按各的直觉。
-            onSwipePage = { delta -> stepL5Page(delta) }
-        }
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
             onL4Key = { commitL4Tapped(it) }
             // L4 中区不接横滑(那条路留给飞字手势,见 L4PanelView 类注释),这里接门是为将来:
             // 万一它开始接手势,静默窗规则不用再记得补一处
             swipeGate = { keyGate.swipeBlocked() }
-            onOverflowChange = { hasL5, cut ->
-                l5HasOverflow = hasL5 // 溢出有无只决定 L5 行画不画得出来;面板态由 cyclePanel 管
-                l5Panel?.apply {
-                    tailFrom = cut
-                    page = 0 // 键序变了(换输入框/换语言)→ 回到第 0 页,否则停在旧的第 N 页
-                    requestLayout()
-                }
-                syncL5()
+            onOverflowChange = { _, cut ->
+                // L4 装不下的尾巴 = 原 L5 行 = 现在面板的「场景」tab(2026-10-19 合并)。
+                // 回调是 post 出来的(见 L4PanelView.onMeasure),这里改状态/渲染是安全的。
+                l5Cut = cut
+                controller.setOverflowCut(cut)
             }
         }
-        // L6 虚拟键盘面板:键走**与 L4/L5 同一条**上屏通路([commitL4Tapped]),
-        // 翻页/切 tab 交回控制器(页码夹取、到头不循环都在 [L6Ui] 里)。
+        // L5 面板(原 L6 虚拟键盘 + 原 L5 溢出行合并):键走**与 L4 同一条**上屏通路
+        // ([commitL4Tapped]),翻页/切 tab 交回控制器(页码夹取、到头不循环都在 [L5Ui] 里)。
         // 滑动手势也接静默窗(用户 2026-10-02「所有的键盘滑动都无效」)。
-        l6Panel = root.findViewById<dev.hwkbd.ime.ui.L6PanelView>(R.id.l6_panel).apply {
+        l5PanelView = root.findViewById<dev.hwkbd.ime.ui.L5PanelView>(R.id.l5_panel).apply {
             onKey = { commitL4Tapped(it) }
 
             // 剪贴板 tab 的整行键 = **粘贴**:直接上屏,不进组词(纯字母内容也一样)。
             onRowKey = { out -> if (out is KeyOut.Text) controller.commitClipboardText(out.text) }
-            onTab = { controller.l6SelectTab(it) }
-            onSwipePage = { delta -> controller.l6StepPage(delta) }
+            onTab = { controller.l5SelectTab(it) }
+            onSwipePage = { delta -> controller.l5StepPage(delta) }
             // 滑动手势也接静默窗(用户 2026-10-02「所有的键盘滑动都无效」)
             swipeGate = { keyGate.swipeBlocked() }
         }
-        // 齿轮左侧键盘图标:**只**控制 L5 行的显示/隐藏(2026-09-29 用户定案)。
-        // 翻页一律走 L5 行上的横滑(见 [stepL5Page]),图标不再兼做翻页——两件事分开,
-        // 图标的语义就只有一个,不用猜"我现在是展开着还是翻到第几页"。
         btnL5 = root.findViewById<ImageButton>(R.id.btn_l5).apply {
-            // **面板三态开关**(2026-10-16 用户「L5/L6/关闭状态的切换」):点一下 OFF→L5→L6→OFF,
-            // 与 Sym+Space 同一通路([dev.hwkbd.ime.ime.ImeController.cyclePanel]);图标三种形态
-            // 在 [syncL5] 里随态切。渲染由 cyclePanel 的 render → renderViews 带过来。
+            // **L5 面板开关**(2026-10-19 合并定案):点一下 OFF↔L5,与 Sym+Space 同一通路
+            // ([dev.hwkbd.ime.ime.ImeController.cyclePanel]);图标两种形态在 [syncL5] 里随态切。
+            // 渲染由 cyclePanel 的 render → renderViews 带过来。
             setOnClickListener { controller.cyclePanel() }
         }
         candidateBar = root.findViewById<CandidateBarView>(R.id.candidate_bar).apply {
@@ -409,8 +385,6 @@ class ImeService : InputMethodService() {
         controller.layout = KeyLayoutStore.load(this)
         // **输入类型决定上下文**:网址/邮件框换 L4 键位套,数字类聚焦即锁数字层
         controller.setFieldKind(FieldKind.from(attribute?.inputType ?: InputType.TYPE_NULL))
-        // L5 行开着时换框:窗口高度要按新键序重算,否则 L5 顶会被裁(见 syncL5 注释)
-        if (l5Panel?.visibility == View.VISIBLE) notifyInsetsChanged()
         // 密码框置安全标志:框内禁止切语言(只能英文),见 ImeState.secure
         controller.state.secure = isPasswordField(attribute)
         l4PanelSig = null // 键位套变了,下次渲染重建 L4 面板
@@ -466,7 +440,7 @@ class ImeService : InputMethodService() {
     // ------------------------------------------------------------------ 键事件
 
     /**
-     * 点 L4/L5/L6 键帽:和物理键同等对待 —— 先记一次按键事件(起抬手后的静默窗),再走同一条提交路径。
+     * 点 L4 / L5 面板键帽:和物理键同等对待 —— 先记一次按键事件(起抬手后的静默窗),再走同一条提交路径。
      *
      * 屏上键帽和物理键的区别只在事件来源,不在后果:两者都会让候选重排。
      * 漏记的话就是「刚点完屏上的键,马上划一下却生效了」—— 同一种手速,两种结果。
@@ -575,17 +549,15 @@ class ImeService : InputMethodService() {
      * 背后 App 会认为输入法内容占满全屏,把自己的内容区压成 0——
      * Termux 在此状态下终端整片空白,并主动 hideSoftInput(状态条/候选条一起消失)。
      * 所以这里显式上报**最上面一条可见的输入法内容**:组词态与空闲态(状态行)恒等,
-     * App 侧既不 resize 也不 pan;L5 行(状态栏上方)出现时改报 L5 行顶,
-     * L6 虚拟键盘面板(最顶一层)出现时改报 L6 面板顶——两类都是真实内容边界,
-     * App 必须让出这块空间,否则会被盖在 App 内容上(或面板顶被裁)。
+     * App 侧既不 resize 也不 pan;L5 面板(条上方的浮层)出现时改报面板顶 ——
+     * 它是真实内容边界,App 必须让出这块空间,否则会被盖在 App 内容上(或面板顶被裁)。
      * 触摸范围仍用整个窗口框架,飞字手势不受影响。
      */
     override fun onComputeInsets(outInsets: Insets?) {
         super.onComputeInsets(outInsets)
         if (outInsets == null) return
         val row = when {
-            l6Panel?.visibility == View.VISIBLE -> l6Panel
-            l5Panel?.visibility == View.VISIBLE -> l5Panel
+            l5PanelView?.visibility == View.VISIBLE -> l5PanelView
             candidateRow?.visibility == View.VISIBLE -> candidateRow
             else -> statusRow
         } ?: return
@@ -594,25 +566,6 @@ class ImeService : InputMethodService() {
         outInsets.contentTopInsets = loc[1]
         outInsets.visibleTopInsets = loc[1]
         outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_FRAME
-    }
-
-    /**
-     * L5 行翻页(**只由横滑触发**,2026-09-29 用户定案「键盘图标只控制 L5 的显示和隐藏」):
-     * `delta = +1` 下一页 / `-1` 上一页,**夹住不循环**——到头就停,并给一次轻震,
-     * 和候选行翻页的手感对齐(那边也是 [ImeController.pageStep] 里的 `coerceIn`)。
-     */
-    private fun stepL5Page(delta: Int) {
-        val p = l5Panel ?: return
-        val total = p.pageCount
-        if (total <= 1) return
-        val next = (p.page + delta).coerceIn(0, total - 1)
-        if (next == p.page) {
-            // 已在首/末页还往那个方向滑:给一次轻震,和候选行"翻不动"的手感对齐
-            p.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-            return
-        }
-        p.page = next
-        p.requestLayout()
     }
 
     private fun applyWindowMode(composing: Boolean) {
@@ -1008,7 +961,10 @@ class ImeService : InputMethodService() {
     private fun applyPrefs() {
         val p = ImeRuntime.prefs
         controller.state.pageSize = PAGE_SIZE // 固定每页 5 候选,与 5 区上滑一一对应
+        val oldFullWidth = controller.fullWidthSymbolsInCn
         controller.fullWidthSymbolsInCn = p.getBoolean(PREF_FULLWIDTH, true)
+        // 设置页/状态行都会改这个偏好;面板开着时按新开关重算字符盘(见 refreshL5Content)。
+        if (oldFullWidth != controller.fullWidthSymbolsInCn) controller.refreshL5Content()
         controller.pageReverse = p.getBoolean(PREF_PAGE_REVERSE, false)
         controller.symKeycode = p.getInt(PREF_SYM_KEYCODE, KeyEvent.KEYCODE_SYM)
         val alt = p.getInt(PREF_ALT_KEYCODE, -1)
@@ -1034,15 +990,14 @@ class ImeService : InputMethodService() {
         // 死区固定(density 相关,见 FlyDetector.deadPx / swipeDeadPx)。
         // **键盘表面吃自己那一档**([dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE],12dp;
         // 2026-10-16 用户「键盘面死区调大 8dp → 12dp」)。屏幕上那两块真触摸板
-        // (候选行 / L5 / L6)仍用 DEAD_DP / DEAD_DP_SWIPE(8dp)。
+        // (候选行 / L5 面板)仍用 DEAD_DP / DEAD_DP_SWIPE(8dp)。
         // 键面上横纵用**同一个值**:上滑飞字与横滑翻页在同一种手上,不分开调。
         val density = resources.displayMetrics.density
         flyDetector.deadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE * density
         flyDetector.swipeDeadPx = dev.hwkbd.ime.ui.DragGesture.DEAD_DP_SURFACE * density
-        // 左右滑翻页的阈值:一个开关同时喂候选行、L5、键盘表面三处
+        // 左右滑翻页的阈值:一个开关同时喂候选行、L4(预留)、键盘表面三处
         val (pageFrac, pagePx) = pageThreshold(p)
         candidateBar?.pageCommitFrac = pageFrac
-        l5Panel?.swipeCommitFrac = pageFrac
         l4Panel?.swipeCommitFrac = pageFrac
         flyDetector.pageThresholdPx = pagePx
         // 键盘表面的横滑翻页现在走候选栏那套跟手/橡皮筋,所以把它的提交线也喂进去。
@@ -1061,15 +1016,7 @@ class ImeService : InputMethodService() {
         preeditRow?.setTextColor(theme.accent)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
-        // L5 行是**薄底色**,不是实心:底下 App 的颜色透上来,看起来和应用背景一致
-        // (2026-09-29 用户定案「L5 从应用取色」)。严格意义的"取色"做不到——输入法与 App
-        // 跨进程,拿不到背后的像素,`EditorInfo` 也没有背景色字段,所以这里只能是"透过来"。
-        // **能做到很透而字仍可读**,是因为键帽自带不透明底(见 [dev.hwkbd.ime.ui.L4PanelView.refresh]
-        // 的两路键帽色),文字压在键帽上,透出来的只有键与键之间、键与行边缘的空隙。
-        l5Panel?.setBackgroundColor(
-            (theme.barBg and 0x00FFFFFF) or (dev.hwkbd.ime.ui.L4PanelView.L5_TINT_ALPHA shl 24),
-        )
-        l5Divider?.setBackgroundColor(theme.divider) // 分割线取主题分隔线色
+        // L5 面板的底色/键帽色由 [L5PanelView.setContent] 按 theme 重建,这里不预染。
         l4PanelSig = null // 主题可能变了,下次渲染重建键帽
         updateUi()
     }
@@ -1251,22 +1198,19 @@ class ImeService : InputMethodService() {
     }
 
     /**
-     * L5 行 + 齿轮左侧键盘图标:无溢出时图标 GONE(右区 gravity=end 右贴,
-     * 齿轮/收起位置不跳);图标点开时**状态栏上方的 L5 行**出现并高亮;组词态整行让位。
-     * L5 行会改变 contentTopInsets——切换后要通知窗口重算 insets,让 App 相应 resize。
+     * 齿轮左侧键盘图标 = L5 面板开关(2026-10-19 合并定案):**常驻**、图标随态 ——
+     * OFF 用键盘图标(提示「按这里出虚拟键盘面板」)/ L5 收起箭头;开着用主题 accent。
+     * 只在态变时重设图标,免得每帧重建 drawable。面板本身的显隐与 insets 通知在 [renderViews]。
      */
     private fun syncL5() {
         val mode = controller.state.panelMode
-        // btn_l5 **常驻**(三态开关的入口):图标随态 —— OFF 展开箭头 / L5 键盘 / L6 收起箭头;
-        // 非 OFF 用主题 accent(=面板开着)。只在态变时重设图标,免得每帧重建 drawable。
         btnL5?.let { btn ->
             if (syncedPanelMode != mode) {
                 syncedPanelMode = mode
                 btn.setImageResource(
                     when (mode) {
-                        dev.hwkbd.ime.ime.PanelMode.OFF -> R.drawable.ic_expand
-                        dev.hwkbd.ime.ime.PanelMode.L5 -> R.drawable.ic_keyboard
-                        dev.hwkbd.ime.ime.PanelMode.L6 -> R.drawable.ic_collapse
+                        dev.hwkbd.ime.ime.PanelMode.OFF -> R.drawable.ic_keyboard
+                        dev.hwkbd.ime.ime.PanelMode.L5 -> R.drawable.ic_collapse
                     }
                 )
                 btn.imageTintList = android.content.res.ColorStateList.valueOf(
@@ -1278,19 +1222,6 @@ class ImeService : InputMethodService() {
                 )
             }
             if (btn.visibility != View.VISIBLE) btn.visibility = View.VISIBLE
-        }
-        // L5 行可见 = 选了 L5 态 && 有溢出 && 非组词(没溢出时 L5 是空行,没意义)。
-        val rowVisible = mode == dev.hwkbd.ime.ime.PanelMode.L5 && l5HasOverflow && !l5Composing
-        val cur = l5Panel?.visibility == View.VISIBLE
-        l5Panel?.visibility = if (rowVisible) View.VISIBLE else View.GONE
-        // 分割线跟 L5 行同生共死:L5 GONE 时也 GONE,否则底部会留一道孤零零的横线
-        l5Divider?.visibility = if (rowVisible) View.VISIBLE else View.GONE
-        if (rowVisible != cur) {
-            notifyInsetsChanged()
-            // 框架收 insets 后自己还会走一遍窗口尺寸更新,这里补一次**延迟**重排:
-            // 实测「L5 开着切输入框」时窗口没跟着长高,L5 行顶被裁掉一截
-            // (键只画出 54px,应为 36dp=86px),2026-09-29 修
-            mainHandler.post { notifyInsetsChanged() }
         }
     }
 
@@ -1312,28 +1243,31 @@ class ImeService : InputMethodService() {
             l4PanelSig = l4Sig
             val keys = controller.l4Keys()
             l4Panel?.refresh(keys, theme)
-            l5Panel?.refresh(keys, theme) // 同一份键序,L5 取 L4 装不下的尾巴
+            // 键表换了但切点可能没变:重喂一次当前切点,场景 tab 才会换上新的尾巴键。
+            // render=false:本趟渲染马上就会把新 state.l5 画出来,不再排一次渲染。
+            controller.setOverflowCut(l5Cut, render = false)
         }
         // L4 必显(2026-09-29 用户定案:设置页开关已删、数字态也不隐藏;数字框里显示的是
         // 该类型的短语组合键位套,核心键与 L1-L3 已有的键已在注册表滤掉)
         l4Panel?.visibility = View.VISIBLE
         syncL5()
 
-        // L6 虚拟键盘面板:**状态说了算**(state.l6 非空 = 显示,见 [ImeController.toggleL6])。
-        // 显隐与内容都不在这里做判断 —— 面板的开/关/翻页/切 tab 全是控制器改的字段,
-        // 这里只是把它照出来。
-        l6Panel?.apply {
-            val ui = s.l6
+        // L5 面板:**状态说了算**(state.l5 非空 = 显示)。开/关/翻页/切 tab 全是控制器改的字段,
+        // 这里只是把它照出来。面板 = 原 L6 键盘 + 原 L5 行(「场景」tab),2026-10-19 合并。
+        l5PanelView?.apply {
+            val ui = s.l5
             val was = visibility == View.VISIBLE
+            var rebuilt = false
             if (ui == null) {
                 if (was) visibility = View.GONE
             } else {
-                setContent(ui, theme)
+                rebuilt = setContent(ui, theme)
                 if (!was) visibility = View.VISIBLE
             }
-            // 面板改变**窗口高度**(条上方多出一整块),必须通知框架重算 insets —— 与 L5 行同一条
-            // 理由(见 [syncL5]):不报的话 App 不让位、面板顶被裁掉一截。
-            if ((ui != null) != was) {
+            // 面板改变**窗口高度**(条上方多出一整块,切 tab/翻页也会变高矮),
+            // 必须通知框架重算 insets —— 不报的话 App 不让位、面板顶被裁掉一截。
+            // 延迟再补一次(切换输入框时实测会漏)。
+            if ((ui != null) != was || rebuilt) {
                 notifyInsetsChanged()
                 mainHandler.post { notifyInsetsChanged() }
             }
@@ -1363,11 +1297,6 @@ class ImeService : InputMethodService() {
         val composingNow = s.hasComposition || (candidateBar?.isFlyAnimating() == true)
         statusRow?.visibility = if (composingNow) View.GONE else View.VISIBLE
         candidateRow?.visibility = if (composingNow) View.VISIBLE else View.GONE
-        // 面板态变了(cyclePanel / 收面板)要同步按钮图标与 L5 行;组词态变化也要(L5 让位)。
-        if (composingNow != l5Composing || controller.state.panelMode != syncedPanelMode) {
-            l5Composing = composingNow // L5 行属空闲态:组词时整行让位(具体显隐 [syncL5] 判)
-            syncL5()
-        }
         if (composingNow != lastComposingForInsets) {
             lastComposingForInsets = composingNow
             applyWindowMode(composingNow) // 组词中窗口全屏接键盘表面触摸,空闲恢复细条

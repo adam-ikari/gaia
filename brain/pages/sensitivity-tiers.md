@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, threshold, sensitivity, deadzone]
 created: "2026-10-03T11:25:29"
-updated: "2026-10-16T15:53:44"
+updated: "2026-10-19T20:56:31"
 ---
 
 <!-- compiled_truth -->
@@ -35,7 +35,7 @@ updated: "2026-10-16T15:53:44"
 
 - **挡掉的是整条手势**(不起拖动、不画位移),不是"跟完再弹回去" —— 后者读起来是延迟,
   用户会当成卡了再划一次。判定在手势起手那一下问一次,整条手势记住结论。
-- **四个入口全查**:键盘表面(FlyDetector)/ 候选行 / L5 / L6,共用同一个 `swipeBlocked`。
+- **入口全查**:键盘表面(FlyDetector)/ 候选行 / L5 面板三条实际滑动入口,共用同一个 `swipeBlocked`;L4 也接了门,但当前不接横滑(预留)。
   点按与长按一律不查("敲一个键紧接着点候选上屏"是最常见手速)。
 - **透传的键也记**(用户 2026-10-02「无论是否消费」)。
 - 配对容错:DOWN 按 keyCode 记集合(自动重复不重复计数 —— 记数会让一次抬手消不掉);
@@ -49,7 +49,7 @@ updated: "2026-10-16T15:53:44"
 ## 死区:键盘表面单独一档 12dp(`DEAD_DP_SURFACE`)
 
 `DragGesture.DEAD_DP_SURFACE = 12f`(≈1.9mm),键面的**上滑(飞字)与横滑(翻页)共用**。
-屏幕上的候选行 / L5 / L6 仍是 `DEAD_DP` / `DEAD_DP_SWIPE` = **8dp**(≈1.3mm)——
+屏幕上的候选行 / L5 面板仍是 `DEAD_DP` / `DEAD_DP_SWIPE` = **8dp**(≈1.3mm)——
 那边没有"手按在键上"这回事,8dp 够用(2026-10-09 那条结论对屏幕触摸板仍然成立)。
 
 **为什么键面要单独一档**:键面不是真触摸屏,落点由固件按 10 个键列映射到屏宽
@@ -94,4 +94,16 @@ updated: "2026-10-16T15:53:44"
   kind: decision
   summary: "键盘面死区 12dp(新常量 DEAD_DP_SURFACE)+ 横滑档位第二列 ×3(12/24/60)+ 静默窗改成「按住键期间 + 抬手后 300ms」且可配置;三条正交防线的分工写清"
   source: "2026-10-16 用户定案 + 368 单测全绿(c6ece76)"
+  affects: [sensitivity-tiers]
+
+- time: 2026-10-19T20:55:59
+  kind: decision
+  summary: "2026-10-19 L5 合并后校正入口命名:L6 视图已不存在,实际滑动入口为键盘面/候选行/L5 面板三条,L4 接门但预留"
+  source: "2026-10-19 L5 合并收尾"
+  affects: [sensitivity-tiers]
+
+- time: 2026-10-19T20:56:31
+  kind: decision
+  summary: "2026-10-19 L5 合并后校正入口命名:L6 视图已不存在,实际滑动入口为键盘面/候选行/L5 面板三条,L4 接门但预留"
+  source: "2026-10-19 L5 合并收尾"
   affects: [sensitivity-tiers]

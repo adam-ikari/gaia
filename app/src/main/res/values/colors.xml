@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="status_bg">#000000</color>
-    <!--
-      L5 溢出行首帧兜底底色:薄薄一层黑(30%),让底下 App 的颜色透上来 ⇒ 看着和应用背景一致。
-      运行时 [ImeService.applyPrefs] 会按主题重建(取主题条色 + 同样的 alpha)。
-    -->
-    <color name="l5_tint">#4D000000</color>
     <color name="status_fg">#C8CDD6</color>
     <color name="status_active">#FFC44D3D</color>
     <color name="candidate_bg">#000000</color>

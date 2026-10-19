@@ -386,7 +386,7 @@ class ImeController(
      * - **是字母键**(2026-10-16 用户定「只支持字母键」):A-Z 之外的键一律不长按
      * - 不是数字类框([FieldProfile.digitsOnly]):那一档 L2 已聚焦锁定,当前输出
      *   就是"该键的符号",长按没有额外语义,照旧连发
-     * - L6 面板开着时不武装:敲字母 = 收面板 + 正常输入(面板只在空闲态存在,
+     * - L5 面板开着时不武装:敲字母 = 收面板 + 正常输入(面板只在空闲态存在,
      *   见 [refreshQuery]);长按符号是纯空闲态的事,面板开着时不该出符号
      * - 落点二选一:
      *   · **空闲态 + [longPressSymbolEnabled]**(默认开)⇒ 上屏该键的 L2 符号
@@ -420,10 +420,10 @@ class ImeController(
         // ASCII(引擎的 delimiter,见 ChineseLanguage.SEPARATOR)。
         val separatorMode = state.hasComposition &&
             (text == ChineseLanguage.SEPARATOR || text == "’")
-        // 空闲出符号这一支:**L6 面板开着时不武装**(2026-10-16 L6 分支的定案,合流时
+        // 空闲出符号这一支:**L5 面板开着时不武装**(2026-10-16 L5 分支的定案,合流时
         // 落到这支上)——敲字母 = 收面板 + 正常输入,面板只在空闲态存在,符号快捷是
         // 纯空闲态的事。分节符那一支不受影响(那是组词态的事,面板不在组词态存在)。
-        val symbolMode = !state.hasComposition && !l6Open && longPressSymbolEnabled
+        val symbolMode = !state.hasComposition && !l5Open && longPressSymbolEnabled
         if (!separatorMode && !symbolMode) return false
         lp.arm(code, caps, separatorMode, text)
         // **不在 DOWN 跳 L2**(2026-10-15 用户报障修正):武装时就 beginHold 会让
@@ -873,21 +873,24 @@ class ImeController(
      * 剪贴板条目**直接上屏**(2026-10-16 剪贴板 tab)。
      *
      * 与 [commitL4Key] 的文本键不同:那是拼音补差键(可能进组词缓冲),剪贴板是「粘贴」——
-     * 纯字母内容也该原样上屏,不能当拼音(L6 定案「面板上点键 = 直接上屏」的前提是
+     * 纯字母内容也该原样上屏,不能当拼音(L5 定案「面板上点键 = 直接上屏」的前提是
      * 符号盘里没有 a-z,剪贴板不满足)。上屏后**面板留原地**([ImeState.panelMode] 不变)。
      */
     fun commitClipboardText(text: String) {
         if (text.isEmpty()) return
+        // 面板已按输入框合法字符集过滤条目;这里再兜一道,防止过期条目/直接调用
+        // 把非法内容塞进密码框、数字框(例如剪贴板是字母,框却是手机号)。
+        if (!isPanelTextAllowed(text)) return
         host.commitText(text)
         host.render()
     }
 
     /**
-     * 虚拟面板按键输出(L4 中区、L5 尾巴行、L6 虚拟键盘**共用一条**通路)。文本键**原样上屏**
+     * 虚拟面板按键输出(L4 中区、L5 面板**共用一条**通路)。文本键**原样上屏**
      * (配置即所见);语言策略判定为组词字符的键跟着组词(拼音分隔符 `'`:组词中追加分节、
      * 不打断组词),功能键转发给目标应用。
      *
-     * **三块面板不各写一份**的理由见 [L6Ui] 类注释 —— 「这个键干什么」是 [KeyOut] 的事,
+     * **两块面板不各写一份**的理由见 [L5Ui] 类注释 —— 「这个键干什么」是 [KeyOut] 的事,
      * 不是「它长在哪块面板」的事;多一条分支就多一处语义会漂移的地方。
      */
     fun commitL4Key(out: KeyOut) {
@@ -905,8 +908,8 @@ class ImeController(
                 }
             }
             is KeyOut.Special -> {
-                // 面板开着时,L4/L5 行上的 Esc 也收面板(与物理 Esc 一致)
-                if (out.name == "esc" && l6Open) {
+                // 面板开着时,面板上的 Esc 也收面板(与物理 Esc 一致)
+                if (out.name == "esc" && l5Open) {
                     state.closePanels()
                     host.render()
                     return
@@ -927,8 +930,20 @@ class ImeController(
      * ([Language.layerMap]),L4 那把去重筛("一次物理键就能敲出就不上状态行")必须用同一份表,
      * 否则关了全角会把 `；` 这类误判掉、屏上一个分号都敲不出。
      */
-    fun l4Keys(): List<L4Key> =
-        registry.l4Keys(layout, state.fieldKind, state.languageId, fullWidthSymbolsInCn)
+    fun l4Keys(): List<L4Key> {
+        val keys = registry.l4Keys(layout, state.fieldKind, state.languageId, fullWidthSymbolsInCn)
+        // 密码框连键帽都不留非 ASCII(2026-10-19 用户「隐藏不合法的字符和词组」)。
+        // **不能拿数字类的白名单来筛 L4**:日期框里的拼音分隔符 `'` 是 L4 有意保留的
+        // 组词入口(见 `ImeControllerTest` 的 L4 datetime 断言),数字类的 L4 合法性
+        // 已由 `ImeRegistry.l4Keys` 按键位套/核心键筛过;L5 场景 tab 再按整串过滤。
+        if (!state.secure) return keys
+        return keys.filter { key ->
+            when (val out = key.out) {
+                is KeyOut.Text -> isPanelTextAllowed(out.text)
+                is KeyOut.Special -> true
+            }
+        }
+    }
 
     /**
      * [l4Keys] 是否要重建键帽的判定依据 = **键序内容的 hash**(2026-09-29 用户定案)。
@@ -1022,8 +1037,8 @@ class ImeController(
 
     /** 词库异步载入完成后主动刷新当前查询。 */
     fun refreshQuery(from: String = "?") {
-        // **组词一开始就把 L6 收掉**:面板只在空闲态存在(2026-10-15 定案),
-        // 而「空闲 → 有组词」这一步的所有路径(字符键 / L4 文本键 / L6 文本键 / 退格)
+        // **组词一开始就把 L5 收掉**:面板只在空闲态存在(2026-10-15 定案),
+        // 而「空闲 → 有组词」这一步的所有路径(字符键 / L4 文本键 / L5 文本键 / 退格)
         // 都汇到这里 —— 在这一个口子上关一次就够,不必每条路径各写一遍。
         //
         // 收面板只改字段不 render(本函数末尾自己会 render,嵌套渲染会把同一帧画两遍)。
@@ -1206,12 +1221,13 @@ class ImeController(
         host.render()
     }
 
-    // ------------------------------------------------------------- L6 虚拟键盘
+    // ------------------------------------------------------------- L5 面板
     //
-    // 2026-10-15 用户「空闲状态 sym+space 打开虚拟键盘,这是 L6 键盘,支持多个
-    // tab 页和上下滑动虚拟键盘翻页」。四条定案(同一次对话里问定的):
+    // 2026-10-19 用户「L6 和 L5 合并,都作为 L5」:原 L6 的 tab 虚拟键盘就是 L5,
+    // 原 L5 溢出行(L4 装不下的尾巴)变成 L5 的 tab「场景」(有溢出键时排最前)。
+    // 两条定案沿用:
     //   · 形态 = **条上方浮层**(不拉全屏,键盘表面照常用);
-    //   · 内容 = **通用容器 + 出厂页**(见 [L6Ui]);
+    //   · 内容 = **通用容器 + tab/页**(见 [L5Ui]);
     //   · 开启 = **仅空闲态**,再按一次 Sym+Space 或 Esc 关闭,关闭不写任何字符;
     //   · 翻页 = **tab 内**上下翻(方向键与上下滑动),不跨 tab。
     //
@@ -1222,69 +1238,143 @@ class ImeController(
     // 用户 2026-10-15 定案:**空闲态抢走它**(组词中仍是空格),与可可对齐的那条
     // 就此打破 —— 所以那条单测与本段注释一起留着,别当成「忘了改回去」。
 
-    /** L6 面板开着吗。 */
-    val l6Open: Boolean get() = state.l6 != null
+    /** L5 面板开着吗。 */
+    val l5Open: Boolean get() = state.l5 != null
+
+    /** L4 测量回报的溢出切点:前 N 颗装在 L4 行里,其余进「场景」tab。 */
+    private var overflowCut = 0
+
+    /** 上一次算出的场景键;无变化就不重建面板。 */
+    private var sceneKeys: List<L5Key> = emptyList()
 
     /**
-     * 三态循环浮层面板:[OFF]→[L5]→[L6]→[OFF](2026-10-16 用户「L5/L6/关闭三态切换」)。
+     * L4 测量回报的溢出切点(原 L5 行的起点)。
+     *
+     * 面板开着时**原地刷新**(保留 tab/页);关着只记下,下次打开直接用。
+     * 换语言/换输入框后键表会变而切点可能没变,`ImeService.renderViews` 也会再喂当前切点。
+     */
+    fun setOverflowCut(cut: Int, render: Boolean = true) {
+        overflowCut = cut.coerceAtLeast(0)
+        val next = currentSceneKeys()
+        if (next == sceneKeys) return
+        sceneKeys = next
+        if (state.panelMode == PanelMode.L5) {
+            val updated = state.l5?.withScene(next, ::isPanelTextAllowed)
+            // 数字类等输入框本来就没有出厂字符盘;场景是唯一的 tab 时,尾巴装回 L4
+            // 后就会一个可显示 tab 都不剩 —— 不能留一个空 L5Ui 让视图去取 tab。
+            if (updated == null || updated.tabs.isEmpty()) state.closePanels() else state.l5 = updated
+            if (render) host.render()
+        }
+    }
+
+    /** 场景 tab 的内容 = L4 装不下的尾巴(已按当前输入框合法字符集过滤)。 */
+    private fun currentSceneKeys(): List<L5Key> {
+        val keys = l4Keys()
+        return keys.drop(overflowCut.coerceIn(0, keys.size))
+            .map { L5Key(it.label, it.out) }
+            .filter { isPanelKeyAllowed(it) }
+    }
+
+    /**
+     * 开关 L5 面板:[OFF]↔[L5](2026-10-19 合并定案)。
      *
      * **仅空闲态**:组词中调用无效并返回 false —— 那时 `Sym+Space` 是「上屏空格」,
      * 面板不该抢。`Sym+Space` 与状态行右区键盘图标走**同一通路**(都调本方法)。
      *
-     * L6 态切换时 [ImeState.l6] 重建为出厂内容(回 tab 0);非 L6 态 `l6` 置 null。
-     * [ImeState.panelMode] 与 `l6` 始终同步(见该字段注释)。
+     * 打开时 [ImeState.l5] 重建为出厂内容(有场景键时回 tab 0「场景」,否则回第一个
+     * 仍有键的 tab);关闭时置 null。
+     * [ImeState.panelMode] 与 `l5` 始终同步(见该字段注释)。
      *
      * @return 是否真的切了状态
      */
     fun cyclePanel(): Boolean {
         if (state.hasComposition) return false
-        state.panelMode = when (state.panelMode) {
-            PanelMode.OFF -> PanelMode.L5
-            PanelMode.L5 -> PanelMode.L6
-            PanelMode.L6 -> PanelMode.OFF
+        val opening = state.panelMode == PanelMode.OFF
+        val next = if (opening) {
+            // 打开时按当前键表重算一次:面板关着期间 L4 切点可能已变,只靠缓存的
+            // sceneKeys 会在「换语言 → 立刻开面板」时显示上一套场景键。
+            sceneKeys = currentSceneKeys()
+            L5Ui.factory(
+                l5ClipItems,
+                sceneKeys,
+                ::isPanelTextAllowed,
+                producible = l1l3Producible(),
+            )
+        } else {
+            null
         }
-        state.l6 = if (state.panelMode == PanelMode.L6) L6Ui.factory(l6ClipItems) else null
+        // 数字类等输入框可能一个可显示 tab 都没有(没有场景、字符盘全被过滤)。
+        // 不进入空面板:否则状态说 L5、视图却取不到 tab。返回 false 让调用方知道没打开。
+        if (opening && (next == null || next.tabs.isEmpty())) {
+            android.util.Log.i("ImeService", "panel: L5 无可用键,保持 OFF raw=\"${state.raw}\"")
+            return false
+        }
+        state.panelMode = if (opening) PanelMode.L5 else PanelMode.OFF
+        state.l5 = next
         android.util.Log.i(
             "ImeService",
-            "panel: ${state.panelMode}${if (state.panelMode == PanelMode.L6) " tab=0" else ""} raw=\"${state.raw}\"",
+            "panel: ${state.panelMode}${if (state.panelMode == PanelMode.L5) " tab=0" else ""} raw=\"${state.raw}\"",
         )
         host.render()
         return true
     }
 
-    /** 剪贴板快照(供 L6 剪贴板 tab)。由 [dev.hwkbd.ime.service.ImeService] 在监听回调里喂。 */
-    private var l6ClipItems: List<ClipItem> = emptyList()
+    /**
+     * 面板开着时重算内容(当前实现:中文全角开关变化)。
+     *
+     * 全角开关同时决定物理 L2/L3 敲什么、以及 L5 要避开哪些 L1-L3 已能敲出的字符;
+     * 开关在状态行上、面板开着也能点,不重算的话字符盘会停在旧的全角/半角那一套。
+     * 尽量保留当前 tab/页(见 [L5Ui.withTabs]),只换内容。**不主动 render** ——
+     * 两个调用点(ImeService 状态行开关、applyPrefs)后面都会走完整 updateUi。
+     */
+    fun refreshL5Content() {
+        if (state.panelMode != PanelMode.L5) return
+        val ui = state.l5 ?: return
+        sceneKeys = currentSceneKeys()
+        val tabs = L5Ui.factory(
+            l5ClipItems,
+            sceneKeys,
+            ::isPanelTextAllowed,
+            producible = l1l3Producible(),
+        ).tabs
+        if (tabs.isEmpty()) state.closePanels() else state.l5 = ui.withTabs(tabs)
+    }
+
+    /** 剪贴板快照(供 L5 剪贴板 tab)。由 [dev.hwkbd.ime.service.ImeService] 在监听回调里喂。 */
+    private var l5ClipItems: List<ClipItem> = emptyList()
 
     /**
      * 喂剪贴板快照。剪贴板一变 ImeService 就调;内容没变则空操作。
-     * L6 开着时立即原地刷新(保留 tab/页 —— 用户可能正停在剪贴板 tab 看新复制的那条)。
+     * L5 开着时立即原地刷新(保留 tab/页 —— 用户可能正停在剪贴板 tab 看新复制的那条)。
      */
-    fun setL6Clipboard(items: List<ClipItem>) {
-        if (items == l6ClipItems) return
-        l6ClipItems = items
-        if (state.panelMode == PanelMode.L6) {
-            state.l6 = state.l6?.withClipboard(items)
+    fun setL5Clipboard(items: List<ClipItem>) {
+        if (items == l5ClipItems) return
+        l5ClipItems = items
+        if (state.panelMode == PanelMode.L5) {
+            val updated = state.l5?.withClipboard(items, ::isPanelTextAllowed)
+            if (updated == null || updated.tabs.isEmpty()) state.closePanels() else state.l5 = updated
             host.render()
         }
     }
 
     /** 上下翻页(tab 内)。@return 是否真的翻了 —— 到头不循环,返回 false 让面板不给反馈。 */
-    fun l6StepPage(delta: Int): Boolean {
-        val ui = state.l6 ?: return false
+    fun l5StepPage(delta: Int): Boolean {
+        val ui = state.l5 ?: return false
         val moved = ui.stepPage(delta)
         if (moved) {
-            android.util.Log.i("ImeService", "l6: 翻页 tab=${ui.tabIndex} page=${ui.pageIndex}/${ui.pageCount}")
+            android.util.Log.i("ImeService", "l5: 翻页 tab=${ui.tabIndex} page=${ui.pageIndex}/${ui.pageCount}")
             host.render()
         }
         return moved
     }
 
-    /** 切 tab(页码归零,见 [L6Ui.selectTab])。 */
-    fun l6SelectTab(index: Int) {
-        val ui = state.l6 ?: return
+    /** 切 tab(页码归零,见 [L5Ui.selectTab])。 */
+    fun l5SelectTab(index: Int) {
+        val ui = state.l5 ?: return
+        if (ui.tabs.isEmpty()) return
         if (index == ui.tabIndex) return
         ui.selectTab(index)
-        android.util.Log.i("ImeService", "l6: 切 tab=$index(${ui.tab.id}) page=0")
+        android.util.Log.i("ImeService", "l5: 切 tab=$index(${ui.tab.id}) page=0")
         host.render()
     }
 
@@ -1292,6 +1382,45 @@ class ImeController(
 
     /** 当前输入框的表现策略(键位套 / Alt 文字 / 数字限定)。 */
     private fun fieldProfile() = registry.fieldProfile(state.fieldKind)
+
+    /**
+     * 面板键在当前输入框里合法吗(2026-10-19 用户「密码手机号等场景时隐藏不合法的字符和词组」)。
+     *
+     * - **数字类**([FieldProfile.digitsOnly]):每个字符都必须是数字或该类型额外放行的
+     *   [FieldProfile.digitChars] —— 电话的 `+86`(整串都合法)留下,`@gmail.com`、中文标点滤掉;
+     * - **密码框**([ImeState.secure]):只留可打印 ASCII(0x20..0x7E),中文标点、希腊字母、
+     *   箭头、中文词组全部滤掉(密码框本就锁英文,见 [ImeState.secure]);
+     * - 其余输入框不额外过滤(网址/邮箱的合法性已由 L4 键位套与 [FieldProfile.l4CoreKeys] 圈过)。
+     *
+     * 功能键([KeyOut.Special])不是字符,不走这里 —— Tab/Esc/Enter 在数字框、密码框里照常可用。
+     */
+    private fun isPanelTextAllowed(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val profile = fieldProfile()
+        if (profile.digitsOnly) {
+            return text.all { it in '0'..'9' || profile.digitChars.contains(it) }
+        }
+        if (state.secure) {
+            return text.all { it.code in 0x20..0x7E }
+        }
+        return true
+    }
+
+    /** 面板键的合法性:[KeyOut.Special] 恒合法,文本键过 [isPanelTextAllowed]。 */
+    private fun isPanelKeyAllowed(key: L5Key): Boolean = when (val out = key.out) {
+        is KeyOut.Text -> isPanelTextAllowed(out.text)
+        is KeyOut.Special -> true
+    }
+
+    /**
+     * L5 面板要避开的字符 = 当前语言 + 全角开关下 L1-L3 已经能敲出的取值
+     * (2026-10-19 用户「L5 不需要 L1-L3 已经有的字符」)。
+     *
+     * 与 L4 的去重共用 [ImeRegistry.producible]:语言层表会随全角开关整体切换,
+     * 所以不能拿 [KeyLayout.producible] 的出厂并集来筛,否则全角/半角会各错一批。
+     */
+    private fun l1l3Producible(): Set<String> =
+        registry.producible(layout, language(), fullWidthSymbolsInCn)
 
     private fun handleCtrlKey(code: Int, shift: Boolean): Boolean {
         // 候选只由五键(Shift/Sym/空格/Ctrl/Alt)选:Ctrl 组合一律原样转发给应用,
@@ -1326,7 +1455,7 @@ class ImeController(
             return true
         }
 
-        // Sym+Space = 开/关 L6 虚拟键盘(2026-10-15 用户「空闲状态 sym+space 打开
+        // Sym+Space = 开/关 L5 面板(2026-10-15 用户「空闲状态 sym+space 打开
         // 虚拟键盘」)。**仅空闲态**:组词中这把键仍旧上屏空格 —— 空闲才抢,
         // 见本节开头「为什么 Sym+Space 要抢一把本来是空格的键」。
         //
@@ -1340,21 +1469,21 @@ class ImeController(
             return cyclePanel()
         }
 
-        // L6 面板开着时,方向键归面板:上下 = 本 tab 内翻页,左右 = 切 tab
+        // L5 面板开着时,方向键归面板:上下 = 本 tab 内翻页,左右 = 切 tab
         // (2026-10-15 定案「翻页 = tab 内上下翻(方向键与上下滑动),不跨 tab」;
         // 左右切 tab 是同一次对话里从「不跨 tab」推出来的 —— 翻页这条路上 tab 不动,
         // 切 tab 就得另有一条,**面板开着时左右对候选无意义**(空闲态无候选),拿来切最顺)。
         // 放在候选键分支之前:面板只在空闲态存在,此刻 ↑↓←→ 不该落到"翻候选页"那条老路上。
-        if (l6Open) {
+        if (l5Open) {
             when (code) {
-                KeyEvent.KEYCODE_DPAD_UP -> { l6StepPage(-1); consumeOneShot(); return true }
-                KeyEvent.KEYCODE_DPAD_DOWN -> { l6StepPage(1); consumeOneShot(); return true }
+                KeyEvent.KEYCODE_DPAD_UP -> { l5StepPage(-1); consumeOneShot(); return true }
+                KeyEvent.KEYCODE_DPAD_DOWN -> { l5StepPage(1); consumeOneShot(); return true }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    state.l6?.let { l6SelectTab(it.tabIndex - 1) }
+                    state.l5?.let { l5SelectTab(it.tabIndex - 1) }
                     consumeOneShot(); return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    state.l6?.let { l6SelectTab(it.tabIndex + 1) }
+                    state.l5?.let { l5SelectTab(it.tabIndex + 1) }
                     consumeOneShot(); return true
                 }
             }
@@ -1436,7 +1565,7 @@ class ImeController(
                 // 走的是**物理键**这条路(Sym+Q 是出厂 Esc);面板上那颗 Esc 键走
                 // [commitL4Key]。两条都收面板,但这里要把一次性层/大写照常消耗掉 ——
                 // Sym 是被当修饰键用掉的,不消耗会留下一层没人消的 L3。
-                if (out.name == "esc" && l6Open) {
+                if (out.name == "esc" && l5Open) {
                     state.closePanels()
                     consumeShiftOnce()
                     consumeOneShot()

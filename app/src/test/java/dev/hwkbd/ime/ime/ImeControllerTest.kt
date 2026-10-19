@@ -1153,9 +1153,9 @@ class ImeControllerTest {
         // 落到 L5、不写字符。与可可「L3 空格保持原功能」的对齐就此打破 —— 理由见
         // [ImeController] 的「为什么 Sym+Space 要抢一把本来是空格的键」。
         r.key(KeyEvent.KEYCODE_SPACE)
-        assertEquals("第一按 = L5(三态)", PanelMode.L5, r.c.state.panelMode)
+        assertEquals("第一按 = L5(合并后二态)", PanelMode.L5, r.c.state.panelMode)
         assertTrue("开面板不写字符", r.h.commits.isEmpty())
-        // 组词中仍是空格的回归在 `L6KeyboardTest` 的「组词中 Sym+Space 仍是空格 不开面板」。
+        // 组词中仍是空格的回归在 `L5PanelTest` 的「组词中 Sym+Space 仍是空格 不开面板」。
     }
 
     @Test

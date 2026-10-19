@@ -29,8 +29,7 @@ package dev.hwkbd.ime.ime
  * |---|---|
  * | 键盘表面(TOUCHPAD 源)的上下/左右滑 | `ImeService.handleFlyMotion` |
  * | 候选行横滑/上滑 | [dev.hwkbd.ime.ui.CandidateBarView] |
- * | L5 行横滑 | [dev.hwkbd.ime.ui.L4PanelView](tailMode) |
- * | L6 面板横滑 | [dev.hwkbd.ime.ui.L6PanelView] |
+ * | L5 面板的上下/左右滑 | [dev.hwkbd.ime.ui.L5PanelView] |
  *
  * **点按与长按一律不挡。** 「敲一个键、紧接着点候选词上屏」是最常见的手速,
  * 一起挡掉比不挡更糟。所以三个 View 里只有滑动分支查 [swipeBlocked]。
@@ -120,7 +119,7 @@ class KeyEventGate(
     }
 
     /**
-     * 记一次**无法配对**的按键事件:屏上键帽(L4/L5/L6)的点按、以及只有一次 up 语义的输入。
+     * 记一次**无法配对**的按键事件:屏上键帽(L4 / L5 面板)的点按、以及只有一次 up 语义的输入。
      *
      * 点按没有「按住」这个概念 —— 它本身就是抬手那一刻结算的,所以只起窗、不进 [heldCodes]。
      */

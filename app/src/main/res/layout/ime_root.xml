@@ -18,15 +18,14 @@
     android:orientation="vertical">
 
     <!--
-      L6 虚拟键盘面板(2026-10-15 用户「空闲状态 sym+space 打开虚拟键盘,这是 L6 键盘,
-      支持多个 tab 页和上下滑动翻页」):条上方的浮层。**仅空闲态**存在 —— 组词一开始
-      控制器就把它关掉(state.l6 = null,见 ImeController.refreshQuery),所以它和候选行
-      不会同时要位子。放在最上面:它是最后叠上去的一层,盖住 L5 行也在所不惜
-      (两者都只在空闲态出现,而 L6 是用户主动叫出来的,该压在 L5 之上)。
-      显隐与内容全归 [dev.hwkbd.ime.service.ImeService.renderViews]:state.l6 非空 = 显示。
+      L5 面板(2026-10-19 用户「L6 和 L5 合并,都作为 L5」):条上方的浮层 = 原 L6 tab
+      虚拟键盘 + 原 L5 溢出行(变成 tab「场景」,有溢出键时排最前)。**仅空闲态**存在 —— 组词一开始
+      控制器就把它关掉(state.l5 = null,见 ImeController.refreshQuery),所以它和候选行
+      不会同时要位子。放在最上面:它是最后叠上去的一层。
+      显隐与内容全归 [dev.hwkbd.ime.service.ImeService.renderViews]:state.l5 非空 = 显示。
     -->
-    <dev.hwkbd.ime.ui.L6PanelView
-        android:id="@+id/l6_panel"
+    <dev.hwkbd.ime.ui.L5PanelView
+        android:id="@+id/l5_panel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/status_bg"
@@ -63,48 +62,6 @@
     <!-- 上面 preedit_row 的 textColor 只是 applyPrefs 跑到之前的默认值;**真正的颜色
          由 ImeService.applyPrefs 按所选主题注入主题 accent** —— 与候选行里匹配拼音的
          首字母同一个色(2026-10-11 用户「拼音使用主题色 提高可读性」)。换主题即时跟随。 -->
-
-    <!--
-      L5 虚拟按键层:**状态栏上方**的独立键帽行(2026-09-29 用户定案)。
-      装 L4 一行自然宽放不下的溢出尾巴(键帽与状态行 L4 同款),由齿轮左侧键盘图标切显隐;
-      无溢出时 GONE、组词态整行让位。**版式与 L4 中区完全一致**(等宽槽:间距 4dp、
-      槽宽 = min(填充值, 72dp 封顶),铺满则两端对齐、封顶则整组居中)——**居中**是 2026-09-29
-      用户定案(推翻当天的"左对齐 + 自然宽"):左右内边距取**相等**的 [dimen/l5_side_inset],
-      行中线因此正好落在屏幕中点上,也就是 L4 中区的中线(左右两区等宽 + L4 自身对称 6dp ⇒
-      那个中线 = 屏幕中线)。等宽槽 ⇒ **要么相邻两键的边缘接在中点(偶数把)、要么正中一把键的
-      中心对在中点(奇数把)**,和 L4 读成同一个版式。
-      背景是**薄底色**(`[ImeService.applyPrefs]` 按主题同步):底下 App 的颜色透上来,
-      于是 L5 看着和应用背景一致(2026-09-29 用户定案「L5 从应用取色」)。严格意义的"取色"
-      做不到——输入法与 App 跨进程拿不到背后像素,只能"透过来"。透得很彻底而字仍可读,是因为
-      **键帽自带不透明底**,文字压在键帽上,透出来的只有键间与行边缘的空隙。
-      键帽**上下居中**,行高 **48dp**:键 36dp 上下各 6dp,**到状态行键帽净距 12dp**。
-    -->
-    <dev.hwkbd.ime.ui.L4PanelView
-        android:id="@+id/l5_panel"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:background="@color/l5_tint"
-        android:paddingStart="@dimen/l5_side_inset"
-        android:paddingEnd="@dimen/l5_side_inset"
-        android:visibility="gone" />
-
-    <!--
-      L5 行与状态行之间的**分割线**(1dp,主题分隔线色,运行时同步,见 [ImeService.applyPrefs]):
-      2026-09-29 用户定案「L5 和状态栏之间加一条分割线」。之前两排同色实心、只靠 12dp 键帽间距
-      分开,读起来还是"一整条黑带",看不出 L5 是临时多出来的一排——这条线把"键盘的第二排"
-      和"常驻状态行"分开。
-      **通栏、不留左右外边距**:原先缩在 [dimen/bar_safe_edge] 以内,两端各露 16dp 底色
-      (用户报障「没有延伸到屏幕边缘,导致两侧漏出了底层颜色」)——线是**分隔整条带子**的,
-      两头断在半空反而像没画完。底部两角是物理圆角,但分割线离屏幕底边还有 48dp,
-      不在圆角影响的范围,通栏不会��裁。
-      显隐与 L5 行同步(见 [ImeService.syncL5]):L5 GONE 时这条线也 GONE,不留一道孤线。
-    -->
-    <View
-        android:id="@+id/l5_divider"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/candidate_divider"
-        android:visibility="gone" />
 
     <FrameLayout
         android:id="@+id/bar_container"
@@ -283,10 +240,10 @@
               **盒宽必须 ≥ 三键自然宽**,否则 LinearLayout 在 gravity=end 下把 childLeft 算成负数、
               三个键整体向左反向外溢压住中区键帽——这正是 2026-09-29 用户报障的
               「邮箱输入模式 L4 和右侧按钮重叠」:当时这个盒是 0.4 权重,Titan 2(598dp 宽)上只分到
-              123dp,却要装 3×48dp = 144dp,左溢 21dp;btn_l5 只在有溢出时显示,一显示就压住
+              123dp,却要装 3×48dp = 144dp,左溢 21dp;当时 btn_l5 还是「有溢出才显示」,一显示就压住
               L4 末键(实测键帽右缘 1087px、该键触摸框从 1052px 起)。**根因是盒装不下内容**,
               调权重调更小只会外溢更多,正解是把键宽收到 [btn_size] 让内容正好装满盒子。
-              按钮靠 gravity=end 贴屏幕右缘:btn_l5 无溢出时 GONE,多出来的 40dp 挪到它左侧,
+              按钮靠 gravity=end 贴屏幕右缘;2026-10-19 起 btn_l5 常驻,不再靠 GONE 让位,
               **齿轮/收起位置不跳**。
             -->
             <LinearLayout
@@ -298,11 +255,11 @@
                 android:orientation="horizontal">
 
             <!--
-              **面板三态开关**(2026-10-16 用户「L5/L6/关闭状态的切换」):齿轮左侧这颗改成
-              **常驻**按钮,点一下按 OFF→L5→L6→OFF 循环(与 Sym+Space 同一通路
-              [dev.hwkbd.ime.ime.ImeController.cyclePanel])。图标随态切换(展开箭头 / 键盘 /
-              收起箭头,见 [dev.hwkbd.ime.service.ImeService.syncL5]);非 OFF 态用主题 accent
-              着色 = 「面板开着」。**常驻而非「有溢出才显示」**:它是用户手动叫出 L5/L6 的入口。
+              **L5 面板开关**(2026-10-19 用户「L6 和 L5 合并,都作为 L5」):齿轮左侧这颗
+              **常驻**按钮,点一下 OFF↔L5(与 Sym+Space 同一通路
+              [dev.hwkbd.ime.ime.ImeController.cyclePanel])。图标随态切换(键盘图标 / 收起箭头,
+              见 [dev.hwkbd.ime.service.ImeService.syncL5]);开着用主题 accent
+              着色 = 「面板开着」。**常驻而非「有溢出才显示」**:它是用户手动叫出 L5 的入口。
               右区三键 = 它 + 齿轮 + 收起,3 × [dimen/btn_size] = 120dp 正好装满 [dimen/bar_side_box]。
 
               `tools:ignore="UseAppTint"`:本布局由 [dev.hwkbd.ime.service.ImeService] 用**自己的

@@ -113,19 +113,18 @@ val LayerState.base: LayerState
     }
 
 /**
- * 浮层面板态(2026-10-16 用户「L5/L6/关闭三态切换」):状态行右区键盘图标与
- * `Sym+Space` 走**同一通路**,在 [OFF]→[L5]→[L6]→[OFF] 间循环。默认 [OFF]。
+ * 浮层面板态(2026-10-19 用户「L6 和 L5 合并,都作为 L5」):状态行右区键盘图标与
+ * `Sym+Space` 走**同一通路**,在 [OFF]↔[L5] 间开关。默认 [OFF]。
  *
- * - [OFF]:L5 行与 L6 面板都不显示(默认);
- * - [L5]:显示 L5 溢出行(L4 装不下的尾巴 + 用户短语,见 [ImeService.syncL5]);
- * - [L6]:显示 L6 虚拟键盘(此时 [ImeState.l6] 非空,存 tab/页码)。
+ * - [OFF]:面板不显示(默认);
+ * - [L5]:**唯一一块浮层面板** —— 原 L6 的 tab 虚拟键盘就是 L5,原 L5 溢出行
+ *   (L4 装不下的尾巴)变成它的「场景」tab(此时 [ImeState.l5] 非空,存 tab/页码)。
  *
- * **与 [ImeState.l6] 同步**:[L6] 态 `l6` 非空,其他态 `l6`=null。组词开端 / 换输入框 /
- * Esc 收面板等「关掉 L6」的路径都把本字段一起置 [OFF] —— [ImeController.cyclePanel]
- * 是唯一往前推进(切到下一态)的入口。L6 定案(2026-10-15)原是 `Sym+Space` 二态开关,
- * 2026-10-16 改三态循环:见 brain `l6-virtual-keyboard` 的 reversal。
+ * **与 [ImeState.l5] 同步**:[L5] 态 `l5` 非空,其他态 `l5`=null。组词开端 / 换输入框 /
+ * Esc 收面板等「关掉面板」的路径都把本字段一起置 [OFF] —— [ImeController.cyclePanel]
+ * 是唯一开关入口。合并前曾是 OFF→L5→L6 三态(2026-10-16),2026-10-19 用户合并回二态。
  */
-enum class PanelMode { OFF, L5, L6 }
+enum class PanelMode { OFF, L5 }
 
 /**
  * 输入法全部可渲染状态。ImeController 持有并修改它,UI(service/视图)只读。
@@ -239,28 +238,28 @@ class ImeState {
     var spelling = ""
 
     /**
-     * 浮层面板态(三态循环,见 [PanelMode]):决定 L5 行 / L6 面板的显隐。
-     * 默认 [PanelMode.OFF]。**与 [l6] 同步**:[L6] 态 `l6` 非空,其他态 null。
+     * 浮层面板态([PanelMode]):决定 L5 面板的显隐。
+     * 默认 [PanelMode.OFF]。**与 [l5] 同步**:[PanelMode.L5] 态 `l5` 非空,其他态 null。
      */
     var panelMode: PanelMode = PanelMode.OFF
 
     /**
-     * L6 虚拟键盘的打开状态与内容;`null` = 关闭。
+     * L5 面板的打开状态与内容;`null` = 关闭。面板本身 = tab 虚拟键盘,有 L4 溢出键时
+     * 第一个 tab 是「场景」(原 L5 溢出行)。
      *
      * **只在空闲态存在**:一旦开始组词(`hasComposition`)它就必须已经被关掉,
      * 所以「开着」与「有组词」不会同时成立 —— 那条不变量由 [ImeController.cyclePanel]
-     * 的入口判据与各路「收面板」调用点(组词开端/换框/Esc)保证,单测在 `L6KeyboardTest`。
-     * [ImeController.toggleL6] 已被 `cyclePanel` 取代(2026-10-16 三态化)。
+     * 的入口判据与各路「收面板」调用点(组词开端/换框/Esc)保证,单测在 `L5PanelTest`。
      */
-    var l6: L6Ui? = null
+    var l5: L5Ui? = null
 
     /**
-     * 收掉浮层面板:L5 行与 L6 面板一起关(态回 [PanelMode.OFF],`l6` 清空)。
+     * 收掉浮层面板(态回 [PanelMode.OFF],`l5` 清空)。
      * 组词开端 / 换输入框 / 切语言 / 窗口收起 / Esc 都走它 —— 各处不必各写两行,
-     * 也不会漏掉「`l6` 关了 `panelMode` 还停在 L6」这种不同步。
+     * 也不会漏掉「`l5` 关了 `panelMode` 还停在 L5」这种不同步。
      */
     fun closePanels() {
-        l6 = null
+        l5 = null
         panelMode = PanelMode.OFF
     }
 

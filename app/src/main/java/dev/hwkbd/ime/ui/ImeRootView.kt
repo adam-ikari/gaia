@@ -8,7 +8,7 @@ import android.widget.LinearLayout
 
 /**
  * 输入法根视图。组词中窗口临时全屏(透明、内容贴底),键盘表面被固件映射为
- * 屏幕触摸,滑动落点遍布全屏:内容区(48dp 条;L5 行可见时上界抬到 L5 行顶)之外的
+ * 屏幕触摸,滑动落点遍布全屏:内容区(48dp 条;L5 面板可见时上界抬到面板顶)之外的
  * 事件全部转给宿主的飞字手势;内容区之内正常分发。条上方的悬浮拼音条不算内容区。
  */
 class ImeRootView @JvmOverloads constructor(
@@ -33,29 +33,25 @@ class ImeRootView @JvmOverloads constructor(
     /** 48dp 条容器:contentTop 的默认上界——上方可能还有悬浮拼音条(不算 UI 区,飞字照常接)。 */
     private var barContainer: View? = null
 
-    /** L5 行(条上方):可见时它就是最上面的 UI 区,contentTop 抬到它的顶,否则 L5 的触摸全被飞字吃掉。 */
+    /**
+     * L5 面板(条上方,2026-10-19 合并后唯一的浮层):可见时它就是最上面的 UI 区,
+     * contentTop 抬到它的顶,否则面板的触摸全被飞字吃掉。
+     */
     private var l5Panel: View? = null
-
-    /** L6 虚拟键盘面板(最顶一层):可见时它盖过 L5,contentTop 取它的顶(同上,免得面板的触摸被飞字吃掉)。 */
-    private var l6Panel: View? = null
 
     override fun onFinishInflate() {
         super.onFinishInflate()
         barContainer = findViewById(dev.hwkbd.ime.R.id.bar_container)
         l5Panel = findViewById(dev.hwkbd.ime.R.id.l5_panel)
-        l6Panel = findViewById(dev.hwkbd.ime.R.id.l6_panel)
     }
 
     /**
-     * 内容区上界 = 最上面一条可见的输入法 UI 行:L6 面板(最顶,盖过一切)可见时取它的顶,
-     * 否则 L5 行可见时取 L5 的顶,再否则取 48dp 条顶。组词态 L5/L6 恒隐藏(让位),
-     * 上界仍是条顶,飞字区不受影响。
+     * 内容区上界 = 最上面一条可见的输入法 UI:L5 面板可见时取它的顶,否则取 48dp 条顶。
+     * 组词态面板恒隐藏(让位),上界仍是条顶,飞字区不受影响。
      */
     private fun uiTop(): Int {
-        val l6 = l6Panel
-        if (l6 != null && l6.visibility == View.VISIBLE) return l6.top
-        val l5 = l5Panel
-        if (l5 != null && l5.visibility == View.VISIBLE) return l5.top
+        val panel = l5Panel
+        if (panel != null && panel.visibility == View.VISIBLE) return panel.top
         return barContainer?.top ?: if (childCount > 0) getChildAt(0).top else 0
     }
 

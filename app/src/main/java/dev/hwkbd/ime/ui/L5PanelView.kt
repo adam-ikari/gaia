@@ -9,33 +9,33 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
 import android.widget.LinearLayout
-import dev.hwkbd.ime.ime.L6Key
-import dev.hwkbd.ime.ime.L6Layout
-import dev.hwkbd.ime.ime.L6Ui
+import dev.hwkbd.ime.ime.L5Key
+import dev.hwkbd.ime.ime.L5Layout
+import dev.hwkbd.ime.ime.L5Ui
 import dev.hwkbd.ime.keymap.KeyOut
 import kotlin.math.abs
 
 /**
- * L6 虚拟键盘面板(2026-10-15 用户「空闲状态 sym+space 打开虚拟键盘,这是 L6 键盘,
- * 支持多个 tab 页和上下滑动翻页」)。
+ * L5 面板(原 2026-10-15 的 L6 虚拟键盘;2026-10-19 与 L5 溢出行合并后统一叫 L5,
+ * 支持多个 tab 页和上下滑动翻页)。
  *
  * ## 结构:tab 条 + 键格
- * 竖排两块:顶上一行 tab([L6Tab.label],点一下切 tab),下面是当前页的键格([L6Page.keys]
- * 每 [COLUMNS] 颗一行,不裁字、键帽按 L4 的样式画)。点键 → 交还 [onKey],走与 L4/L5
+ * 竖排两块:顶上一行 tab([L5Tab.label],点一下切 tab),下面是当前页的键格([L5Page.keys]
+ * 落在同一套 [L5Ui.GRID_COLUMNS] 列基础网格上,长键按 [L5Key.span] 跨格,不裁字、键帽按 L4 的样式画)。点键 → 交还 [onKey],走与 L4
  * 面板**同一条**上屏通路([dev.hwkbd.ime.ime.ImeController.commitL4Key])——
  * 虚拟键盘的键与状态行里的键在「干什么」上没区别,只是长在不同面板上。
  *
  * ## 上下滑 = tab 内翻页(2026-10-15 定案「不跨 tab」)
  * 定方向那一下判**垂直**(死区 [DragGesture.DEAD_DP_SWIPE] 固定、不随阈值变,
- * 与候选行 / L5 横滑同一套 [DragGesture] 常量)。到头不循环 —— 越界交还
- * [L6Ui.stepPage] 判定,它返回 false 说明没翻,本视图原样退回。
+ * 与候选行 / L5 面板横滑同一套 [DragGesture] 常量)。到头不循环 —— 越界交还
+ * [L5Ui.stepPage] 判定,它返回 false 说明没翻,本视图原样退回。
  *
  * ## 只管画,不管状态
- * 「当前在哪个 tab / 哪一页」是 [L6Ui] 的状态机字段,由控制器改;本视图在 [setContent]
+ * 「当前在哪个 tab / 哪一页」是 [L5Ui] 的状态机字段,由控制器改;本视图在 [setContent]
  * 里**照单全收**地重建,不做自己的记性。面板的显隐也归 service([ImeService.renderViews]),
  * 不归本视图 —— 与项目「状态机纯逻辑、绘制靠真机」的分工一致。
  */
-class L6PanelView @JvmOverloads constructor(
+class L5PanelView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : LinearLayout(context, attrs) {
@@ -46,16 +46,16 @@ class L6PanelView @JvmOverloads constructor(
     /**
      * 点**整行键**(剪贴板 tab:每条一行)时的回调,**不走** [onKey] ——
      * 剪贴板条目是「粘贴」不是「按键」:纯字母的剪贴内容若走 [onKey] 会被当成拼音进组词
-     * (L6 定案「面板上点符号=直接上屏」的前提是符号盘没有 a-z,剪贴板不满足)。
+     * (面板定案「面板上点符号=直接上屏」的前提是符号盘没有 a-z,剪贴板不满足)。
      */
     var onRowKey: ((KeyOut) -> Unit)? = null
 
-    /** 点 tab 条上的一个 tab(下标)。切 tab 由控制器 [l6SelectTab] 归零页码。 */
+    /** 点 tab 条上的一个 tab(下标)。切 tab 由控制器 [l5SelectTab] 归零页码。 */
     var onTab: ((Int) -> Unit)? = null
 
     /**
      * 上下滑翻页。`delta = +1` 下一页 / `-1` 上一页;**到头不循环** ⇒ 返回 `false`
-     * (控制器 [dev.hwkbd.ime.ime.ImeController.l6StepPage] 的判定),本视图据此把画面退回原页而不是瞬移。
+     * (控制器 [dev.hwkbd.ime.ime.ImeController.l5StepPage] 的判定),本视图据此把画面退回原页而不是瞬移。
      */
     var onSwipePage: ((Int) -> Boolean)? = null
 
@@ -78,10 +78,13 @@ class L6PanelView @JvmOverloads constructor(
     }
 
     /**
-     * 照状态机当前态重建 tab 条 + 键格。键格与 L4/L5 同一套色:键帽 [ImeTheme.pressed]、
+     * 照状态机当前态重建 tab 条 + 键格。键格与 L4 同一套色:键帽 [ImeTheme.pressed]、
      * 描边 [ImeTheme.divider]、字 [ImeTheme.fg];面板底取 [ImeTheme.barBg](整条带子同色)。
+     *
+     * @return 是否真的重建了。切 tab/翻页会改变面板高度(场景一页可能只有一行,标点三行),
+     *   服务层据此补一次 `notifyInsetsChanged()`;否则 App 的让位边界停在旧高度上。
      */
-    fun setContent(ui: L6Ui, theme: ImeTheme) {
+    fun setContent(ui: L5Ui, theme: ImeTheme): Boolean {
         fg = theme.fg
         keyBg = theme.pressed
         stroke = theme.divider
@@ -90,7 +93,7 @@ class L6PanelView @JvmOverloads constructor(
         // 签名含**当前页键的内容** —— 剪贴板 tab 的条目会变而 tab/页不变,只看 tab/页的话
         // 面板会停在旧内容上(与候选行「签名要含显示内容」同一条教训)。
         val sig = "${theme.id}/${ui.tabIndex}/${ui.pageIndex}/${ui.pageKeys().hashCode()}"
-        if (sig == lastSig) return
+        if (sig == lastSig) return false
         lastSig = sig
         // 翻页/重建把跟手位移清掉:旧页的位移不该带到新页的键上。
         swipeSlide = 0f
@@ -100,9 +103,10 @@ class L6PanelView @JvmOverloads constructor(
         tabStrip.setBackgroundColor(panelBg)
         rebuildTabs(ui)
         rebuildGrid(ui)
+        return true
     }
 
-    private fun rebuildTabs(ui: L6Ui) {
+    private fun rebuildTabs(ui: L5Ui) {
         tabStrip.removeAllViews()
         for ((i, tab) in ui.tabs.withIndex()) {
             val active = i == ui.tabIndex
@@ -124,35 +128,46 @@ class L6PanelView @JvmOverloads constructor(
         }
     }
 
-    private fun rebuildGrid(ui: L6Ui) {
+    private fun rebuildGrid(ui: L5Ui) {
         grid.removeAllViews()
         val keys = ui.pageKeys()
-        // ROWS(剪贴板):每条一行、整行宽;GRID(出厂符号盘):每行 COLUMNS 颗等宽。
-        val columns = if (ui.tab.layout == L6Layout.ROWS) 1 else COLUMNS
-        val rows = (keys.size + columns - 1) / columns
+        // ROWS(剪贴板):每条一行、整行宽;GRID(符号盘/场景):同一套基础网格,
+        // 长键按 [L5Key.span] 跨格(2026-10-19 用户「内容可跨网格增长」)。
+        val rowsLayout = ui.tab.layout == L5Layout.ROWS
+        val columns = if (rowsLayout) 1 else ui.tab.columns.coerceAtLeast(1)
         var idx = 0
         val density = resources.displayMetrics.density
-        repeat(rows) {
+        while (idx < keys.size) {
             val row = LinearLayout(context).apply { orientation = HORIZONTAL }
-            repeat(columns) {
-                if (idx < keys.size) {
-                    val k = keys[idx++]
-                    row.addView(makeKey(k, direct = ui.tab.layout == L6Layout.ROWS), LinearLayout.LayoutParams(0, dip(36), 1f).apply {
-                        marginEnd = (3 * density).toInt()
-                        bottomMargin = (3 * density).toInt()
-                    })
-                } else {
-                    // 不满一行时补**等宽空槽**:不然剩下的键会被权重撑满整行,读成一条横贯的怪键。
-                    row.addView(View(context), LinearLayout.LayoutParams(0, dip(36), 1f))
-                }
+            var used = 0
+            while (idx < keys.size) {
+                val k = keys[idx]
+                val span = if (rowsLayout) 1 else k.span.coerceIn(1, columns)
+                // 本行剩下的格放不下这颗长键 ⇒ 换行,别把 span 压小(压小必裁字)
+                if (used + span > columns) break
+                row.addView(makeKey(k, direct = rowsLayout), LinearLayout.LayoutParams(0, dip(36), span.toFloat()).apply {
+                    marginEnd = (3 * density).toInt()
+                    bottomMargin = (3 * density).toInt()
+                })
+                used += span
+                idx++
+            }
+            if (used < columns) {
+                // 不满一行时补**等宽空槽**:剩下的键/空槽一起把这一行铺满网格,
+                // 不然最后一颗会被权重撑成横贯整行的怪键。
+                row.addView(View(context), LinearLayout.LayoutParams(0, dip(36), (columns - used).toFloat()))
             }
             grid.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
     }
 
-    private fun makeKey(k: L6Key, direct: Boolean = false): View = TextView(context).apply {
+    private fun makeKey(k: L5Key, direct: Boolean = false): View = TextView(context).apply {
         text = k.label
         maxLines = 1
+        // GRID 键帽的字**居中落在自己的格心**:键框按权重对齐只是第一层,
+        // 字若默认贴左上角,视觉上仍读成「没对齐」。ROWS(剪贴板)保持左对齐、垂直居中,
+        // 长文本从头读更自然。
+        gravity = if (direct) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER
         setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
         setTextColor(fg)
         background = makeKeyBg()
@@ -164,12 +179,12 @@ class L6PanelView @JvmOverloads constructor(
 
     // ------------------------------------------------------------- 上下滑翻页
     //
-    // 与候选行 / L5 横滑同一模型:**画面位移 = 手指位移**(slide),进度只用来判提交;
+    // 与候选行横滑同一模型:**画面位移 = 手指位移**(slide),进度只用来判提交;
     // 死区固定、不随阈值变。只是轴向换成了 Y。
 
     /**
      * 本次手势的翻页许可(在 DOWN 时向 [swipeGate] 问一次)。默认 true = 没接门就是全放行。
-     * 与 L4/L5 同一套:静默窗(用户 2026-10-02「所有的键盘滑动都无效」;2026-10-16 起是
+     * 与 L4 同一套:静默窗(用户 2026-10-02「所有的键盘滑动都无效」;2026-10-16 起是
      * "按住键期间 + 抬手后一段",见 [dev.hwkbd.ime.ime.KeyEventGate])只挡滑动,**点键不看它**。
      */
     var swipeGate: (() -> Boolean)? = null
@@ -205,7 +220,7 @@ class L6PanelView @JvmOverloads constructor(
     /**
      * 上下滑起手落在**键帽上**时也要能翻页。键帽是带点击监听的 TextView,会自己吃掉触摸,
      * 父视图的 [onTouchEvent] 根本收不到 MOVE —— 所以用拦截:竖移过死区那一下把后续事件
-     * 抢过来(与 L5 行横滑同一套,见 [L4PanelView.onInterceptTouchEvent])。
+     * 抢过来(与 L5 面板横滑同一套,见 [L4PanelView.onInterceptTouchEvent])。
      *
      * **不抢 DOWN**:先让键帽正常处理 —— 点键(上屏)完全不受影响;竖移没过死区、
      * 或横移为主(误起手),都原样还给子 View。
@@ -319,10 +334,7 @@ class L6PanelView @JvmOverloads constructor(
     private fun dip(v: Int): Int = (v * density).toInt()
 
     private companion object {
-        /** 每行键数:出厂每页最多 27 颗,8 列 ⇒ 至多 4 行,面板不会过高。 */
-        const val COLUMNS = 8
-
-        /** 翻页触发线 = 面板高的比例(与 L5 横滑 / 候选行翻页同一个出厂比例)。 */
+        /** 翻页触发线 = 面板高的比例(与候选行翻页同一个出厂比例)。 */
         const val COMMIT_FRAC = 0.22f
     }
 }

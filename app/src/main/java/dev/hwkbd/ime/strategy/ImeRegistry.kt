@@ -144,8 +144,11 @@ class ImeRegistry {
      * 出厂 L3 的 R 位是 `$`、拼音全角态那张表把它换成了 `￥`,两张表并起来的话全角态会
      * 判定"`$` L1-L3 敲得出"而把状态行那把 `$` 筛掉,可那恰恰是全角态**唯一**能敲出 `$`
      * 的地方(物理键给的是 `￥`)。
+     *
+     * **L4 与 L5 共用这份结果**(2026-10-19 用户「L5 不需要 L1-L3 已经有的字符」):
+     * 面板里的字符键也按同一把尺去重,别在面板上重复摆物理键已经能敲出的字。
      */
-    private fun producible(layout: KeyLayout, lang: Language, fullWidth: Boolean): Set<String> =
+    fun producible(layout: KeyLayout, lang: Language, fullWidth: Boolean): Set<String> =
         Layer.values().flatMap { l ->
             val over = lang.layerMap(l, fullWidth)
             if (over != null) over.values else layout.mapFor(l).values

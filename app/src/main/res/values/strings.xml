@@ -30,7 +30,7 @@
 
     <!-- 输入方式状态条 -->
     <string name="btn_hide">隐藏</string>
-    <string name="btn_l5">面板开关(展开 L5 行 / L6 虚拟键盘)</string>
+    <string name="btn_l5">面板开关(展开/收起 L5 面板)</string>
     <string name="mode_cn">拼</string>
 
     <!-- 设置 -->
