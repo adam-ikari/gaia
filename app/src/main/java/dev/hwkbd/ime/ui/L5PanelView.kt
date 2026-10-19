@@ -7,6 +7,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.LinearLayout
 import dev.hwkbd.ime.ime.L5Key
@@ -135,8 +136,8 @@ class L5PanelView @JvmOverloads constructor(
         // 长键按 [L5Key.span] 跨格(2026-10-19 用户「内容可跨网格增长」)。
         val rowsLayout = ui.tab.layout == L5Layout.ROWS
         val columns = if (rowsLayout) 1 else ui.tab.columns.coerceAtLeast(1)
+        val gap = dip(3)
         var idx = 0
-        val density = resources.displayMetrics.density
         while (idx < keys.size) {
             val row = LinearLayout(context).apply { orientation = HORIZONTAL }
             var used = 0
@@ -145,10 +146,21 @@ class L5PanelView @JvmOverloads constructor(
                 val span = if (rowsLayout) 1 else k.span.coerceIn(1, columns)
                 // 本行剩下的格放不下这颗长键 ⇒ 换行,别把 span 压小(压小必裁字)
                 if (used + span > columns) break
-                row.addView(makeKey(k, direct = rowsLayout), LinearLayout.LayoutParams(0, dip(36), span.toFloat()).apply {
-                    marginEnd = (3 * density).toInt()
-                    bottomMargin = (3 * density).toInt()
-                })
+                // **外框精确占格、键距画在内层** —— 权重槽才是「格」:外框一律无水平 margin,
+                // 每一行的 1 格宽就都等于 `行宽 / columns`;marginEnd 若加在外框上,行长不同
+                // (键数不同、跨格组合不同)时每行要扣的 margin 总数也不同,列就会错位
+                // (2026-10-19 用户「L5按键网格没对齐」)。视觉 3dp 键距由内层 TextView 的
+                // marginEnd 提供:span 格外框宽 = span×格宽,正好等于相邻 span 个单格键 + 键距。
+                val cell = FrameLayout(context)
+                cell.addView(
+                    makeKey(k, direct = rowsLayout),
+                    FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+                        .apply { marginEnd = gap },
+                )
+                row.addView(
+                    cell,
+                    LinearLayout.LayoutParams(0, dip(36), span.toFloat()).apply { bottomMargin = gap },
+                )
                 used += span
                 idx++
             }

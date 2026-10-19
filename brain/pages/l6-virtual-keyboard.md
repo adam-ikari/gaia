@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-19T23:49:29"
+updated: "2026-10-20T00:02:32"
 ---
 
 <!-- compiled_truth -->
@@ -193,4 +193,10 @@ L4 中区 / L5 面板都走 `ImeController.commitL4Key`(键的输出是 `KeyOut`
   kind: decision
   summary: "2026-10-19 用户「虚拟键盘图标展开和关闭仅仅改变颜色即可」:btn_l5 图标形状恒为键盘,仅切换 tint;删除 ic_collapse/ic_expand"
   source: "2026-10-19 用户定案"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T00:02:32
+  kind: decision
+  summary: "2026-10-20 修「L5按键网格没对齐」(用户报障):权重槽外框不能带水平 margin —— margin 加在外框上时,每行要扣的 margin 总数随该行键数/跨格组合变化,换算出的 1 格宽逐行不同,列错位;尤其不满行补空槽时最后一排的键会被撑宽。改为外框无水平 margin(只按 span 占权重),3dp 键距画在内层 TextView 的 marginEnd 上;span 格外框宽正好等于相邻 span 个单格键+键距。真机逐页验证:标点/技术/场景含不满行的页,最后一排单键与满行键同宽、同列。"
+  source: "2026-10-20 用户报障 + 真机 TTANCN2100002663"
   affects: [l6-virtual-keyboard]
