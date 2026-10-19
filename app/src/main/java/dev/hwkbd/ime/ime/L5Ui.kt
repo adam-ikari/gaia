@@ -29,7 +29,7 @@ import dev.hwkbd.ime.keymap.KeyOut
  *
  * [span] 只对 [L5Layout.GRID] 有意义(2026-10-19 用户「内容可跨网格增长」):
  * 所有 GRID tab 共用 [L5Ui.GRID_COLUMNS] 列的基础网格,短键占 1 格,
- * `@hotmail.com` 这类长串按长度跨 2–3 格;换行/分页都按「格」算,
+ * `@hotmail.com` 这类长串**按内容估宽**跨 2–3 格;换行/分页都按「格」算,
  * 于是不同 tab 的键边缘对齐在同一套列上。
  */
 data class L5Key(val label: String, val out: KeyOut, val span: Int = 1)
@@ -49,7 +49,7 @@ enum class L5Layout { GRID, ROWS }
  * 一个 tab:标题 + 若干页 + 键格排布。翻页只在本 tab 内(2026-10-15 定「tab 内翻页」)。
  *
  * [columns] 只对 [L5Layout.GRID] 有意义:所有出厂 GRID tab 统一用
- * [L5Ui.GRID_COLUMNS] 列(最小网格),长键用 [L5Key.span] 跨格;
+ * [L5Ui.GRID_COLUMNS] 列(细网格,单字符占 1 格、长键跨格);
  * 不再给场景 tab 单独改列数 —— 列数一变,tab 之间的键就对不齐了。
  */
 data class L5Tab(
@@ -57,7 +57,7 @@ data class L5Tab(
     val label: String,
     val pages: List<L5Page>,
     val layout: L5Layout = L5Layout.GRID,
-    val columns: Int = 8,
+    val columns: Int = L5Ui.GRID_COLUMNS,
 )
 
 /**
@@ -251,12 +251,22 @@ class L5Ui(
             )
         }
 
-        /** 长内容跨几格:短键 1 格,`@hotmail.com` 这类长串 2 格,再长 3 格(封顶 [GRID_COLUMNS])。 */
-        private fun gridSpan(label: String): Int = when {
-            label.length <= 6 -> 1
-            label.length <= 12 -> 2
-            else -> 3
-        }.coerceAtMost(GRID_COLUMNS)
+        /**
+         * 长内容跨几格:**按内容估宽**,不按长度分档。
+         *
+         * 一格(细网格,[GRID_COLUMNS] 列)大致放得下 [HALFWIDTH_PER_CELL] 个半宽字符;
+         * 中文/全角字符按 2 个半宽计。所以单字符键恒占 1 格,`@163.com`(8 半宽)占 2 格、
+         * `@hotmail.com`(12 半宽)占 3 格 —— 不同内容真的不同宽,但仍对齐在同一套格线上
+         * (2026-10-20 用户「键位不需要一样的尺寸,对齐网格就可以」)。
+         *
+         * 用数值估算而不是拿真实字宽量:分页在模型侧做、绘制在视图侧做,两边必须用**同一套**
+         * span 才不会有「模型说一页两行、视图却排了三行」的错位(见 [dev.hwkbd.ime.ui.L5PanelView])。
+         */
+        private fun gridSpan(label: String): Int {
+            val halfwidth = label.fold(0) { acc, c -> acc + if (c.code > 0x7F) 2 else 1 }
+            return ((halfwidth + HALFWIDTH_PER_CELL - 1) / HALFWIDTH_PER_CELL)
+                .coerceIn(1, GRID_COLUMNS)
+        }
 
         /**
          * 按**网格格数**分页(不是按按键颗数):一行排到 [columns] 格就换行,
@@ -324,7 +334,7 @@ class L5Ui(
         ): L5Tab? {
             val keys = source.map { t(it.toString()) }.filter { it.allowedBy(allowText, producible) }
             if (keys.isEmpty()) return null
-            return L5Tab(id, label, paginateGrid(keys, GRID_COLUMNS, ROWS_PER_PAGE))
+            return L5Tab(id, label, paginateGrid(keys, GRID_COLUMNS, ROWS_PER_PAGE), columns = GRID_COLUMNS)
         }
 
         /** 剪贴板 tab:每条一行(2026-10-16 用户「每条占用一行 显示最近十条」)。 */
@@ -340,11 +350,20 @@ class L5Ui(
         }
 
         /**
-         * 所有 [L5Layout.GRID] tab 共用的基础网格列数。
-         * 短键占 1 格;长键用 [L5Key.span] 跨 2–3 格,所以列数不必再按 tab 改 ——
-         * 8 列是「最小网格」:单格宽 = 屏宽/8,长内容靠跨格而不是换列数。
+         * 所有 [L5Layout.GRID] tab 共用的基础网格列数(**细网格**,2026-10-20 用户
+         * 「键位不需要一样的尺寸 对齐网格就可以」)。
+         *
+         * 16 列 ⇒ 单格 ≈ 屏宽/16 ≈ 一颗单字符键的宽度(约 38dp):单字符只占 1 格,
+         * `@hotmail.com` 这类长串按内容跨 2–3 格。键宽随内容不同,但左缘都落在同一套格线上。
+         * (更早是 8 列,单字符也占 1/8 屏、太宽;长串又被长度分档挤成同宽。)
          */
-        const val GRID_COLUMNS = 8
+        const val GRID_COLUMNS = 16
+
+        /**
+         * 一格大致放得下几个**半宽字符**(见 [gridSpan]):单格 ≈ 38dp,13sp 的半宽字符 ≈ 7dp,
+         * 留出内边距后取 4。调大 ⇒ 长键更窄(有裁字风险),调小 ⇒ 长键更宽。
+         */
+        private const val HALFWIDTH_PER_CELL = 4
 
         /**
          * 面板高度**固定两行**(2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」):

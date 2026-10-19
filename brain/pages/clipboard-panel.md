@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, clipboard, l6, ui]
 created: "2026-10-16T03:19:16"
-updated: "2026-10-20T00:28:50"
+updated: "2026-10-20T00:50:43"
 ---
 
 <!-- compiled_truth -->
@@ -14,7 +14,7 @@ updated: "2026-10-20T00:28:50"
 复用 [[l6-virtual-keyboard]] 的浮层做 `clip` tab(2026-10-19 合并后是**第 4 个 tab**:
 场景/标点/技术/剪贴板),不新建面板。
 
-- **每条一行**:`L5Layout.ROWS`(整行宽),与符号盘的 `GRID`(8 列基础网格,长键跨格)并存
+- **每条一行**:`L5Layout.ROWS`(整行宽),与符号盘的 `GRID`(16 列细网格,单字符占 1 格、长键按内容跨格)并存
   —— 键格排布是 tab 的属性,不是面板的。**一页两行**(面板固定两行高,见 [[l6-virtual-keyboard]]),
   超过两条翻页。
 - **空 tab 隐藏**:没有条目、或条目全被当前输入框的 `allowText` 滤掉时,整个剪贴板 tab 消失
@@ -69,4 +69,10 @@ updated: "2026-10-20T00:28:50"
   kind: decision
   summary: "2026-10-20 面板固定两行高(见 l6-virtual-keyboard):剪贴板一页由 5 条改为 2 条(CLIP_ROWS_PER_PAGE 撤并到 L5Ui.ROWS_PER_PAGE),超过两条翻页;每条仍一行整行宽、敏感遮罩/截断/点即粘贴不变。"
   source: "2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」"
+  affects: [clipboard-panel]
+
+- time: 2026-10-20T00:50:43
+  kind: decision
+  summary: "2026-10-20 细网格:GRID 从 8 列改 16 列,单字符 1 格、长键按内容跨格"
+  source: brain update-truth
   affects: [clipboard-panel]

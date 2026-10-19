@@ -215,23 +215,21 @@ class L5PanelTest {
         val r = ImeControllerTestRig()
         val c = r.c
         c.openL5()
-        // 默认场景 tab:测试里 L4 还没测量切点,场景拿到全部 L4 键 ⇒ 只有一页,上下键不动
+        // 细网格 + 内容估宽后,出厂字符盘可能只有一页(内容全装得下),翻页就无从验。
+        // 直接给场景 tab 注入「超过一页容量」的键:场景是第一 tab,DPAD 路由与翻页都走这一条。
+        c.state.l5 = c.state.l5!!.withScene(manyKeys(pageCapacity() + 4))
         assertEquals("默认在场景 tab", 0, c.state.l5!!.tabIndex)
-        c.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, false, false)
-        assertEquals("场景只有一页,↓ 不动", 0, c.state.l5!!.pageIndex)
+        assertTrue("注入后场景多页", c.state.l5!!.pageCount >= 2)
 
-        // 标点 tab 出厂两页
-        c.l5SelectTab(1)
-        assertTrue("出厂每 tab 至少两页(否则翻页无从验)", c.state.l5!!.pageCount >= 2)
         c.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, false, false)
         assertEquals("↓ 下一页", 1, c.state.l5!!.pageIndex)
         c.onKeyDown(KeyEvent.KEYCODE_DPAD_UP, false, false)
         assertEquals("↑ 上一页", 0, c.state.l5!!.pageIndex)
 
         c.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, false, false)
-        assertEquals("→ 下一个 tab", 2, c.state.l5!!.tabIndex)
+        assertEquals("→ 下一个 tab", 1, c.state.l5!!.tabIndex)
         c.onKeyDown(KeyEvent.KEYCODE_DPAD_LEFT, false, false)
-        assertEquals("← 上一个 tab", 1, c.state.l5!!.tabIndex)
+        assertEquals("← 上一个 tab", 0, c.state.l5!!.tabIndex)
 
         assertTrue("方向键不写字符", r.h.commits.isEmpty())
     }
@@ -241,10 +239,10 @@ class L5PanelTest {
         val r = ImeControllerTestRig()
         val c = r.c
         c.openL5()
-        c.l5SelectTab(1)
-        val ui = c.state.l5!!
-        val pages = ui.pageCount
-        assertTrue("出厂每页至少两页(否则翻页无从验)", pages >= 2)
+        // 注入三页以上的场景键(见上一条理由)
+        c.state.l5 = c.state.l5!!.withScene(manyKeys(pageCapacity() * 2 + 2))
+        val pages = c.state.l5!!.pageCount
+        assertTrue("至少两页(否则翻页无从验)", pages >= 2)
 
         assertTrue(c.l5StepPage(1))
         assertEquals(1, c.state.l5!!.pageIndex)
@@ -260,12 +258,13 @@ class L5PanelTest {
         val r = ImeControllerTestRig()
         val c = r.c
         c.openL5()
-        c.l5SelectTab(1)
-        c.l5StepPage(1)
+        // 先让场景 tab 有多页(见上一条理由),翻到第 2 页再切 tab
+        c.state.l5 = c.state.l5!!.withScene(manyKeys(pageCapacity() + 4))
+        assertTrue(c.l5StepPage(1))
         assertEquals(1, c.state.l5!!.pageIndex)
-        c.l5SelectTab(2)
+        c.l5SelectTab(1)
         assertEquals("切 tab 后回第 0 页", 0, c.state.l5!!.pageIndex)
-        assertEquals(2, c.state.l5!!.tabIndex)
+        assertEquals(1, c.state.l5!!.tabIndex)
     }
 
     @Test
@@ -286,25 +285,29 @@ class L5PanelTest {
 
     @Test
     fun `溢出键按网格分页 长键跨格`() {
-        val keys = (1..20).map { L5Key("k$it", KeyOut.Text("k$it")) }
+        val capacity = pageCapacity()
+        val keys = manyKeys(capacity + 4)
         val ui = L5Ui.factory(sceneKeys = keys)
         val scene = ui.tabs.first { it.id == L5Ui.SCENE_TAB_ID }
         assertEquals("场景与符号盘共用同一套网格", L5Ui.GRID_COLUMNS, scene.columns)
-        // 短键 k1..k20 各占 1 格;8 列 × 2 行 = 16 颗/页
-        assertEquals("20 颗 = 16 + 4,两页", 2, scene.pages.size)
-        assertEquals(16, scene.pages[0].keys.size)
+        // 短键 k1.. 各占 1 格;一页 = GRID_COLUMNS 列 × ROWS_PER_PAGE 行
+        assertEquals("$capacity + 4 颗 = 两页", 2, scene.pages.size)
+        assertEquals(capacity, scene.pages[0].keys.size)
         assertEquals(4, scene.pages[1].keys.size)
         assertEquals("顺序原样", keys, scene.pages.flatMap { it.keys })
 
-        val long = L5Key("@hotmail.com", KeyOut.Text("@hotmail.com"))
-        val longUi = L5Ui.factory(sceneKeys = listOf(long))
-        val longKey = longUi.tabs.first { it.id == L5Ui.SCENE_TAB_ID }.pages[0].keys.single()
-        assertTrue("长域名跨 2 格以上", longKey.span >= 2)
+        // 不同长度真的不同宽(2026-10-20 用户「不需要一样的尺寸」)
+        val short = L5Ui.factory(sceneKeys = listOf(L5Key("@163.com", KeyOut.Text("@163.com"))))
+            .tabs.first { it.id == L5Ui.SCENE_TAB_ID }.pages[0].keys.single()
+        val long = L5Ui.factory(sceneKeys = listOf(L5Key("@hotmail.com", KeyOut.Text("@hotmail.com"))))
+            .tabs.first { it.id == L5Ui.SCENE_TAB_ID }.pages[0].keys.single()
+        assertTrue("长域名跨 2 格以上", long.span >= 2)
+        assertTrue("长的比短的宽(${long.span} > ${short.span})", long.span > short.span)
     }
 
     @Test
     fun `换场景键保留 tab 但场景页回第 0 页`() {
-        val keys = (1..32).map { L5Key("k$it", KeyOut.Text("k$it")) }
+        val keys = manyKeys(pageCapacity() + 16)
         val ui = L5Ui.factory(sceneKeys = keys)
         assertTrue(ui.stepPage(1))
         assertEquals(1, ui.pageIndex)
@@ -317,12 +320,18 @@ class L5PanelTest {
 
     @Test
     fun `不在场景 tab 时换场景键保留 tab 与页号`() {
-        val keys = (1..32).map { L5Key("k$it", KeyOut.Text("k$it")) }
-        val ui = L5Ui.factory(sceneKeys = keys)
+        // 出厂字符盘在细网格下可能只有一页,所以手工造一个多页的「其他」tab 来验页号保留。
+        val scene = L5Ui.factory(sceneKeys = manyKeys(4)).tabs.first { it.id == L5Ui.SCENE_TAB_ID }
+        val other = L5Tab(
+            "other", "其他",
+            listOf(L5Page(listOf(L5Key("a", KeyOut.Text("a")))), L5Page(listOf(L5Key("b", KeyOut.Text("b"))))),
+        )
+        val ui = L5Ui(listOf(scene, other))
         ui.selectTab(1)
         assertTrue(ui.stepPage(1))
-        val next = ui.withScene(keys.take(5))
-        assertEquals("仍在标点 tab", 1, next.tabIndex)
+        assertEquals(1, ui.pageIndex)
+        val next = ui.withScene(manyKeys(5))
+        assertEquals("仍在其他 tab", 1, next.tabIndex)
         assertEquals("页码不受影响", 1, next.pageIndex)
     }
 
@@ -383,7 +392,10 @@ class L5PanelTest {
                 assertTrue("${t.id} 第 ${i + 1} 页 $cells 格,不该超过两行($capacity)", cells <= capacity)
             }
         }
-        assertTrue("内容超过一页的盘能翻", tabs.any { it.pages.size >= 2 })
+        // 出厂字符盘用细网格后可能一页装得下(不再强求多页);分页本身由
+        // `溢出键按网格分页 长键跨格` 用注入的长场景验证。
+        val longEnough = L5Ui.factory(sceneKeys = manyKeys(capacity + 1)).tabs.first()
+        assertTrue("超过一页容量的内容会翻页", longEnough.pages.size >= 2)
     }
 
     @Test
@@ -523,6 +535,12 @@ class L5PanelTest {
     }
 
     private fun isPhoneChar(ch: Char): Boolean = ch in '0'..'9' || KeyLayout.DIGITS_PHONE.contains(ch)
+
+    /** 一页能放多少格 = 列数 × 固定行数。 */
+    private fun pageCapacity(): Int = L5Ui.GRID_COLUMNS * L5Ui.ROWS_PER_PAGE
+
+    /** 造 [n] 颗半宽单字符键(每颗占 1 格),用来喂给场景 tab 验分页。 */
+    private fun manyKeys(n: Int): List<L5Key> = (1..n).map { L5Key("k$it", KeyOut.Text("k$it")) }
 }
 
 /**
