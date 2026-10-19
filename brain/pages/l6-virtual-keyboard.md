@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-19T23:33:46"
+updated: "2026-10-19T23:49:29"
 ---
 
 <!-- compiled_truth -->
@@ -97,18 +97,20 @@ L4 中区 / L5 面板都走 `ImeController.commitL4Key`(键的输出是 `KeyOut`
 - **面板改窗口高度 ⇒ 必须 `notifyInsetsChanged()`**(不报会顶裁);切 tab/翻页会改变面板
   高矮,所以 `setContent()` 返回「是否重建」,服务层在重建后也补报一次(2026-10-19)。
   `onComputeInsets` 与 `ImeRootView.uiTop` 都取 L5 面板顶。
-- `btn_l5` **常驻**:OFF 显示键盘图标(`ic_keyboard`),面板开着显示收起箭头(`ic_collapse`)
-  并染主题 accent。
+- `btn_l5` **常驻**,**展开/关闭只换颜色、图标形状始终是键盘 `ic_keyboard`**(2026-10-19 用户
+  「虚拟键盘图标展开和关闭仅仅改变颜色即可」):OFF 染状态行前景色、L5 染主题 accent;
+  旧的收起/展开箭头 drawable(`ic_collapse` / `ic_expand`)已删。
 
 ### 验证状态
 
-`L5PanelTest` 与全量 `:app:testDevUnitTest` 全绿(386 条);`:app:assembleDev` 成功。2026-10-19 真机
+`L5PanelTest` 与全量 `:app:testDevUnitTest` 全绿(388 条);`:app:assembleDev` 成功。2026-10-19 真机
 (TTANCN2100002663)冒烟通过:按钮开合、切 tab、上下滑翻页、点键上屏且面板留原地、
 **场景 tab 8 列网格 + 长域名跨 2 格(4 颗/行,`@hotmail.com` 等完整不裁)**、键帽文字居中、
 **面板已无控制 tab**;手机号框只剩场景(合法电话区号),密码框只剩技术(ASCII);
 **L1-L3 去重:全角态标点页只剩 `； … — 「 」 “ ” ·` 等 L3 敲不出的字,切半角后
 `， 。 ！ ？ ： （ ） 《 》` 等回到面板,且面板开着切换时原地刷新**;**数字框没有可显示键时
-点键盘图标不打开空面板、不崩**;剪贴板空态、面板 Esc 关(物理 Sym+Q)、组词开始收面板。
+点键盘图标不打开空面板、不崩**;**键盘图标开/关只变颜色(键盘→accent),形状不变**;
+剪贴板空态、面板 Esc 关(物理 Sym+Q)、组词开始收面板。
 `Sym+Space` 未用 adb 复现(`adb input keyevent 63` 会拉系统输入法选择器),由 JVM 覆盖;
 剪贴板非空条目点按、场景 tab 开着时换框/换层的原地刷新仍未真机覆盖。详见 [[pending-todos]]。
 
@@ -185,4 +187,10 @@ L4 中区 / L5 面板都走 `ImeController.commitL4Key`(键的输出是 `KeyOut`
   kind: decision
   summary: "2026-10-19 补空面板守卫:所有 tab 都为空时不进入 L5,面板开着时最后一个 tab 消失则收起"
   source: "2026-10-19 数字类冒烟 + L5PanelTest"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-19T23:49:29
+  kind: decision
+  summary: "2026-10-19 用户「虚拟键盘图标展开和关闭仅仅改变颜色即可」:btn_l5 图标形状恒为键盘,仅切换 tint;删除 ic_collapse/ic_expand"
+  source: "2026-10-19 用户定案"
   affects: [l6-virtual-keyboard]

@@ -1198,21 +1198,18 @@ class ImeService : InputMethodService() {
     }
 
     /**
-     * 齿轮左侧键盘图标 = L5 面板开关(2026-10-19 合并定案):**常驻**、图标随态 ——
-     * OFF 用键盘图标(提示「按这里出虚拟键盘面板」)/ L5 收起箭头;开着用主题 accent。
-     * 只在态变时重设图标,免得每帧重建 drawable。面板本身的显隐与 insets 通知在 [renderViews]。
+     * 齿轮左侧键盘图标 = L5 面板开关(2026-10-19 合并定案):**常驻**。
+     *
+     * **展开/关闭只换颜色**(2026-10-19 用户「虚拟键盘图标展开和关闭仅仅改变颜色即可」):
+     * 图标形状始终是键盘(`ic_keyboard`),OFF 染状态行前景色、L5 染主题 accent ——
+     * 不再切成收起箭头,免得开关一下图标就跳形。
+     * 只在态变时重设 tint,免得每帧刷。面板本身的显隐与 insets 通知在 [renderViews]。
      */
     private fun syncL5() {
         val mode = controller.state.panelMode
         btnL5?.let { btn ->
             if (syncedPanelMode != mode) {
                 syncedPanelMode = mode
-                btn.setImageResource(
-                    when (mode) {
-                        dev.hwkbd.ime.ime.PanelMode.OFF -> R.drawable.ic_keyboard
-                        dev.hwkbd.ime.ime.PanelMode.L5 -> R.drawable.ic_collapse
-                    }
-                )
                 btn.imageTintList = android.content.res.ColorStateList.valueOf(
                     if (mode == dev.hwkbd.ime.ime.PanelMode.OFF) {
                         androidx.core.content.ContextCompat.getColor(this, R.color.status_fg)

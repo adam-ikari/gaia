@@ -257,9 +257,10 @@
             <!--
               **L5 面板开关**(2026-10-19 用户「L6 和 L5 合并,都作为 L5」):齿轮左侧这颗
               **常驻**按钮,点一下 OFF↔L5(与 Sym+Space 同一通路
-              [dev.hwkbd.ime.ime.ImeController.cyclePanel])。图标随态切换(键盘图标 / 收起箭头,
-              见 [dev.hwkbd.ime.service.ImeService.syncL5]);开着用主题 accent
-              着色 = 「面板开着」。**常驻而非「有溢出才显示」**:它是用户手动叫出 L5 的入口。
+              [dev.hwkbd.ime.ime.ImeController.cyclePanel])。展开/关闭**只换颜色、图标形状不变**
+              (2026-10-19 用户「虚拟键盘图标展开和关闭仅仅改变颜色即可」):恒为键盘图标
+              `ic_keyboard`,OFF 染 [color/status_fg]、L5 染主题 accent(见
+              [dev.hwkbd.ime.service.ImeService.syncL5])。**常驻而非「有溢出才显示」**:它是用户手动叫出 L5 的入口。
               右区三键 = 它 + 齿轮 + 收起,3 × [dimen/btn_size] = 120dp 正好装满 [dimen/bar_side_box]。
 
               `tools:ignore="UseAppTint"`:本布局由 [dev.hwkbd.ime.service.ImeService] 用**自己的
