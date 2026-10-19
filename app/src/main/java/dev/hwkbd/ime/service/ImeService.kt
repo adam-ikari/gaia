@@ -112,6 +112,9 @@ class ImeService : InputMethodService() {
     /** 触感反馈(全应用唯一实例):锁定/翻页/飞字共用,总开关 [PREF_HAPTIC]。 */
     private var haptics: Haptics? = null
     private var lastComposingForInsets = false
+
+    /** L5 面板磨砂:当前窗口是否已开 backdrop blur(避免每帧重设窗口属性,见 [syncL5Blur])。 */
+    private var l5BlurOn = false
     private var theme = dev.hwkbd.ime.ui.ImeTheme.DEFAULT
 
     /** 当前组词区内容(render 与 onUpdateSelection 对账用)。 */
@@ -576,6 +579,45 @@ class ImeService : InputMethodService() {
 
     private fun notifyInsetsChanged() {
         window?.window?.decorView?.requestLayout()
+    }
+
+    /**
+     * L5 面板的磨砂玻璃背景模糊(2026-10-20 用户「颜色应该是半透明的磨砂效果」)。
+     *
+     * 面板自己只做半透明(见 [dev.hwkbd.ime.ui.L5PanelView] 的 alpha),真正的「磨砂」是
+     * **窗口层的 backdrop blur**:把窗口背后的画面糊掉,半透明面板叠上去就成了毛玻璃。
+     * 半透明和模糊缺一不可 —— 面板底不透明则一点模糊都透不出来。
+     *
+     * 只在**面板可见**时开:组词态窗口会拉到全屏,那时若还开着 blur 会把整屏糊掉;
+     * 关面板 / 进组词都会走到这里关掉(进组词前控制器已收面板,见 [ImeController.refreshQuery])。
+     *
+     * 需要 API 31+ 且设备/用户开了跨窗口模糊([android.view.WindowManager.isCrossWindowBlurEnabled]);
+     * 不支持时静默退回「只有半透明底」,不影响功能。
+     */
+    @Suppress("DEPRECATION")
+    private fun syncL5Blur(on: Boolean) {
+        if (on == l5BlurOn) return
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
+            l5BlurOn = on
+            return
+        }
+        val win = window?.window ?: return // 窗口还没建好:下次渲染再来
+        val wm = getSystemService(android.view.WindowManager::class.java)
+        if (wm == null || !wm.isCrossWindowBlurEnabled) {
+            android.util.Log.i(TAG, "l5blur: 跨窗口模糊不可用,面板仅半透明")
+            l5BlurOn = on
+            return
+        }
+        val lp = win.attributes
+        lp.flags = if (on) {
+            lp.flags or android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+        } else {
+            lp.flags and android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
+        }
+        lp.setBlurBehindRadius(if (on) (L5_BLUR_RADIUS_DP * resources.displayMetrics.density).toInt() else 0)
+        win.attributes = lp
+        l5BlurOn = on
+        android.util.Log.i(TAG, "l5blur: $on radius=${L5_BLUR_RADIUS_DP}dp")
     }
 
     /**
@@ -1269,6 +1311,8 @@ class ImeService : InputMethodService() {
                 mainHandler.post { notifyInsetsChanged() }
             }
         }
+        // 面板的磨砂玻璃:只在面板可见时开窗口 backdrop blur(见 syncL5Blur)
+        syncL5Blur(s.l5 != null)
 
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
         // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行
@@ -1372,6 +1416,9 @@ class ImeService : InputMethodService() {
 
         /** 每页候选固定 5 条,与键盘面平分 5 区上滑一一对应。 */
         const val PAGE_SIZE = 5
+
+        /** L5 面板磨砂玻璃的 backdrop blur 半径(dp):把背后画面糊开的程度(见 [syncL5Blur])。 */
+        private const val L5_BLUR_RADIUS_DP = 24f
 
         /**
          * 飞字动画的归位延时(ms):上屏后候选行要**留在屏上这么久**,动画才画得出来。

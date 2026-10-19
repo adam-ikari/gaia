@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T00:49:39"
+updated: "2026-10-20T01:35:59"
 ---
 
 <!-- compiled_truth -->
@@ -109,6 +109,12 @@ L4 中区 / L5 面板都走 `ImeController.commitL4Key`(键的输出是 `KeyOut`
 - `btn_l5` **常驻**,**展开/关闭只换颜色、图标形状始终是键盘 `ic_keyboard`**(2026-10-19 用户
   「虚拟键盘图标展开和关闭仅仅改变颜色即可」):OFF 染状态行前景色、L5 染主题 accent;
   旧的收起/展开箭头 drawable(`ic_collapse` / `ic_expand`)已删。
+- **面板与键帽半透明磨砂**(2026-10-20 用户「颜色应该是半透明的磨砂效果」):`L5PanelView` 把
+  条底色/键帽/选中 tab 强调色各套一个 alpha(`PANEL_ALPHA 0xCC` / `KEY_ALPHA 0xD9` /
+  `ACCENT_ALPHA 0xE6`,RGB 不变);真正的「磨砂」是窗口层 backdrop blur —— `ImeService.syncL5Blur`
+  在**面板可见**时给 IME 窗口开 `FLAG_BLUR_BEHIND` + `setBlurBehindRadius(24dp)`(API 31+ 且
+  `isCrossWindowBlurEnabled` 才生效),关面板/进组词即关(组词态窗口拉全屏,开着会把整屏糊掉)。
+  半透明与模糊缺一不可:面板底不透明则模糊透不出来;设备不支持跨窗口模糊时静默退回「只有半透明底」。
 
 ### 验证状态
 
@@ -225,4 +231,10 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
   kind: decision
   summary: "2026-10-20 改细网格:GRID_COLUMNS 8→16,span 按内容估宽(ceil(半宽/4)),单字符占 1 格约 38dp;文档同步"
   source: brain update-truth
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T01:35:59
+  kind: decision
+  summary: "2026-10-20 面板半透明磨砂:条底/键帽/选中 tab 套 alpha,面板可见时开窗口 backdrop blur(24dp)"
+  source: "2026-10-20 用户「颜色应该是半透明的磨砂效果」"
   affects: [l6-virtual-keyboard]

@@ -71,6 +71,12 @@ class L5PanelView @JvmOverloads constructor(
     private var accent = 0xFFC44D3D.toInt()
     private var panelBg = 0xFF000000.toInt()
 
+    /**
+     * 选中 tab 的字色基准:必须用**不透明**的条底色 —— [panelBg] 现在是半透明的,
+     * 拿它当字色会把选中 tab 上的字也一起透掉(见 [setContent])。
+     */
+    private var panelInk = 0xFF000000.toInt()
+
     /** 重建签名:tab/页/主题都没变就不重建(每帧渲染都进来,免得无谓地重建键格)。 */
     private var lastSig = ""
 
@@ -84,16 +90,22 @@ class L5PanelView @JvmOverloads constructor(
      * 照状态机当前态重建 tab 条 + 键格。键格与 L4 同一套色:键帽 [ImeTheme.pressed]、
      * 描边 [ImeTheme.divider]、字 [ImeTheme.fg];面板底取 [ImeTheme.barBg](整条带子同色)。
      *
+     * **面板/键帽一律半透明磨砂**(2026-10-20 用户「颜色应该是半透明的磨砂效果」):
+     * 底色与键帽只换 [PANEL_ALPHA] / [KEY_ALPHA] 的 alpha,RGB 不变;真正的「毛玻璃」是
+     * 窗口层的 backdrop blur 给的(见 [dev.hwkbd.ime.service.ImeService.syncL5Blur])。
+     * 所以这里必须留透 —— 底色若是不透明,背后的模糊层一点也透不出来。
+     *
      * @return 是否真的重建了。面板高度**固定 [L5Ui.ROWS_PER_PAGE] 行**(2026-10-20),
      *   切 tab / 翻页不再改高度 ⇒ 这里其实不必再补报 insets;仍返回重建与否,服务层照旧
      *   在重建后报一次,免得将来某页又需要不同高度时漏报(报少了顶裁)。
      */
     fun setContent(ui: L5Ui, theme: ImeTheme): Boolean {
         fg = theme.fg
-        keyBg = theme.pressed
+        keyBg = tint(theme.pressed, KEY_ALPHA)
         stroke = theme.divider
-        accent = theme.accent
-        panelBg = theme.barBg
+        accent = tint(theme.accent, ACCENT_ALPHA)
+        panelBg = tint(theme.barBg, PANEL_ALPHA)
+        panelInk = theme.barBg
         // 签名含**当前页键的内容** —— 剪贴板 tab 的条目会变而 tab/页不变,只看 tab/页的话
         // 面板会停在旧内容上(与候选行「签名要含显示内容」同一条教训)。
         val sig = "${theme.id}/${ui.tabIndex}/${ui.pageIndex}/${ui.pageKeys().hashCode()}"
@@ -120,7 +132,7 @@ class L5PanelView @JvmOverloads constructor(
                 maxLines = 1
                 setPadding(dip(16), dip(6), dip(16), dip(6))
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
-                setTextColor(if (active) panelBg else fg)
+                setTextColor(if (active) panelInk else fg)
                 background = if (active) makeTabBg(accent) else null
                 setOnClickListener {
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -366,8 +378,20 @@ class L5PanelView @JvmOverloads constructor(
 
     private fun dip(v: Int): Int = (v * density).toInt()
 
+    /** 保留 [base] 的 RGB,只把 alpha 换成 [alpha](面板/键帽半透明磨砂用)。 */
+    private fun tint(base: Int, alpha: Int): Int = (base and 0x00FFFFFF) or (alpha shl 24)
+
     private companion object {
         /** 翻页触发线 = 面板高的比例(与候选行翻页同一个出厂比例)。 */
         const val COMMIT_FRAC = 0.22f
+
+        /** 面板底色 alpha(0xCC ≈ 80%):留出透光,背后 backdrop blur 才读得出磨砂。 */
+        const val PANEL_ALPHA = 0xCC
+
+        /** 键帽 alpha(比面板再实一点,保证键上的字在任何背景上都清楚)。 */
+        const val KEY_ALPHA = 0xD9
+
+        /** 选中 tab 强调色 alpha:实一些,保住「选中」的分量。 */
+        const val ACCENT_ALPHA = 0xE6
     }
 }

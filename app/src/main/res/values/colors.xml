@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="status_bg">#000000</color>
+    <!-- L5 面板半透明磨砂底(2026-10-20 用户「颜色应该是半透明的磨砂效果」):真正的毛玻璃
+         由窗口 backdrop blur 给,这里只留 alpha;实际色值由 ImeTheme.barBg + L5PanelView 的
+         半透明处理注入,此值只是主题注入前的默认。 -->
+    <color name="l5_panel_bg">#CC000000</color>
     <color name="status_fg">#C8CDD6</color>
     <color name="status_active">#FFC44D3D</color>
     <color name="candidate_bg">#000000</color>

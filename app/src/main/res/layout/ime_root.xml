@@ -28,7 +28,7 @@
         android:id="@+id/l5_panel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/status_bg"
+        android:background="@color/l5_panel_bg"
         android:paddingStart="@dimen/bar_safe_edge"
         android:paddingTop="6dp"
         android:paddingEnd="@dimen/bar_safe_edge"
