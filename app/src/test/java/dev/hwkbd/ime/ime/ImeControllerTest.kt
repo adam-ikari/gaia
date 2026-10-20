@@ -1142,20 +1142,22 @@ class ImeControllerTest {
     }
 
     @Test
-    fun `L3 空闲态空格让位给面板 组词中仍是空格`() {
+    fun `锁定 L3 时空格照常上屏 不开面板`() {
         val r = rig()
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM)
         r.key(KeyEvent.KEYCODE_SYM)
         r.c.onKeyUp(KeyEvent.KEYCODE_SYM) // 双击锁定 L3
         assertEquals(dev.hwkbd.ime.keymap.Layer.L3, r.c.state.lockedLayer)
-        // **空闲态这把键被面板抢走**(2026-10-15 用户定案;2026-10-16 三态化):第一按
-        // 落到 L5、不写字符。与可可「L3 空格保持原功能」的对齐就此打破 —— 理由见
-        // [ImeController] 的「为什么 Sym+Space 要抢一把本来是空格的键」。
+        // **锁定的 Sym 不算「正按着」**(2026-10-19 用户「锁定 sym 不算按下」):
+        // 锁是持续态,空格必须照常上屏;否则双击锁 Sym 后每次空格都在开关面板,
+        // 空格本身根本打不出来。
+        // 「Sym+Space 开关面板」的单击借用例在 `L5PanelTest` 的
+        // 「Sym+Space 开关面板 与状态行按钮同一通路」;
+        // 组词中仍是空格的回归在同文件的「组词中 Sym+Space 仍是空格 不开面板」。
         r.key(KeyEvent.KEYCODE_SPACE)
-        assertEquals("第一按 = L5(合并后二态)", PanelMode.L5, r.c.state.panelMode)
-        assertTrue("开面板不写字符", r.h.commits.isEmpty())
-        // 组词中仍是空格的回归在 `L5PanelTest` 的「组词中 Sym+Space 仍是空格 不开面板」。
+        assertEquals("锁定态空格不开面板", PanelMode.OFF, r.c.state.panelMode)
+        assertEquals("空格照常上屏", listOf(" "), r.h.commits)
     }
 
     @Test

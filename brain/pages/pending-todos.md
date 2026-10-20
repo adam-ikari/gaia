@@ -5,11 +5,12 @@ category: project
 status: active
 tags: [todo, backlog]
 created: "2026-10-12T16:55:18"
-updated: "2026-10-20T00:51:06"
+updated: "2026-10-20T07:16:30"
 ---
 
 <!-- compiled_truth -->
-## 待办(2026-10-19 更新,按价值排序)
+ok
+待办(2026-10-19 更新,按价值排序)
 
 ### 0. 真机冒烟总清单(本机无真机、无 `/dev/kvm`,只能真机跑)
 
@@ -23,7 +24,9 @@ updated: "2026-10-20T00:51:06"
     面板 Esc 键关闭;拼音组词开始自动收面板;关闭后状态行恢复。
   - **2026-10-20 真机复验通过**:面板固定两行高(切 tab/翻页高度不跳,不满行补空行);场景 10 颗域名左缘对齐同一套格线、宽度随内容分(2 格 `@163.com` / 3 格 `@hotmail.com`);标点页 16 列满行窄键、技术页 16 希腊字 + 补空第二行(16 列细网格后多数字符盘一页装下)。
   - **未在真机覆盖**:`Sym+Space` 双入口(`adb input keyevent 63` 会拉系统输入法选择器,
-    不能代表物理 Sym 键;JVM `L5PanelTest` 已覆盖)、剪贴板**非空**条目点按、场景 tab 开着时
+    不能代表物理 Sym 键;JVM `L5PanelTest` 已覆盖)、**锁定 Sym 后空格照常上屏 / 不开关面板**
+    (2026-10-20 修 `handleNormalKey` 的守卫,JVM `L5PanelTest` 两条 + `ImeControllerTest` 一条覆盖;
+    物理键仍需手验)、剪贴板**非空**条目点按、场景 tab 开着时
     换框/换层的原地刷新(JVM `setOverflowCut` 已覆盖)。
   - 测试机默认输入法会被系统/Kika 抢回 `com.iqqijni.bbkeyboard`;每次冒烟前先
     `ime set dev.hwkbd.ime.dev/dev.hwkbd.ime.service.ImeService`。这是环境行为,
@@ -222,4 +225,10 @@ updated: "2026-10-20T00:51:06"
   kind: decision
   summary: "2026-10-20 细网格 + 固定两行真机复验通过;同步把 8 列描述改为 16 列"
   source: brain update-truth
+  affects: [pending-todos]
+
+- time: 2026-10-20T07:16:30
+  kind: decision
+  summary: "补记:锁定 Sym 空格/不开关面板由 JVM 覆盖,物理键待手验"
+  source: "2026-10-20 代码评审"
   affects: [pending-todos]

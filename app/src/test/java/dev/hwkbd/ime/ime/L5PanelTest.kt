@@ -3,6 +3,7 @@ package dev.hwkbd.ime.ime
 import android.view.KeyEvent
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
+import dev.hwkbd.ime.keymap.Layer
 import dev.hwkbd.ime.strategy.FakePinyinInputMethod
 import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
@@ -30,6 +31,14 @@ class L5PanelTest {
         onKeyUp(KeyEvent.KEYCODE_SYM)
         onKeyDown(KeyEvent.KEYCODE_SPACE, false, false)
         onKeyUp(KeyEvent.KEYCODE_SPACE)
+    }
+
+    /**
+     * 熬过双击窗:两次「独立」敲 Sym 必须隔开,否则第二击会被算成双击 = 锁定 L3
+     * (锁定不算按下,见 `锁定 Sym 不算按下 空格照常上屏且不开面板`)。
+     */
+    private fun exitTapWindow() {
+        Thread.sleep(ModifierGestures.DEFAULT_TAP_WINDOW_MS + 50)
     }
 
     /** **开** L5:合并后只有两态,按一次即可(2026-10-19)。 */
@@ -62,7 +71,9 @@ class L5PanelTest {
         assertTrue(c.l5Open)
         assertTrue("不写字符", r.h.commits.isEmpty())
 
-        // 再敲一次同一把键:关面板,仍不写字符
+        // 再敲一次同一把键:关面板,仍不写字符。
+        // 隔开双击窗:连得太近第二击是双击 = 锁定 L3,而锁定不算「按下」。
+        exitTapWindow()
         c.symSpace()
         assertEquals(PanelMode.OFF, c.state.panelMode)
         assertFalse(c.l5Open)
@@ -97,6 +108,49 @@ class L5PanelTest {
         // 组词中 Sym+Space:走空格的老路
         c.symSpace()
         assertFalse("组词中不开面板", c.l5Open)
+    }
+
+    /** 双击 Sym = 锁定 L3([ImeState.lockedLayer]);这是持续态,不是「正按着」。 */
+    private fun ImeController.lockSym() {
+        repeat(2) {
+            onKeyDown(KeyEvent.KEYCODE_SYM, false, false)
+            onKeyUp(KeyEvent.KEYCODE_SYM)
+        }
+        assertEquals(Layer.L3, state.lockedLayer)
+    }
+
+    private fun ImeController.space() {
+        onKeyDown(KeyEvent.KEYCODE_SPACE, false, false)
+        onKeyUp(KeyEvent.KEYCODE_SPACE)
+    }
+
+    @Test
+    fun `锁定 Sym 不算按下 空格照常上屏且不开面板`() {
+        // 2026-10-19 用户「锁定 sym 不算按下」「锁定 Sym 后空格正常上屏」:
+        // 空格被面板抢走的条件只是**正按着** Sym(单击借用 / 长按),锁定的那一层
+        // 不该让每次空格都变成开关。
+        val r = ImeControllerTestRig()
+        val c = r.c
+        c.lockSym()
+
+        c.space()
+        assertEquals("锁定态空格不开面板", PanelMode.OFF, c.state.panelMode)
+        assertFalse(c.l5Open)
+        assertEquals("空格照常上屏", listOf(" "), r.h.commits)
+    }
+
+    @Test
+    fun `面板开着时锁定 Sym 空格只上屏不折叠面板`() {
+        val r = ImeControllerTestRig()
+        val c = r.c
+        c.openL5()
+        assertTrue(c.l5Open)
+        c.lockSym()
+
+        c.space()
+        assertEquals("空格不折叠面板", PanelMode.L5, c.state.panelMode)
+        assertTrue(c.l5Open)
+        assertEquals("空格照常上屏", listOf(" "), r.h.commits)
     }
 
     @Test

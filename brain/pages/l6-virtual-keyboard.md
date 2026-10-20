@@ -5,11 +5,12 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T06:50:23"
+updated: "2026-10-20T07:16:50"
 ---
 
 <!-- compiled_truth -->
-## L5 面板(原 L6 虚拟键盘;2026-10-19 合并定案)
+ok
+L5 面板(原 L6 虚拟键盘;2026-10-19 合并定案)
 
 2026-10-19 用户「L6 和 L5 合并 都作为 L5」「原来的 L5 变为虚拟键盘的一个 TAB 叫做场景」:
 原 L6 的 tab 虚拟键盘就是 L5,原 L5 溢出行(L4 装不下的尾巴)变成它的第一个 tab「场景」。
@@ -27,6 +28,8 @@ updated: "2026-10-20T06:50:23"
    「加 tab / 加页 / 加键」是**内容**,「当前 tab/页、翻页夹取」是**状态机** —— 拆开写,
    加一页不动状态机。
 3. **开启 = 仅空闲态**;`Sym+Space` 开,再按一次或 **Esc(Sym+Q = 出厂 L3 的 Q)** 关。
+   **锁定 Sym 不算按下**(2026-10-19 用户「锁定 sym 不算按下」):双击锁 Sym 后空格照常上屏,
+   不开关面板;单击借用 / 长按 Sym 仍触发。
    **关闭不写任何字符。**
 4. **翻页 = tab 内上下翻**(方向键 ↑/↓ 与上下滑动),**不跨 tab**;到头不循环。
    左右方向键 ←/→ 切 tab(面板开着时空闲态无候选,←/→ 对候选无意义)。
@@ -84,10 +87,10 @@ updated: "2026-10-20T06:50:23"
 
 - **`L3(Sym) 空格空闲态被抢走`**:L3 层照可可扩展字符表定,原文写着「空格/回车/删除保持原功能」。
   2026-10-15 空闲态让位给浮层面板(组词中仍是空格)。`ImeControllerTest` 里那条测试已改名
-  `L3 空闲态空格让位给面板 组词中仍是空格`。**与可可的对齐就此打破,是定案不是遗漏。**
+  `锁定 L3 时空格照常上屏 不开面板`。**与可可的对齐就此打破,是定案不是遗漏。**
 - **打开/关闭消费一次性 L3**:单击 Sym(一次性借用)+ Space 开面板后,借来的 L3 被这一下
   用掉(`consumeOneShot`)。不还的话开关完面板下一颗字母键会被当成 L3 符号敲出去。
-  双击锁 / 长按 Sym 不受影响(不是一次性层)。
+  长按 Sym 同样触发(不是一次性层);**双击锁定不算按下** —— 锁是持续态,空格照常上屏。
 - **面板是符号盘**:出厂页全是标点/符号,**没有 a-z**;中文 `composes` 只认 a-z,
   所以面板上点符号 = 直接上屏、**面板留在原地**(好接着点下一颗),组词一开始才收面板。
 
@@ -131,7 +134,8 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
 同日用户定「键位不需要一样的尺寸 对齐网格就可以」后改为 **16 列细网格 + 按内容估宽跨格**,真机复验:
 邮箱场景 10 颗域名左缘对齐同一套格线、宽度随内容分(2 格 `@163.com` / 3 格 `@hotmail.com`),
 标点页 16 列满行窄键(单字符约 38dp,不再是 1/8 屏)、技术页 16 希腊字 + 补空第二行。
-`Sym+Space` 未用 adb 复现(`adb input keyevent 63` 会拉系统输入法选择器),由 JVM 覆盖;
+`Sym+Space` 与「锁定 Sym + 空格」未用 adb 复现(`adb input keyevent 63` 会拉系统输入法选择器,
+不能代表物理 Sym 键),由 JVM 覆盖(`L5PanelTest` 两条 + `ImeControllerTest` 一条);
 剪贴板非空条目点按、场景 tab 开着时换框/换层的原地刷新仍未真机覆盖。详见 [[pending-todos]]。
 
 
@@ -243,4 +247,22 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
   kind: evidence
   summary: "2026-10-20 adb 真机复验(cd6ecf8 之后):图标开/关只换色(键盘形白↔accent)、场景键与标点上屏且面板留原地、标点页上下滑翻页 1/2↔2/2、面板底 blur 生效(l5blur: true radius=24.0dp)、关面板后 L4 行恢复。踩坑记录:adb 注入 KEYCODE_SYM(63) 会被 MTK A85ShortcutFunction 拦去弹「选择输入法」,注入 KEYCODE_ESCAPE 会直接收掉整个输入法(合成事件 source=0,不走 IME),所以 Sym+Space / 锁定 Sym 空格 / Esc 关面板只能物理键验;另:邮箱框首次聚焦时 Bitwarden 自动填充弹窗会抢焦点,点场景键后可能顺带把面板收起,是环境干扰不是面板逻辑。"
   source: "2026-10-20 Titan 2(TTANCN2100002663)adb 冒烟"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T07:15:43
+  kind: decision
+  summary: "锁定 Sym 不算按下:锁着时空格照常上屏,不开关 L5 面板(单击借用/长按仍触发);同步改名的单测与规则原文"
+  source: "2026-10-20 用户「确保锁定sym时按space不会出发展开或者折叠L5」"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T07:16:03
+  kind: decision
+  summary: "验证状态补记:锁定 Sym + 空格由 JVM 覆盖,物理键仍未真机验证"
+  source: "2026-10-20 代码评审"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T07:16:50
+  kind: decision
+  summary: "锁定 Sym 不算按下:handleNormalKey 的 Sym+Space 分支加 state.lockedLayer != Layer.L3 守卫。此前 layer==L3 同时覆盖单击借用/按住/双击锁定三种,双击锁 Sym 后每次空格都开关面板,空格打不出来;ImeControllerTest 旧用例还把该行为钉成期望。同步:ImeControllerTest 改为「锁定 L3 时空格照常上屏 不开面板」,L5PanelTest 新增两条(锁定态不开面板 / 面板开着时锁定态空格只上屏不折叠);两条独立 Sym+Space 用例之间需 exitTapWindow(400ms),否则第二击是双击=锁定,旧代码靠「锁定也算按下」掩盖了这一点。全量 testDevUnitTest 绿。"
+  source: "2026-10-20 代码评审与修复"
   affects: [l6-virtual-keyboard]

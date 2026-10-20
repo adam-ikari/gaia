@@ -1229,6 +1229,7 @@ class ImeController(
     //   · 形态 = **条上方浮层**(不拉全屏,键盘表面照常用);
     //   · 内容 = **通用容器 + tab/页**(见 [L5Ui]);
     //   · 开启 = **仅空闲态**,再按一次 Sym+Space 或 Esc 关闭,关闭不写任何字符;
+    //   · **锁定 Sym 不算按下**:锁只影响打字层,空格照常上屏(见 [handleNormalKey]);
     //   · 翻页 = **tab 内**上下翻(方向键与上下滑动),不跨 tab。
     //
     // ## 为什么 `Sym+Space` 要抢一把「本来是空格」的键
@@ -1459,12 +1460,16 @@ class ImeController(
         // 虚拟键盘」)。**仅空闲态**:组词中这把键仍旧上屏空格 —— 空闲才抢,
         // 见本节开头「为什么 Sym+Space 要抢一把本来是空格的键」。
         //
-        // `layer` 取的是 effectiveLayer,所以单击 Sym(一次性 L3)、长按 Sym
-        // (按住 L3)、双击 Sym(锁定 L3)三种按法都算「Sym+Space」。
+        // `layer` 取的是 effectiveLayer,所以单击 Sym(一次性 L3)与长按 Sym(按住 L3)
+        // 都算「Sym+Space」;但**锁定 L3 不算「按下」**——锁是持续态,不是正按着
+        // (2026-10-19 用户「锁定 sym 不算按下」「锁定 Sym 后空格正常上屏」)。
+        // 少了这道守卫,双击锁 Sym 之后每次空格都在开关面板,空格根本打不出来。
         // 借来的 L3 被这一下用掉(与别的键一样「用完就还」):不还的话开关完面板那一层
         // 还挂着,下一颗字母键会被当成 L3 符号敲出去(实测:开完面板敲 n 出的是 L3 符号,
-        // 组词起不来)。按住/锁定两种按法不受影响(它们不是一次性层)。
-        if (code == KeyEvent.KEYCODE_SPACE && layer == Layer.L3 && !state.hasComposition) {
+        // 组词起不来)。按住不受影响(它不是一次性层)。
+        if (code == KeyEvent.KEYCODE_SPACE && layer == Layer.L3 &&
+            state.lockedLayer != Layer.L3 && !state.hasComposition
+        ) {
             consumeOneShot()
             return cyclePanel()
         }
