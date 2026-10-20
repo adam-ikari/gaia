@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T07:16:50"
+updated: "2026-10-20T09:18:03"
 ---
 
 <!-- compiled_truth -->
@@ -114,9 +114,13 @@ L4 中区 / L5 面板都走 `ImeController.commitL4Key`(键的输出是 `KeyOut`
   旧的收起/展开箭头 drawable(`ic_collapse` / `ic_expand`)已删。
 - **面板与键帽半透明磨砂**(2026-10-20 用户「颜色应该是半透明的磨砂效果」):`L5PanelView` 把
   条底色/键帽/选中 tab 强调色各套一个 alpha(`PANEL_ALPHA 0xCC` / `KEY_ALPHA 0xD9` /
-  `ACCENT_ALPHA 0xE6`,RGB 不变);真正的「磨砂」是窗口层 backdrop blur —— `ImeService.syncL5Blur`
-  在**面板可见**时给 IME 窗口开 `FLAG_BLUR_BEHIND` + `setBlurBehindRadius(24dp)`(API 31+ 且
-  `isCrossWindowBlurEnabled` 才生效),关面板/进组词即关(组词态窗口拉全屏,开着会把整屏糊掉)。
+  `ACCENT_ALPHA 0xE6`,RGB 不变);真正的「磨砂」是**窗口背景模糊**(background blur)——
+  `ImeService.syncL5Blur` 在**面板可见**时调 `Window.setBackgroundBlurRadius(24dp)`
+  (API 31+ 且 `isCrossWindowBlurEnabled` 才生效),关面板/进组词即归零。
+  **不能用 `FLAG_BLUR_BEHIND` + `setBlurBehindRadius`**(2026-10-20 用户「不是要全屏模糊」):
+  按 Android 文档,blur-behind 糊的是**窗口背后的整个屏幕**,与窗口多大无关 —— 面板一开
+  App 整屏都糊;background blur 只糊**窗口边界以内**的内容(空闲态窗口 = 键盘 + 面板,
+  键盘面不透明,肉眼只在半透明面板处看得到模糊)。
   半透明与模糊缺一不可:面板底不透明则模糊透不出来;设备不支持跨窗口模糊时静默退回「只有半透明底」。
 
 ### 验证状态
@@ -265,4 +269,16 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
   kind: decision
   summary: "锁定 Sym 不算按下:handleNormalKey 的 Sym+Space 分支加 state.lockedLayer != Layer.L3 守卫。此前 layer==L3 同时覆盖单击借用/按住/双击锁定三种,双击锁 Sym 后每次空格都开关面板,空格打不出来;ImeControllerTest 旧用例还把该行为钉成期望。同步:ImeControllerTest 改为「锁定 L3 时空格照常上屏 不开面板」,L5PanelTest 新增两条(锁定态不开面板 / 面板开着时锁定态空格只上屏不折叠);两条独立 Sym+Space 用例之间需 exitTapWindow(400ms),否则第二击是双击=锁定,旧代码靠「锁定也算按下」掩盖了这一点。全量 testDevUnitTest 绿。"
   source: "2026-10-20 代码评审与修复"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T09:17:57
+  kind: decision
+  summary: "磨砂改用 background blur(Window.setBackgroundBlurRadius):只糊窗口边界内;FLAG_BLUR_BEHIND 糊的是整个屏幕,作废"
+  source: "2026-10-20 用户「不是要全屏模糊」"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T09:18:03
+  kind: reversal
+  summary: "磨砂实现反转:cd6ecf8 用 FLAG_BLUR_BEHIND + setBlurBehindRadius 做 backdrop blur,用户开面板看到整屏糊掉(「不是要全屏模糊」)。按 Android 文档 blur-behind 糊的就是窗口背后的整个屏幕,与窗口尺寸无关,所以改用 background blur:面板可见时 Window.setBackgroundBlurRadius(24dp),只糊窗口边界以内;面板半透明 alpha 不变。真机回归待验(改完时宿主 MCP 隧道 530,装不上新包)。"
+  source: "2026-10-20 用户反馈"
   affects: [l6-virtual-keyboard]

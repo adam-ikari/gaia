@@ -92,7 +92,8 @@ class L5PanelView @JvmOverloads constructor(
      *
      * **面板/键帽一律半透明磨砂**(2026-10-20 用户「颜色应该是半透明的磨砂效果」):
      * 底色与键帽只换 [PANEL_ALPHA] / [KEY_ALPHA] 的 alpha,RGB 不变;真正的「毛玻璃」是
-     * 窗口层的 backdrop blur 给的(见 [dev.hwkbd.ime.service.ImeService.syncL5Blur])。
+     * 窗口背景模糊(background blur,只在窗口边界内)给的(见
+     * [dev.hwkbd.ime.service.ImeService.syncL5Blur])。
      * 所以这里必须留透 —— 底色若是不透明,背后的模糊层一点也透不出来。
      *
      * @return 是否真的重建了。面板高度**固定 [L5Ui.ROWS_PER_PAGE] 行**(2026-10-20),
@@ -385,7 +386,7 @@ class L5PanelView @JvmOverloads constructor(
         /** 翻页触发线 = 面板高的比例(与候选行翻页同一个出厂比例)。 */
         const val COMMIT_FRAC = 0.22f
 
-        /** 面板底色 alpha(0xCC ≈ 80%):留出透光,背后 backdrop blur 才读得出磨砂。 */
+        /** 面板底色 alpha(0xCC ≈ 80%):留出透光,背后窗口背景模糊才读得出磨砂。 */
         const val PANEL_ALPHA = 0xCC
 
         /** 键帽 alpha(比面板再实一点,保证键上的字在任何背景上都清楚)。 */
