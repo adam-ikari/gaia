@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T15:37:45"
+updated: "2026-10-20T17:37:00"
 ---
 
 <!-- compiled_truth -->
@@ -74,15 +74,21 @@ L5 面板(原 L6 虚拟键盘;2026-10-19 合并定案)
   密码框只留可打印 ASCII;数字/电话框只留数字与 `FieldProfile.digitChars` 放行字符。
   滤空的页/ tab 一并丢弃。
 
-### L1-L3 去重(2026-10-19 用户定案)
+### L1-L4 去重(2026-10-19 定 L1-L3;2026-10-20 用户「去重 L1-L4 已经有的就不要显示了」)
 
-用户原话「L5 不需要 L1-3 已经有的字符」。字符盘与 L4 共用同一把尺:
+用户原话「L5 不需要 L1-3 已经有的字符」+「去重 L1-L4 已经有的就不要显示了」。字符盘用两把尺:
 
 - `ImeRegistry.producible(layout, language, fullWidth)` 算**当前语言 + 全角开关**下 L1-L3
   真正敲得出的取值;`L5Ui.factory(producible = ...)` 把出厂字符盘里同字的文本键直接滤掉。
   不能用 `KeyLayout.producible()` 的出厂并集:语言层表会随全角开关整体切换,否则会误判。
+- **再加上 L4 行里已经摆着的那些**(`ImeController.panelProducible()` = 上面那把 ∪
+  `l4Keys()` 的文本输出):中文全角态 L4 摆着 `； … —— 「 」 『 』 ※`,面板再摆一遍就是屏上
+  两把同字的键。L4 那一行是**跟着输入框走的**(核心键 + 该类型的键位套),所以这把尺也跟着走。
+  代价:中文态的标点盘被去重掏到只剩 4 颗(`— “ ‘ ·`)⇒ 出厂字符盘补了一批
+  **L1-L4 都给不了的 CJK 标点**(`〔〕〖〗〘〙〝〞〜⋯々〆〇〈〉`),标点盘才不至于空着。
 - 滤空的页 / tab 一并丢弃(与输入框合法性过滤同一套空 tab 规则)。
 - **场景 tab 不再重复筛**:它本来就是 `l4Keys()` 的尾巴,registry 已在 L4 前做过同一条去重。
+  (L4 去重只作用在字符盘,场景 tab 自己就是 L4 的内容,不算「重复」。)
 - **剪贴板 tab 不参与这把筛**:剪贴板是整段文本的快捷入口,不是单字符键盘;
   是否可粘贴仍只走输入框的 `isPanelTextAllowed` 兜底。
 - 面板开着改「中文全角」开关(状态行)时,`ImeService` 调 `ImeController.refreshL5Content()`:
@@ -337,4 +343,10 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
   kind: decision
   summary: "真机复验 tab 拆细 + 12 列大键:tab=场景/标点/符号/希腊,符号两页可上滑翻页,键高 40dp 字 15sp"
   source: 2026-10-20 Titan 2
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T17:37:00
+  kind: decision
+  summary: "面板去重扩到 L4:字符盘滤掉 L4 行里已有的字符(中文全角态 L4 的 ； … 「 」 等),并补一批 L1-L4 都给不了的 CJK 标点,免得标点盘被掏空"
+  source: "2026-10-20 用户「去重L1-L4已经有的就不要显示了」"
   affects: [l6-virtual-keyboard]

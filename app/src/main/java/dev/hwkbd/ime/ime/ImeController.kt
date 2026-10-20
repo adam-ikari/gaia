@@ -1299,7 +1299,7 @@ class ImeController(
                 l5ClipItems,
                 sceneKeys,
                 ::isPanelTextAllowed,
-                producible = l1l3Producible(),
+                producible = panelProducible(),
             )
         } else {
             null
@@ -1336,7 +1336,7 @@ class ImeController(
             l5ClipItems,
             sceneKeys,
             ::isPanelTextAllowed,
-            producible = l1l3Producible(),
+            producible = panelProducible(),
         ).tabs
         if (tabs.isEmpty()) state.closePanels() else state.l5 = ui.withTabs(tabs)
     }
@@ -1415,11 +1415,28 @@ class ImeController(
 
     /**
      * L5 面板要避开的字符 = 当前语言 + 全角开关下 L1-L3 已经能敲出的取值
-     * (2026-10-19 用户「L5 不需要 L1-L3 已经有的字符」)。
+     * (2026-10-19 用户「L5 不需要 L1-L3 已经有的字符」)
+     * **加上 L4 行里已经摆着的那些**(2026-10-20 用户「去重 L1-L4 已经有的就不要显示了」)。
      *
      * 与 L4 的去重共用 [ImeRegistry.producible]:语言层表会随全角开关整体切换,
      * 所以不能拿 [KeyLayout.producible] 的出厂并集来筛,否则全角/半角会各错一批。
+     *
+     * ## 为什么还要把 L4 算进来
+     *
+     * L4 那一行也是「已经能敲出」的:中文全角态下 L4 摆着 `； … 「 」` 这些固定符号
+     * (见 [dev.hwkbd.ime.strategy.ChineseLanguage.l4Extras]),面板的「标点」盘再摆一遍
+     * 就是屏上两把同字的键,只有其中一把是活的。**L4 那部分是跟着输入框走的**
+     * (核心键 + 该类型的键位套),所以面板的去重也跟着输入框走。
+     *
+     * L4 自己已经被 L1-L3 去过一遍([ImeRegistry.l4Keys]),所以这里直接把 **L4 整把**的
+     * 文本输出并进来即可 —— 装得下的前缀与装不下、进了「场景」tab 的尾巴都算。
      */
+    private fun panelProducible(): Set<String> {
+        val l1l3 = l1l3Producible()
+        val l4 = l4Keys().mapNotNullTo(mutableSetOf()) { (it.out as? KeyOut.Text)?.text }
+        return l1l3 + l4
+    }
+
     private fun l1l3Producible(): Set<String> =
         registry.producible(layout, language(), fullWidthSymbolsInCn)
 

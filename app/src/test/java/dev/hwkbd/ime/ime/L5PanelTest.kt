@@ -505,7 +505,10 @@ class L5PanelTest {
             .mapNotNull { (it.out as? KeyOut.Text)?.text }
         assertTrue("全角 L3 的 ， 不在面板", "，" !in fullWidthTexts)
         assertTrue("全角 L3 的 《 不在面板", "《" !in fullWidthTexts)
-        assertTrue("L3 敲不出的 ； 仍在面板", "；" in fullWidthTexts)
+        // 2026-10-20 用户「去重 L1-L4 已经有的就不要显示了」:； 这类**在 L4 行里**
+        // (中文全角态 L4 的核心键),面板不再重复摆。
+        assertTrue("L4 行的 ； 不在面板", "；" !in fullWidthTexts)
+        assertTrue("L1-L3 与 L4 都没有的 “ 仍在面板", "“" in fullWidthTexts)
 
         // 面板开着时关掉全角:L3 退回 ASCII,， 回到面板;{ 则被 L3 的 ASCII 键带走。
         // 状态行开关会调 refreshL5Content,原地换字符盘,不把用户弹回第 0 个 tab。
@@ -519,6 +522,25 @@ class L5PanelTest {
             .mapNotNull { (it.out as? KeyOut.Text)?.text }
         assertTrue("半角态 ， 回到面板", "，" in halfWidthTexts)
         assertTrue("半角 L3 的 { 不在面板", "{" !in halfWidthTexts)
+    }
+
+    @Test
+    fun `面板不重复 L4 行里已有的字符`() {
+        // 2026-10-20 用户「去重 L1-L4 已经有的就不要显示了」:
+        // L4 那一行也是「已经能敲出」的 —— 中文全角态下它摆着 `； … 「 」` 这些,
+        // 面板的字符盘再摆一遍就是屏上两把同字的键。
+        val r = ImeControllerTestRig()
+        val c = r.c
+        c.openL5()
+        val l4Texts = c.l4Keys().mapNotNull { (it.out as? KeyOut.Text)?.text }.toSet()
+        assertTrue("L4 行有内容(否则这条用例没意义)", l4Texts.isNotEmpty())
+        val panelTexts = c.state.l5!!.tabs
+            // 场景 tab 就是 L4 装不下的尾巴、剪贴板是整段文本,两者都不是「重复」
+            .filter { it.id != L5Ui.SCENE_TAB_ID && it.id != L5Ui.CLIP_TAB_ID }
+            .flatMap { it.pages }.flatMap { it.keys }
+            .mapNotNull { (it.out as? KeyOut.Text)?.text }
+        val duplicated = panelTexts.filter { it in l4Texts }.distinct()
+        assertTrue("字符盘不重复 L4 的字符: $duplicated", duplicated.isEmpty())
     }
 
     /**
@@ -615,6 +637,7 @@ class L5PanelTest {
     private fun isPhoneChar(ch: Char): Boolean = ch in '0'..'9' || KeyLayout.DIGITS_PHONE.contains(ch)
 
     /** 一页能放多少格 = 列数 × 固定行数。 */
+
     private fun pageCapacity(): Int = L5Ui.GRID_COLUMNS * L5Ui.ROWS_PER_PAGE
 
     /** 造 [n] 颗半宽单字符键(每颗占 1 格),用来喂给场景 tab 验分页。 */
