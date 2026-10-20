@@ -132,7 +132,7 @@ class L5PanelView @JvmOverloads constructor(
                 gravity = Gravity.CENTER
                 maxLines = 1
                 setPadding(dip(16), dip(6), dip(16), dip(6))
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, TAB_TEXT_SP)
                 setTextColor(if (active) panelInk else fg)
                 background = if (active) makeTabBg(accent) else null
                 setOnClickListener {
@@ -176,7 +176,7 @@ class L5PanelView @JvmOverloads constructor(
                 )
                 row.addView(
                     cell,
-                    LinearLayout.LayoutParams(0, dip(36), span.toFloat()).apply { bottomMargin = gap },
+                    LinearLayout.LayoutParams(0, dip(KEY_HEIGHT_DP), span.toFloat()).apply { bottomMargin = gap },
                 )
                 used += span
                 idx++
@@ -184,7 +184,7 @@ class L5PanelView @JvmOverloads constructor(
             if (used < columns) {
                 // 不满一行时补**等宽空槽**:剩下的键/空槽一起把这一行铺满网格,
                 // 不然最后一颗会被权重撑成横贯整行的怪键。
-                row.addView(View(context), LinearLayout.LayoutParams(0, dip(36), (columns - used).toFloat()))
+                row.addView(View(context), LinearLayout.LayoutParams(0, dip(KEY_HEIGHT_DP), (columns - used).toFloat()))
             }
             grid.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             rows++
@@ -203,7 +203,7 @@ class L5PanelView @JvmOverloads constructor(
             orientation = HORIZONTAL
             addView(
                 View(context),
-                LinearLayout.LayoutParams(0, dip(36), columns.toFloat()).apply { bottomMargin = gap },
+                LinearLayout.LayoutParams(0, dip(KEY_HEIGHT_DP), columns.toFloat()).apply { bottomMargin = gap },
             )
         }
 
@@ -214,7 +214,7 @@ class L5PanelView @JvmOverloads constructor(
         // 字若默认贴左上角,视觉上仍读成「没对齐」。ROWS(剪贴板)保持左对齐、垂直居中,
         // 长文本从头读更自然。
         gravity = if (direct) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER
-        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, KEY_TEXT_SP)
         setTextColor(fg)
         background = makeKeyBg()
         setOnClickListener {
@@ -394,5 +394,20 @@ class L5PanelView @JvmOverloads constructor(
 
         /** 选中 tab 强调色 alpha:实一些,保住「选中」的分量。 */
         const val ACCENT_ALPHA = 0xE6
+
+        /**
+         * 键帽高度(dp)。
+         *
+         * 40dp(2026-10-20 用户「tab 中按键太小」):原来是 36dp,配上 12 列网格后
+         * 一颗键 ~40×40dp,单字符点得准、字也放得下。面板高度跟着涨(两行),
+         * 但仍**固定两行**(见 [dev.hwkbd.ime.ime.L5Ui.ROWS_PER_PAGE]),切 tab/翻页不跳高。
+         */
+        const val KEY_HEIGHT_DP = 40
+
+        /** 键帽字号(sp):15 —— 12 列网格下单格 ~40dp,13sp 的字显小。 */
+        const val KEY_TEXT_SP = 15f
+
+        /** tab 标题字号(sp):14 —— 比键帽小一号,分主次。 */
+        const val TAB_TEXT_SP = 14f
     }
 }

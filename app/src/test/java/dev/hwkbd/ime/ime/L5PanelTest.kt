@@ -447,7 +447,7 @@ class L5PanelTest {
         // 面板只留字符盘;出厂内容不再有 KeyOut.Special。
         val tabs = L5Ui.factory().tabs
         assertTrue("控制 tab 已移除", tabs.none { it.id == "control" })
-        assertEquals("只剩标点与技术", listOf("punct", "tech"), tabs.map { it.id })
+        assertEquals("只剩标点/符号/希腊", listOf("punct", "sign", "greek"), tabs.map { it.id })
         assertTrue(
             "出厂键全是文本键",
             tabs.flatMap { it.pages }.flatMap { it.keys }.all { it.out is KeyOut.Text },
@@ -457,9 +457,9 @@ class L5PanelTest {
     @Test
     fun `出厂 tab 每页最多两行网格`() {
         // 2026-10-20 用户「L5的高度固定两行 多的内容需要翻页」:不再预设每盘几页,
-        // 而是「先过滤、再按 8 列 × ROWS_PER_PAGE 行的网格分页」,所以只钉两条:
+        // 而是「先过滤、再按 GRID_COLUMNS 列 × ROWS_PER_PAGE 行的网格分页」,所以只钉两条:
         // 每页有键、且每页占格不超过两行(跨格键也按格算,不能被页边界劈开)。
-        val tabs = L5Ui.factory().tabs.filter { it.id in setOf("punct", "tech") }
+        val tabs = L5Ui.factory().tabs.filter { it.id in setOf("punct", "sign", "greek") }
         assertTrue("至少两个出厂 tab", tabs.size >= 2)
         val capacity = L5Ui.GRID_COLUMNS * L5Ui.ROWS_PER_PAGE
         for (t in tabs) {
@@ -482,7 +482,7 @@ class L5PanelTest {
         // 与 L4 去重共用同一份结果(语言层表 + 全角开关),字符盘里同字的键直接消失。
         val producible = setOf("，", "。", "α", "|")
         val ui = L5Ui.factory(producible = producible)
-        val tabs = ui.tabs.filter { it.id in setOf("punct", "tech") }
+        val tabs = ui.tabs.filter { it.id in setOf("punct", "sign", "greek") }
         val texts = tabs.flatMap { it.pages }.flatMap { it.keys }
             .mapNotNull { (it.out as? KeyOut.Text)?.text }
         assertTrue("重复字符全部滤掉", texts.none { it in producible })
@@ -500,7 +500,7 @@ class L5PanelTest {
         // 默认拼音全角:L3 已能敲出 ， 《 等中文标点,面板不再重复摆。
         c.openL5()
         val fullWidthTexts = c.state.l5!!.tabs
-            .filter { it.id in setOf("punct", "tech") }
+            .filter { it.id in setOf("punct", "sign", "greek") }
             .flatMap { it.pages }.flatMap { it.keys }
             .mapNotNull { (it.out as? KeyOut.Text)?.text }
         assertTrue("全角 L3 的 ， 不在面板", "，" !in fullWidthTexts)
@@ -514,7 +514,7 @@ class L5PanelTest {
         c.refreshL5Content()
         assertEquals("重算保留当前 tab", tabBefore, c.state.l5!!.tab.id)
         val halfWidthTexts = c.state.l5!!.tabs
-            .filter { it.id in setOf("punct", "tech") }
+            .filter { it.id in setOf("punct", "sign", "greek") }
             .flatMap { it.pages }.flatMap { it.keys }
             .mapNotNull { (it.out as? KeyOut.Text)?.text }
         assertTrue("半角态 ， 回到面板", "，" in halfWidthTexts)
@@ -568,7 +568,7 @@ class L5PanelTest {
             .mapNotNull { (it.out as? KeyOut.Text)?.text }
         assertTrue("文本键只剩可打印 ASCII", textKeys.all { s -> s.all { it.code in 0x20..0x7E } })
         assertTrue("不再有控制 tab", ui.tabs.none { it.id == "control" })
-        assertTrue("ASCII 技术 tab 仍在", ui.tabs.any { it.id == "tech" })
+        assertTrue("ASCII 符号 tab 仍在", ui.tabs.any { it.id == "sign" })
 
         c.commitClipboardText("，")
         assertTrue("密码框拒绝中文标点", r.h.commits.isEmpty())
@@ -584,10 +584,10 @@ class L5PanelTest {
         c.openL5()
         val ui = c.state.l5!!
         assertTrue("标点 tab 没有合法字符,应隐藏", ui.tabs.none { it.id == "punct" })
-        assertTrue("技术符号 tab 没有合法字符,应隐藏", ui.tabs.none { it.id == "tech" })
+        assertTrue("符号 tab 没有合法字符,应隐藏", ui.tabs.none { it.id == "sign" })
         assertTrue("不再有控制 tab", ui.tabs.none { it.id == "control" })
         assertTrue(
-            "标点/技术/剪贴板都无合法键,只剩场景",
+            "标点/符号/希腊/剪贴板都无合法键,只剩场景",
             ui.tabs.all { it.id == L5Ui.SCENE_TAB_ID },
         )
 
