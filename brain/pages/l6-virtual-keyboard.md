@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T01:35:59"
+updated: "2026-10-20T06:50:23"
 ---
 
 <!-- compiled_truth -->
@@ -237,4 +237,10 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
   kind: decision
   summary: "2026-10-20 面板半透明磨砂:条底/键帽/选中 tab 套 alpha,面板可见时开窗口 backdrop blur(24dp)"
   source: "2026-10-20 用户「颜色应该是半透明的磨砂效果」"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T06:50:23
+  kind: evidence
+  summary: "2026-10-20 adb 真机复验(cd6ecf8 之后):图标开/关只换色(键盘形白↔accent)、场景键与标点上屏且面板留原地、标点页上下滑翻页 1/2↔2/2、面板底 blur 生效(l5blur: true radius=24.0dp)、关面板后 L4 行恢复。踩坑记录:adb 注入 KEYCODE_SYM(63) 会被 MTK A85ShortcutFunction 拦去弹「选择输入法」,注入 KEYCODE_ESCAPE 会直接收掉整个输入法(合成事件 source=0,不走 IME),所以 Sym+Space / 锁定 Sym 空格 / Esc 关面板只能物理键验;另:邮箱框首次聚焦时 Bitwarden 自动填充弹窗会抢焦点,点场景键后可能顺带把面板收起,是环境干扰不是面板逻辑。"
+  source: "2026-10-20 Titan 2(TTANCN2100002663)adb 冒烟"
   affects: [l6-virtual-keyboard]
