@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T09:18:03"
+updated: "2026-10-20T10:30:25"
 ---
 
 <!-- compiled_truth -->
@@ -141,6 +141,12 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
 `Sym+Space` 与「锁定 Sym + 空格」未用 adb 复现(`adb input keyevent 63` 会拉系统输入法选择器,
 不能代表物理 Sym 键),由 JVM 覆盖(`L5PanelTest` 两条 + `ImeControllerTest` 一条);
 剪贴板非空条目点按、场景 tab 开着时换框/换层的原地刷新仍未真机覆盖。详见 [[pending-todos]]。
+
+2026-10-20 真机(TTANCN2100002663)复验**磨砂不再全屏**:同一输入框、面板关/开两张截图逐像素比对,
+差异只落在面板自身区域(y 1061–1400),面板以外的 App 内容完全一致 → blur-behind 的整屏模糊已消除
+(日志 `l5blur: true ... (background,窗口内)`)。注意:普通可 `adjustResize` 的 App 里,面板出现时
+App 内容会被顶到面板上方,面板背后是窗口底色 —— 磨砂纹理肉眼几乎看不出,这是布局事实,不是 bug;
+只有 edge-to-edge / `adjustNothing` 的 App 才真能看到「透出背后内容」。
 
 
 ## Timeline
@@ -281,4 +287,10 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
   kind: reversal
   summary: "磨砂实现反转:cd6ecf8 用 FLAG_BLUR_BEHIND + setBlurBehindRadius 做 backdrop blur,用户开面板看到整屏糊掉(「不是要全屏模糊」)。按 Android 文档 blur-behind 糊的就是窗口背后的整个屏幕,与窗口尺寸无关,所以改用 background blur:面板可见时 Window.setBackgroundBlurRadius(24dp),只糊窗口边界以内;面板半透明 alpha 不变。真机回归待验(改完时宿主 MCP 隧道 530,装不上新包)。"
   source: "2026-10-20 用户反馈"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T10:30:25
+  kind: decision
+  summary: "真机复验:磨砂不再全屏(面板开/关截图仅面板区域有差异);普通 adjustResize 的 App 面板背后是窗口底色,纹理几乎看不到"
+  source: "2026-10-20 Titan 2 截图比对"
   affects: [l6-virtual-keyboard]
