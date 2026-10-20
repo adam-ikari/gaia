@@ -1461,14 +1461,22 @@ class ImeController(
         // 见本节开头「为什么 Sym+Space 要抢一把本来是空格的键」。
         //
         // `layer` 取的是 effectiveLayer,所以单击 Sym(一次性 L3)与长按 Sym(按住 L3)
-        // 都算「Sym+Space」;但**锁定 L3 不算「按下」**——锁是持续态,不是正按着
+        // 都算「Sym+Space」;但**锁定 L3 本身不算「按下」**——锁是持续态,不是正按着
         // (2026-10-19 用户「锁定 sym 不算按下」「锁定 Sym 后空格正常上屏」)。
         // 少了这道守卫,双击锁 Sym 之后每次空格都在开关面板,空格根本打不出来。
         // 借来的 L3 被这一下用掉(与别的键一样「用完就还」):不还的话开关完面板那一层
         // 还挂着,下一颗字母键会被当成 L3 符号敲出去(实测:开完面板敲 n 出的是 L3 符号,
         // 组词起不来)。按住不受影响(它不是一次性层)。
+        //
+        // **锁定后再物理按住 Sym,仍然是「按下」**(2026-10-20 评审):锁定时顶层是
+        // `Locked(L3)`,按住时是 `Hold(L3, Locked(L3))` —— 两者的 `lockedLayer` 都是 L3,
+        // 只查锁会把「按住」一并否掉,组合键在锁定后彻底不可用(与 docs/l4.md「长按仍触发」
+        // 矛盾)。按住的这次敲击已被 [markModifiersUsed] 记成 holdUsed,松手不会当成单击
+        // 解锁,所以按住 + 空格只开关面板、锁还在。
+        val pressedNotJustLocked =
+            state.lockedLayer != Layer.L3 || state.layerState is LayerState.Hold
         if (code == KeyEvent.KEYCODE_SPACE && layer == Layer.L3 &&
-            state.lockedLayer != Layer.L3 && !state.hasComposition
+            pressedNotJustLocked && !state.hasComposition
         ) {
             consumeOneShot()
             return cyclePanel()

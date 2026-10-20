@@ -154,6 +154,30 @@ class L5PanelTest {
     }
 
     @Test
+    fun `锁定后按住 Sym 空格仍开关面板 且松手不解除锁定`() {
+        // 锁定 ≠ 按下,但**物理按住** Sym 仍是按下:锁定时顶层 Locked(L3),
+        // 按住时 Hold(L3, Locked(L3)),两者的 lockedLayer 都是 L3 —— 只查锁会
+        // 把「按住」一起否掉,组合键在锁定后彻底不可用(2026-10-20 评审)。
+        val r = ImeControllerTestRig()
+        val c = r.c
+        c.lockSym()
+
+        c.onKeyDown(KeyEvent.KEYCODE_SYM, false, false)
+        c.space()
+        assertEquals("按住 Sym + 空格开面板", PanelMode.L5, c.state.panelMode)
+        assertTrue(c.l5Open)
+        assertTrue("开面板不写字符", r.h.commits.isEmpty())
+
+        // 按住期间敲过别的键(holdUsed),松手不能当成单击把锁解掉
+        c.onKeyUp(KeyEvent.KEYCODE_SYM)
+        assertEquals("锁还在", Layer.L3, c.state.lockedLayer)
+
+        c.space()
+        assertEquals("锁定态空格照常上屏", listOf(" "), r.h.commits)
+        assertEquals("面板不被空格折叠", PanelMode.L5, c.state.panelMode)
+    }
+
+    @Test
     fun `面板开着时敲任意字符自动关闭面板`() {
         val r = ImeControllerTestRig()
         val c = r.c

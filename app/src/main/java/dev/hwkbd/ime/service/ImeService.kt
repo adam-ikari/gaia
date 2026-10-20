@@ -1312,9 +1312,6 @@ class ImeService : InputMethodService() {
                 mainHandler.post { notifyInsetsChanged() }
             }
         }
-        // 面板的磨砂玻璃:只在面板可见时开窗口背景模糊(见 syncL5Blur)
-        syncL5Blur(s.l5 != null)
-
         // 拼音悬浮条:只在 App 不渲染 composing 区时显示(宽度随文字,见 ime_root.xml)。
         // 组词一开始先等 App 回报,超时没回报才判定"App 不渲染"并放行
         if (s.raw.isNotEmpty() && !appRendersComposing && !bubbleAllowed && !preeditProbeArmed) {
@@ -1343,6 +1340,10 @@ class ImeService : InputMethodService() {
             lastComposingForInsets = composingNow
             applyWindowMode(composingNow) // 组词中窗口全屏接键盘表面触摸,空闲恢复细条
         }
+        // 面板的磨砂玻璃:面板可见且窗口**不是**组词全屏时才开(见 syncL5Blur)。
+        // 放在 applyWindowMode 之后:同帧先定窗口形态再定 blur,不会出现
+        // 「先糊上、下一行又把窗口拉全屏」的那一帧。
+        syncL5Blur(s.l5 != null && !composingNow)
     }
 
     /**
