@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, l6, ui, keymap]
 created: "2026-10-15T13:39:54"
-updated: "2026-10-20T11:09:16"
+updated: "2026-10-20T12:03:39"
 ---
 
 <!-- compiled_truth -->
@@ -126,6 +126,12 @@ L4 中区 / L5 面板都走 `ImeController.commitL4Key`(键的输出是 `KeyOut`
   App 整屏都糊;background blur 只糊**窗口边界以内**的内容(空闲态窗口 = 键盘 + 面板,
   键盘面不透明,肉眼只在半透明面板处看得到模糊)。
   半透明与模糊缺一不可:面板底不透明则模糊透不出来;设备不支持跨窗口模糊时静默退回「只有半透明底」。
+  **真机已确认 background blur 真的生效**(2026-10-20):拿 `adjustNothing` 的实验场当背景
+  (App 内容不被顶上去,面板背后真有日志文字),面板开/关两图逐像素比对 —— 面板之外**像素完全
+  相同**(没有全屏糊),面板背后的文字高频能量比值 **0.03**;若没有模糊,0xCC 黑只把对比度压到
+  0.2 倍(比值应 ≈0.2),0.03 说明文字是**被抹开**而不是被压暗 ⇒ 模糊生效。
+  **可复用的判定法**:跨窗口模糊肉眼分不出来(背后是纯色时完全看不出),就用「面板开/关两图的
+  同一区域高频能量比值」判定 —— ≈0.2 是只压暗,远小于 0.2 才是真模糊。
 
 ### 验证状态
 
@@ -148,9 +154,11 @@ tab 条位置逐帧一致;不满行的页(如技术第 2 页仅 `Ω` 一颗)补�
 
 2026-10-20 真机(TTANCN2100002663)复验**磨砂不再全屏**:同一输入框、面板关/开两张截图逐像素比对,
 差异只落在面板自身区域(y 1061–1400),面板以外的 App 内容完全一致 → blur-behind 的整屏模糊已消除
-(日志 `l5blur: true ... (background,窗口内)`)。注意:普通可 `adjustResize` 的 App 里,面板出现时
-App 内容会被顶到面板上方,面板背后是窗口底色 —— 磨砂纹理肉眼几乎看不出,这是布局事实,不是 bug;
-只有 edge-to-edge / `adjustNothing` 的 App 才真能看到「透出背后内容」。
+(日志 `l5blur: true ... (background,窗口内)`)。同日又用 `adjustNothing` 的实验场当背景做了数值判定,
+**background blur 确实生效**(背后文字高频能量比值 0.03,无模糊时应 ≈0.2),判定法见上。
+注意:普通可 `adjustResize` 的 App 里,面板出现时 App 内容会被顶到面板上方,面板背后是窗口底色 ——
+磨砂纹理肉眼几乎看不出,这是布局事实,不是 bug;只有 edge-to-edge / `adjustNothing` 的 App 才真能看到
+「透出背后内容」。
 
 
 ## Timeline
@@ -303,4 +311,10 @@ App 内容会被顶到面板上方,面板背后是窗口底色 —— 磨砂纹�
   kind: decision
   summary: "锁定态守卫补 Hold 例外:锁着时物理按住 Sym + 空格仍开关面板,松手不解除锁定(只查 lockedLayer 会把按住一起否掉)"
   source: "2026-10-20 代码评审"
+  affects: [l6-virtual-keyboard]
+
+- time: 2026-10-20T12:03:39
+  kind: decision
+  summary: "真机确认 background blur 生效:adjustNothing 实验场当背景,面板开/关两图比对,背后文字高频能量比值 0.03(无模糊应≈0.2);判定法可复用"
+  source: "2026-10-20 Titan 2 数值判定"
   affects: [l6-virtual-keyboard]
