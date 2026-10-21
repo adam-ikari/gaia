@@ -91,6 +91,19 @@ tools/release/gate.sh --beta    # 单测 / 构建 / R8 / JNI 照跑,版本两步
 工作区脏时 beta 的版本名会带 `.dirty`(那个 hash 不代表实际字节)——
 **这种包不许发布**:标识不诚实比不能发布更糟。
 
+发布测试版走自己的脚本(不是正式版那条链):
+
+```bash
+tools/release/gate.sh --beta          # 产物侧闸门(单测/构建/R8/JNI)
+tools/release/publish-beta.sh         # 编 + 发到公开仓 gaia 的 beta-<hash> prerelease
+tools/release/publish-site.sh         # 构建站点 + 推产物 + 验线上字节
+```
+
+beta 的 release 是**每次构建一个** `beta-<hash>`(prerelease),
+站点按**内容**挑渠道:找 prerelease 里**含 `app-beta-*` 资产**的那个,
+身份从资产名的 hash 尾巴读 —— 不是从 tag 推导,也不是「最新 prerelease」
+(dev 也是 prerelease,按时间挑会挑错)。
+
 ## 发布链路
 
 ```bash

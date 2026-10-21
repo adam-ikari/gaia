@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-21T12:13:20"
+updated: "2026-10-21T12:18:06"
 ---
 
 <!-- compiled_truth -->
@@ -28,6 +28,24 @@ R8 / JNI)照跑 —— beta 要发到公开站点,产物侧那几步一步都不
 另一条同源的规矩:**工作区脏时 beta 版本名会带 `.dirty`**,那种包**不许发布**
 (`publish-dev.sh` 明确拒绝,理由是「标识不诚实比不能发布更糟」)。
 本地改了闸门脚本再编 beta 就会踩到 ⇒ 改闸门要先提交、再从干净树重编。
+
+## beta 渠道怎么发:一个脚本,不是「正式版那条链改几个参数」
+
+`tools/release/publish-beta.sh`(2026-10-21 新增)。它和 `publish-dev.sh` 是**两个
+独立应用**:dev 是 `dev.hwkbd.ime.dev`(不过 R8 的旧规则已改,现在也过),
+beta 是 `dev.hwkbd.ime.beta`(与正式版并存)。
+
+判据都是一次事故换来的,写在脚本头里:工作区必须干净(否则 `.dirty` 版本名
+骗人)、资产名取自本地文件名的 basename(`#` 是 label 不是文件名)、
+**先建空 release 再上传**(大包挂在 create 上会 HTTP 408 且全有或全无)、
+prerelease 标记必须在 if/else **之外**并**回读确认**(放错过一次 ⇒ hijack
+latest ⇒ 正式版按钮整个挂掉)、上传后**回读远端清单**核对大小、
+**查询失败 ≠ 东西不在**(重试分开处理)。
+
+beta 每次构建一个 release `beta-<hash>`(prerelease),资产 `app-beta-<hash>.apk`。
+站点按**内容**挑渠道(找 prerelease 里含 `app-beta-*` 资产的那个),
+身份从资产名的 hash 尾巴读 —— 不按命名约定挑,也不按时间挑
+(dev 也是 prerelease,按时间挑会挑错)。
 
 ## 发版前:同一个检查在两个环境跑通,不代表它对
 
@@ -259,5 +277,11 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
 - time: 2026-10-21T12:13:20
   kind: decision
   summary: "beta 不是版本发布:闸门加 --beta 模式(版本漂移/tag 对齐两步跳过且打出来,产物四步照跑);脏工作区编出的 .dirty beta 不许发布"
+  source: "2026-10-21 发 beta 实操"
+  affects: [release-flow]
+
+- time: 2026-10-21T12:18:06
+  kind: decision
+  summary: "新增 tools/release/publish-beta.sh:beta 渠道独立脚本(工作区干净/资产名 basename/先建空 release/prerelease 回读/上传后回读清单/查询失败≠不存在),每次构建一个 beta-<hash> prerelease"
   source: "2026-10-21 发 beta 实操"
   affects: [release-flow]
