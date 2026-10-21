@@ -26,6 +26,7 @@
 #     tools/release/gate.sh --quick          # 只跑单测(内循环)
 #     tools/release/gate.sh --tag v0.7.10    # 指定待发布 tag
 #     tools/release/gate.sh --release        # 发版模式:额外要求本 commit 引用 E2E run
+#     tools/release/gate.sh --beta           # 测试版模式:跳过「版本号」那两步(见下)
 #
 # 退出码非 0 ⇒ 不许发版。没有「部分通过」这回事。
 
@@ -36,12 +37,14 @@ cd "$REPO_ROOT" || exit 1
 
 QUICK=0
 RELEASE=0
+BETA=0
 TAG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --quick)   QUICK=1 ;;
     --release) RELEASE=1 ;;
+    --beta)    BETA=1 ;;
     --tag)     TAG="${2:-}"; shift ;;
     -h|--help)
       sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -58,6 +61,8 @@ die()  { printf '\n\033[31m::error:: %s\033[0m\n' "$1" >&2; exit 1; }
 
 TOTAL=8
 [ "$QUICK" = 1 ] && TOTAL=3
+# 测试版跳过「版本号漂移」「版本号 ↔ tag 对齐」两步 —— 见 check_beta_notes。
+[ "$BETA" = 1 ] && TOTAL=6
 
 # CI 固定的工具版本,三处流水线一致。改这里要同步改三个 yml。
 CI_CMAKE=3.22.1
@@ -231,6 +236,32 @@ check_version() {
 }
 
 # ---------------------------------------------------------------------------
+# 3'. 测试版模式:为什么跳过「版本号」那两步
+#
+# ## 那两步是为「版本发布」准备的,不是为「测试版」准备的
+#
+# · 「版本号漂移」:master 必须承袭**已发布**的版本号(不许自称没发布过的号);
+# · 「版本号 ↔ tag 对齐」:待发布的 tag 必须是 `v` + versionName,且 versionCode
+#   不与任何旧 tag 撞。
+#
+# 测试版(beta)两样都不成立:
+#   · beta 的身份是 **git hash**(`0.7.11-beta.<hash>`),不是版本号 —— 它不占用
+#     任何 versionCode,也不需要 tag(见 app/build.gradle.kts 的 beta 段);
+#   · master 的版本号**本来就该**等于已发布版本(那是「承袭」的定义),
+#     于是「不撞旧 tag」这条对 master HEAD 永远是假的 —— 那个号已经被
+#     已发布的 v0.7.11 用掉了。
+#
+# ⇒ beta 跑的是**产物侧**那几步(单测 / 构建 / R8 / JNI),版本那两步不适用。
+#   但「跳过了哪一步」必须**打出来** —— 闸门最怕的是「看起来跑过了」。
+# ---------------------------------------------------------------------------
+check_beta_notes() {
+  step "版本号两步(测试版模式跳过)"
+  ok "跳过「版本号漂移」:beta 的身份是 git hash,不吃 versionCode"
+  ok "跳过「版本号 ↔ tag 对齐」:beta 不打 v* tag,master 承袭已发布版本"
+  printf '      \033[33m(测试版不是版本发布;下面跑的是产物侧那几步)\033[0m\n'
+}
+
+# ---------------------------------------------------------------------------
 # 4/5. 单测 + 构建
 # ---------------------------------------------------------------------------
 run_tests() {
@@ -392,8 +423,12 @@ fi
 
 printf '\033[1m发布闸门\033[0m  repo=%s  HEAD=%s\n' "$REPO_ROOT" "$(git log --oneline -1 | cut -c1-8)"
 preflight
-check_drift
-check_version
+if [ "$BETA" = 1 ]; then
+  check_beta_notes
+else
+  check_drift
+  check_version
+fi
 run_tests
 assemble
 check_public_r8

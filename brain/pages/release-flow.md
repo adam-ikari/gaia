@@ -5,10 +5,30 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-16T00:38:56"
+updated: "2026-10-21T12:13:20"
 ---
 
 <!-- compiled_truth -->
+ok
+测试版(beta)不是版本发布:闸门要有专门模式
+
+beta 的身份是 **git hash**(`0.7.11-beta.<hash>`),不占 versionCode、不打 `v*` tag。
+所以闸门里「版本号漂移」「版本号 ↔ tag 对齐」那两步对它**不成立**:
+master 的版本号本来就该等于已发布版本(「承袭」的定义),
+于是「不撞旧 tag」对 master HEAD 永远是假的(那个号已被已发布的 tag 用掉了)。
+
+2026-10-21 实测:直接跑 `gate.sh` 在第 3 步就挂(`check-version.sh(HEAD)没过`),
+原因正是这条 —— 不是版本号错了,是**那条检查问错了对象**。
+
+⇒ 加了 `gate.sh --beta`:版本两步跳过、**并且把跳过打出来**(第 2 步显示
+「beta 的身份是 git hash,不吃 versionCode」)。闸门最怕的是「看起来跑过了」,
+所以「跳过了哪一步」必须可见。剩下四步(单测 / 构建 release+debug+beta /
+R8 / JNI)照跑 —— beta 要发到公开站点,产物侧那几步一步都不能少。
+
+另一条同源的规矩:**工作区脏时 beta 版本名会带 `.dirty`**,那种包**不许发布**
+(`publish-dev.sh` 明确拒绝,理由是「标识不诚实比不能发布更糟」)。
+本地改了闸门脚本再编 beta 就会踩到 ⇒ 改闸门要先提交、再从干净树重编。
+
 ## 发版前:同一个检查在两个环境跑通,不代表它对
 
 `check-version.sh` 验三件事:格式、tag 与 `versionName` 一致、
@@ -234,4 +254,10 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   kind: decision
   summary: "2026-10-16 发 dev 4c26536(含站点)的四个发现:(1) gate.sh 在「master 承袭已发布版本、不发新正式 tag」状态必须传 --tag <当前 tag>——check-version.sh 无参模式假设 HEAD 即将打 tag,HEAD 上无 tag 指向时排不出自己,把 v0.7.11 的 versionCode 30 跟自己比必挂(本地无 tag=CI 状态不同,同一个坑的第三种形态)。(2) 本应用仓不该有 dev-latest tag:2026-10-06 误打的那个指向 587df89(树里没 app/build.gradle.kts),git show dev-latest:app/build.gradle.kts exit 128,在 set -uo pipefail 下把 check-version 整个脚本拖崩(128 伪装成 fail,容易被当成环境问题)。publish-dev.sh 的 dev-latest 是 gaia 仓的 release tag,与本应用仓的 git tag 无关。(3) STABLE_STATUS 默认 withdrawn 是过时的:它带 0.7.10 的 NOTE,但 cd04b5a(拼音部分消费后剩余拼音无候选)已进 v0.7.11 发布,主渠道当前 APK 已修——用默认值发会让站点对用户说谎(项目判据第一要义);本次切 official + 空 NOTE,以后默认值要随最新已发布版本更新。(4) rebase 合流(L6 分支 + 远端长按三选一)暴露 tryArmLongPress 不查 l6Open:面板开着敲字母被武装、DOWN 被吞、不组词、300ms 还出符号;已补并移植到三选一的 lp.arm 新架构。"
   source: "2026-10-16 发 dev 4c26536"
+  affects: [release-flow]
+
+- time: 2026-10-21T12:13:20
+  kind: decision
+  summary: "beta 不是版本发布:闸门加 --beta 模式(版本漂移/tag 对齐两步跳过且打出来,产物四步照跑);脏工作区编出的 .dirty beta 不许发布"
+  source: "2026-10-21 发 beta 实操"
   affects: [release-flow]
