@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-21T12:18:06"
+updated: "2026-10-21T12:22:30"
 ---
 
 <!-- compiled_truth -->
@@ -28,6 +28,25 @@ R8 / JNI)照跑 —— beta 要发到公开站点,产物侧那几步一步都不
 另一条同源的规矩:**工作区脏时 beta 版本名会带 `.dirty`**,那种包**不许发布**
 (`publish-dev.sh` 明确拒绝,理由是「标识不诚实比不能发布更糟」)。
 本地改了闸门脚本再编 beta 就会踩到 ⇒ 改闸门要先提交、再从干净树重编。
+
+## 2026-10-21 第一次发 beta:beta-5dd8fb1 已上线
+
+产物:`dev.hwkbd.ime.beta`,`0.7.11-beta.5dd8fb1`,7,835,928 字节,
+sha256 `b36b561dff024645…`;release `beta-5dd8fb1`(prerelease,资产
+`app-beta-5dd8fb1.apk`);站点 https://adam-ikari.github.io/gaia/ 的
+**测试版按钮已出现**(文件名 `gaia-ime-beta-5dd8fb1.apk`,页面显示 `β 5dd8fb1`)。
+
+走的顺序:`gate.sh --beta` → `publish-beta.sh` → `publish-site.sh`。
+站点那步的测试版通道**第一次轮询就没对上**(Pages 还没更新,拿到 2268 字节),
+第二次轮询逐字节一致 —— 这正是脚本重试的意义。
+
+**这次踩到的两件事**:
+① 直接跑 `gate.sh` 在第 3 步就挂(`check-version.sh(HEAD)没过`)——
+   不是版本号错了,是那条检查问错了对象(beta 不占 versionCode、
+   不打 v* tag,而 master 承袭已发布版本 ⇒「不撞旧 tag」对 HEAD 永远假);
+   ⇒ 加了 `--beta` 模式,版本两步跳过**并打出来**。
+② 改闸门脚本后直接编 beta ⇒ 版本名带 `.dirty` ⇒ 那个 hash 不代表实际字节,
+   **这种包不许发布**。改闸门要先提交、再从干净树重编 —— 顺序反了就得重编一次。
 
 ## beta 渠道怎么发:一个脚本,不是「正式版那条链改几个参数」
 
@@ -284,4 +303,10 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   kind: decision
   summary: "新增 tools/release/publish-beta.sh:beta 渠道独立脚本(工作区干净/资产名 basename/先建空 release/prerelease 回读/上传后回读清单/查询失败≠不存在),每次构建一个 beta-<hash> prerelease"
   source: "2026-10-21 发 beta 实操"
+  affects: [release-flow]
+
+- time: 2026-10-21T12:22:30
+  kind: decision
+  summary: "2026-10-21 首个 beta 已上线:beta-5dd8fb1(0.7.11-beta.5dd8fb1,7.8MB),站点测试版按钮出现;踩到 gate 版本检查问错对象(加 --beta 模式)与 .dirty 包不许发两条"
+  source: "2026-10-21 发 beta 实跑"
   affects: [release-flow]
