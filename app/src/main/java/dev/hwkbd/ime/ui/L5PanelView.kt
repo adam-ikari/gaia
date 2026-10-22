@@ -7,7 +7,9 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.widget.LinearLayout
 import dev.hwkbd.ime.ime.L5Key
@@ -62,7 +64,24 @@ class L5PanelView @JvmOverloads constructor(
      */
     var onSwipePage: ((Int) -> Boolean)? = null
 
+    /**
+     * tab 条 = **可左右滑动**的一排标签,每个标签的宽度**按它自己的字定**。
+     *
+     * 2026-10-22 用户「tab过长的时候需要左右滑动 tab根据tab标签决定长度」。
+     * 旧做法是「每个 tab 权重 1、等宽铺满」:tab 少的时候浪费一大片,
+     * tab 多/标签长的时候把字挤到看不清。两头都不好。
+     * ⇒ 改成:宽度 = 文字宽 + 内边距(内容宽),一排放不下就**横着滑**。
+     *
+     * 滑动的容器是 [tabScroll]:它只包 tab 条,键格区不在里面 ——
+     * 键格区的上下滑仍然是翻页(见 [onInterceptTouchEvent]),互不打架。
+     */
     private val tabStrip = LinearLayout(context).apply { orientation = HORIZONTAL }
+    private val tabScroll = HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false   // 面板区不要滚动条
+        overScrollMode = View.OVER_SCROLL_NEVER // 也不要越界回弹的光晕
+        isFillViewport = false                 // 宽度不够时才滑,够时按内容宽排
+        addView(tabStrip, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
     private val grid = LinearLayout(context).apply { orientation = VERTICAL }
 
     private var fg = 0xFFEDF0F5.toInt()
@@ -82,7 +101,7 @@ class L5PanelView @JvmOverloads constructor(
 
     init {
         orientation = VERTICAL
-        addView(tabStrip, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(tabScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
 
@@ -117,7 +136,7 @@ class L5PanelView @JvmOverloads constructor(
         swipeSpring.cancel()
         grid.translationY = 0f
         setBackgroundColor(panelBg)
-        tabStrip.setBackgroundColor(panelBg)
+        tabScroll.setBackgroundColor(panelBg)
         rebuildTabs(ui)
         rebuildGrid(ui)
         return true
@@ -140,8 +159,32 @@ class L5PanelView @JvmOverloads constructor(
                     onTab?.invoke(i)
                 }
             }
-            // 权重 1 ⇒ 所有 tab 等宽铺满,与状态行三区「等宽槽」同一版式直觉。
-            tabStrip.addView(tv, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+            // 宽度**按标签本身**定(文字宽 + 内边距),不是等分:
+            // 放得下就按内容排,放不下就横着滑(见 [tabScroll])。
+            tabStrip.addView(tv, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        }
+        // 选中项可能在可视区外(标签长、条被滑走)⇒ 把它滚回来。
+        // 布局还没测量,所以推到下一帧做 —— 现在算出来的 left/width 都是 0。
+        val selected = ui.tabIndex
+        post { ensureSelectedTabVisible(selected) }
+    }
+
+    /**
+     * 把选中的 tab 滚进可视区。
+     *
+     * 只在**已经滚出去**的时候动它:已经看得见就别动 ——
+     * 每帧都"对齐一下"会把用户刚滑到的位置拽回去。
+     */
+    private fun ensureSelectedTabVisible(index: Int) {
+        val tab = tabStrip.getChildAt(index) ?: return
+        if (tab.width == 0) return
+        val left = tab.left
+        val right = left + tab.width
+        val visL = tabScroll.scrollX
+        val visR = visL + tabScroll.width
+        when {
+            left < visL -> tabScroll.scrollTo(left, 0)
+            right > visR -> tabScroll.scrollTo(right - tabScroll.width, 0)
         }
     }
 
