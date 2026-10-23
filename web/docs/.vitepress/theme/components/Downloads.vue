@@ -24,7 +24,12 @@
           :class="{ 'gi-dl-btn-alt': !c.primary }"
           :href="c.url"
           :download="c.filename"
-        >{{ c.label }}</a>
+        >
+          <span>{{ c.label }}</span>
+          <!-- 版本号单独一行:0.7.11-beta.a2f69d8 比「Beta版」长得多,
+               挤在一行里窄屏会折在词中间。 -->
+          <span v-if="c.version" class="gi-dl-version">{{ c.version }}</span>
+        </a>
         <!--
           校验值紧跟在各自按钮下面,不放页脚:2026-10-06 实测这个网络下下载
           **会静默截断**,而安装器只给一句「软件包无效」。有大小和 sha256,
@@ -63,16 +68,19 @@ import {
   BETA_SHA256,
   BETA_SIZE,
   BETA_VERSION,
+  BETA_VERSION_NAME,
   DEV_DOWNLOAD_URL,
   DEV_FILENAME,
   DEV_SHA256,
   DEV_SIZE,
   DEV_VERSION,
+  DEV_VERSION_NAME,
   HAS_DEV,
 } from '../../download'
 
 interface Channel {
   label: string
+  version: string
   url: string
   filename: string
   sha: string
@@ -80,10 +88,14 @@ interface Channel {
   primary?: boolean
 }
 
-/** 没有 hash 时只写渠道名 —— 空着不误导,有值才可信。 */
+/**
+ * 按钮上优先显示完整版本号;构建期没注入版本号时退回 hash,
+ * 两者都没有就只写渠道名 —— 空着不误导,有值才可信。
+ */
 const channels: Channel[] = [
   {
-    label: BETA_VERSION ? `下载 Beta版 ${BETA_VERSION}` : '下载 Beta版',
+    label: '下载 Beta版',
+    version: BETA_VERSION_NAME || BETA_VERSION,
     url: BETA_DOWNLOAD_URL,
     filename: BETA_FILENAME,
     sha: BETA_SHA256,
@@ -91,7 +103,14 @@ const channels: Channel[] = [
     primary: true,
   },
   ...(HAS_DEV
-    ? [{ label: `下载 dev版 ${DEV_VERSION}`, url: DEV_DOWNLOAD_URL, filename: DEV_FILENAME, sha: DEV_SHA256, size: DEV_SIZE }]
+    ? [{
+        label: '下载 dev版',
+        version: DEV_VERSION_NAME || DEV_VERSION,
+        url: DEV_DOWNLOAD_URL,
+        filename: DEV_FILENAME,
+        sha: DEV_SHA256,
+        size: DEV_SIZE,
+      }]
     : []),
 ]
 </script>
@@ -133,8 +152,10 @@ const channels: Channel[] = [
 
 .gi-dl-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   min-width: 168px;
   min-height: 52px;
   padding: 12px 20px;
@@ -147,6 +168,15 @@ const channels: Channel[] = [
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+/* 版本号可能很长,等宽字体便于逐字符核对 */
+.gi-dl-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  opacity: 0.92;
 }
 
 .gi-dl-btn:hover {

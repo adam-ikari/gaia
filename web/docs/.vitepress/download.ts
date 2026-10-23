@@ -3,21 +3,23 @@
  *
  * | 渠道 | 站点路径(固定) | 下载文件名 | 装到手机上叫什么 |
  * | --- | --- | --- | --- |
- * | 测试版 β | `/media/gaia-beta.apk` | `gaia-ime-beta-<hash>.apk` | `盖亚输入法 β` |
- * | 开发版 | `/media/gaia-dev.apk` | `gaia-ime-dev-<hash>.apk` | `盖亚输入法 dev` |
+ * | Beta版 | `/media/gaia-beta.apk` | `gaia-ime-beta-<hash>.apk` | `盖亚输入法 β` |
+ * | dev版 | `/media/gaia-dev.apk` | `gaia-ime-dev-<hash>.apk` | `盖亚输入法 dev` |
  *
  * ## 为什么没有正式版渠道(2026-10-23)
  *
  * 这个项目从来没有正式版。原来的主渠道只是一个挂着「已撤回」状态的旧包,
  * 留着它并不会让人更放心,反而把「站点在推荐一个已知有问题的构建」写在首页上。
- * ⇒ 站点只发 β 与 dev;β 是推荐下载。
+ * ⇒ 站点只发 Beta版 与 dev;Beta版是推荐下载。
  *
  * ## 页面上怎么称呼
  *
- * β / dev 用的是**系统里看得到的名字**(`盖亚输入法 β` / `盖亚输入法 dev`)。
- * 这两个标签不是页面发明的,是 `app/src/{beta,dev}/res/values/strings.xml`
- * 里的 `app_name` —— 用户在桌面图标和输入法列表里看到的就是它。
- * 拿它当渠道名,页面上的称呼和装完之后的称呼**是同一个词**,不会各叫各的。
+ * 2026-10-23 起站点写 `Beta版` / `dev版`,不用希腊字母 β(用户要求)。
+ * 应用内的名字仍是 `盖亚输入法 β` / `盖亚输入法 dev`
+ * (`app/src/{beta,dev}/res/values/strings.xml` 的 `app_name`)。
+ *
+ * 版本号显示的是 APK 里的 `versionName`(`0.7.11-beta.a2f69d8`),
+ * 也是装完在设置页看到的那个字符串。
  *
  * ## 为什么 URL 固定、身份进文件名
  *
@@ -29,7 +31,9 @@
  * ## 身份从哪来
  *
  * 两条渠道的身份都是 **commit 短 hash**,由 `tools/release/publish-site.sh`
- * 在**构建期**从 release 资产名读出来,注入 `VITE_BETA_VERSION` / `VITE_DEV_VERSION`。
+ * 在**构建期**从 release 资产名读出来,注入 `VITE_BETA_VERSION` / `VITE_DEV_VERSION`;
+ * 完整版本号则由同一个脚本从下载到的 APK 的 `versionName` 读出,
+ * 注入 `VITE_BETA_VERSION_NAME` / `VITE_DEV_VERSION_NAME`。
  * 不从 tag 推导:资产名是「远端确实存着什么」,是这件事的权威。
  * 若改成从 tag 推导,就有了 tag / 注入值 / APK 内 manifest 三个可能互相漂移的来源,
  * 不一致的表现是「文件名说 A、装完设置页写 B」。
@@ -70,13 +74,27 @@ const devVersion = import.meta.env.VITE_DEV_VERSION
 export const HAS_DEV = import.meta.env.VITE_HAS_DEV === '1' && usable(devVersion)
 
 /**
- * β 与 dev 的**身份**(一个 commit 短 hash)。
+ * Beta版 与 dev 的**身份**(一个 commit 短 hash)。
  *
- * 页面上要把这个号显示出来:这两条渠道没有语义版本号,hash 是它们唯一的标识,
- * 也是用户装完之后唯一能拿回来问「我装的是哪一个」的东西。
+ * 文件名用它;页面上优先显示完整版本号,拿不到版本号时才退回它。
  */
 export const BETA_VERSION = usable(betaVersion) ? betaVersion.trim() : ''
 export const DEV_VERSION = HAS_DEV ? devVersion.trim() : ''
+
+/**
+ * 完整版本号(`0.7.11-beta.a2f69d8`),来自 APK 的 `versionName`。
+ *
+ * 按钮上显示的就是它 —— 有语义版本号才让人看得出「这一版比上一版新」,
+ * 而 hash 只能回答「是哪个 commit」。装完在设置页看到的也是这个字符串。
+ * 空串时按钮退回显示 hash。
+ */
+function versionName(v: string | undefined): string {
+  const t = (v || '').trim()
+  return /^\d+\.\d+/.test(t) ? t : ''
+}
+
+export const BETA_VERSION_NAME = versionName(import.meta.env.VITE_BETA_VERSION_NAME)
+export const DEV_VERSION_NAME = HAS_DEV ? versionName(import.meta.env.VITE_DEV_VERSION_NAME) : ''
 
 /**
  * beta/dev 的文件名 —— **hash 在前、渠道名在后**。

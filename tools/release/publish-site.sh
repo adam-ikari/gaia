@@ -68,6 +68,18 @@ ok()   { printf '    \033[32m✓\033[0m %s\n' "$1"; }
 command -v gh >/dev/null || die "需要 gh"
 command -v npm >/dev/null || die "需要 npm"
 
+# 版本号从 APK 的 manifest 读 —— 那是装完之后在设置页看到的同一个字符串
+# (`0.7.11-beta.a2f69d8`),而不是从 tag 或资产名拼出来的。
+# 与「身份从资产名读」不冲突:身份仍是 hash,版本号是给人看的。
+AAPT2="${ANDROID_HOME:-$HOME/android-sdk}/build-tools/36.0.0/aapt2"
+[ -x "$AAPT2" ] || AAPT2=$(command -v aapt2 2>/dev/null || true)
+
+apk_version_name() {
+  [ -n "$AAPT2" ] && [ -x "$AAPT2" ] || return 1
+  "$AAPT2" dump badging "$1" 2>/dev/null \
+    | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1
+}
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
@@ -347,6 +359,43 @@ else
   take_channel "开发版" "dev-latest" "app-dev" "$WEB/docs/public/media/gaia-dev.apk" "DEV" no
 fi
 
+# ---- 版本号:从落地那个 APK 里读,不拼 ----
+#
+# 资产名只有 hash(`app-beta-a2f69d8.apk`),而用户要知道的是版本号
+# (`0.7.11-beta.a2f69d8`)—— 这也是装完在设置页看到的字符串。
+# 站点既然能拿到包,就以包里的 manifest 为准;从资产名或 tag 拼是又一个来源。
+#
+# 测试版读不出就**不许发**:按钮上没版本号正是这次要修的问题。
+# 开发版可选,读不出就留空,页面退回显示 hash。
+BETA_VERSION_NAME=""
+DEV_VERSION_NAME=""
+if [ -s "$WEB/docs/public/media/gaia-beta.apk" ]; then
+  BETA_VERSION_NAME=$(apk_version_name "$WEB/docs/public/media/gaia-beta.apk") || true
+  [ -n "$BETA_VERSION_NAME" ] \
+    || die "读不出测试版 APK 的 versionName(aapt2: ${AAPT2:-未找到})—— 站点要显示版本号,不许发布"
+  if [ -n "${BETA_VERSION:-}" ]; then
+    case "$BETA_VERSION_NAME" in
+      *"$BETA_VERSION"*) : ;;
+      *) die "测试版 versionName($BETA_VERSION_NAME)里没有资产身份 $BETA_VERSION —— 包和资产名对不上" ;;
+    esac
+  fi
+  ok "测试版版本号: $BETA_VERSION_NAME"
+fi
+if [ -s "$WEB/docs/public/media/gaia-dev.apk" ]; then
+  DEV_VERSION_NAME=$(apk_version_name "$WEB/docs/public/media/gaia-dev.apk") || true
+  if [ -z "$DEV_VERSION_NAME" ]; then
+    echo "::warning::读不出开发版 APK 的 versionName,按钮退回显示 hash"
+  elif [ -n "${DEV_VERSION:-}" ]; then
+    case "$DEV_VERSION_NAME" in
+      *"$DEV_VERSION"*) ok "开发版版本号: $DEV_VERSION_NAME" ;;
+      *)
+        DEV_VERSION_NAME=""
+        echo "::warning::开发版 versionName 与资产身份 $DEV_VERSION 对不上,按钮退回显示 hash"
+        ;;
+    esac
+  fi
+fi
+
 # ============================================================================
 # 第二步:构建
 # ============================================================================
@@ -376,9 +425,11 @@ rm -f "$WEB/docs/public/media/gaia.apk"
 # `${X:-}` 给的是空串,而 download.ts 的 `usable()` 会把空串挡掉
 # (拼出 `gaia-ime-beta-.apk` 那种「看起来像成功了」的文件名)。
 export VITE_BETA_VERSION="${BETA_VERSION:-}"
+export VITE_BETA_VERSION_NAME="${BETA_VERSION_NAME:-}"
 export VITE_BETA_SHA256="${BETA_SHA256:-}"
 export VITE_BETA_SIZE="${BETA_SIZE:-}"
 export VITE_DEV_VERSION="${DEV_VERSION:-}"
+export VITE_DEV_VERSION_NAME="${DEV_VERSION_NAME:-}"
 export VITE_DEV_SHA256="${DEV_SHA256:-}"
 export VITE_DEV_SIZE="${DEV_SIZE:-}"
 export VITE_HAS_DEV="${DEV_HAS:-}"
@@ -412,6 +463,16 @@ for pair in "gaia-beta.apk:BETA" "gaia-dev.apk:DEV"; do
     || die "产物里 $f 的 sha256 与页面要显示的对不上"
 done
 ok "产物里的 APK 与源文件逐字节一致,校验值自洽"
+
+# ---- 页面上必须出现版本号 ----
+#
+# 「按钮上显示版本号」是这次的要求。注入了却没渲染出来(改动标签时漏了字段),
+# 构建会成功、上面的字节校验也全对 —— 只有看页面才发现。⇒ 按字节抓一次。
+if [ -n "${BETA_VERSION_NAME:-}" ]; then
+  grep -qF -- "$BETA_VERSION_NAME" "$BUILD_DIR/index.html" \
+    || die "页面里没有测试版版本号 $BETA_VERSION_NAME —— 版本号没渲染出来"
+  ok "页面里显示了测试版版本号: $BETA_VERSION_NAME"
+fi
 
 # ============================================================================
 # 第三步:推产物

@@ -15,8 +15,8 @@ npm run build    # 产出 web/docs/.vitepress/dist
 npm run preview  # 预览构建结果
 ```
 
-本地构建拿不到 β 的 hash 与 dev 的可用性（它们在构建期注入），
-所以下载文件名退回 `gaia-ime.apk`、dev 按钮不渲染。这是设计如此，不是坏了。
+本地构建拿不到 Beta版 的完整版本号/hash 与 dev 的可用性（它们在构建期注入），
+所以按钮上不显示版本号、下载文件名退回 `gaia-ime.apk`、dev 按钮不渲染。这是设计如此，不是坏了。
 
 ## 结构
 
