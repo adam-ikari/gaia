@@ -313,8 +313,8 @@ assemble() {
 check_public_r8() {
   step "公开渠道真的过了 R8 吗(验产物)"
   local vt mapping bad=0
-  # 站点的三个落点:主下载(测试版)、gaia-beta、gaia-dev。
-  # 判据都是「站点会去取的那个产物」。
+  # 站点只发两个渠道:gaia-beta(主下载)、gaia-dev。
+  # release 也一并验 —— 它仍是公开渠道,只是不再进站点。
   for vt in release beta dev; do
     mapping="app/build/outputs/mapping/$vt/mapping.txt"
     if [ ! -s "$mapping" ]; then

@@ -18,13 +18,13 @@
 | --- | --- | --- |
 | `versionName` | 应用自己报的版本 | 改代码时顺手改 |
 | `versionCode` | Android 拒装同版/降级 | 改代码时顺手改 |
-| `v*` tag | CI 触发条件、Release 标题、**站点页面显示的版本号** | 打 tag 时写 |
+| `v*` tag | CI 触发条件、Release 标题 | 打 tag 时写 |
 
 三者没有任何天然约束，于是有两种**静默**失败：
 
-1. **站点说 0.9.9，应用报 0.5.0。** 站点版本号来自 tag
-   （站点仓库的 `deploy.yml` 把 tag 剥掉 `v` 注入 `VITE_APP_VERSION`），应用版本号来自
-   `versionName`。不一致时用户从站点下到「0.9.9」、装完应用里写着 0.5.0 —— 不报错，只是骗人。
+1. **Release 说 0.9.9，应用报 0.5.0。** Release 标题与资产名来自 tag，应用版本号来自
+   `versionName`。不一致时用户从 Release 下到「0.9.9」、装完应用里写着 0.5.0 —— 不报错，只是骗人。
+   （站点从 2026-10-23 起只发 β 与 dev，不再显示正式版号。）
 2. **忘了加 `versionCode` ⇒ 装不上。** Android 要求升级时 `versionCode` **严格大于**已装版本，
    否则 PackageInstaller 拒装（`INSTALL_FAILED_VERSION_DOWNGRADE`）。站点是直接发 APK 文件
    （不走商店），所以这一步只在用户安装时才暴露 —— 那时人已经在用旧包了。
@@ -114,18 +114,14 @@ tools/release/gate.sh --release    # 七步,含单测 / 构建 / JNI 闸门 / E2
 # 3. 打 tag 并推 —— 这一推才真的发版
 git tag -a v0.5.2 -m "v0.5.2" && git push origin v0.5.2
 # 4. 等流水线：单测 → assembleRelease/Debug → GitHub Release
-# 5. 同步到站点(把包挂到公开仓 gaia 的 release)
-tools/release/sync-apk-to-site.sh v0.5.2
-# 6. 构建站点并推产物。判据是**公开站点上那份与本地产物逐字节一致**
-tools/release/publish-site.sh
 ```
 
-第 5 步的 `publish-site` 任务在没配 `WEB_RELEASE_TOKEN` 时是 **skipped 且退出码 0** ——
-会伪装成成功。`v0.4.2`/`0.4.3`/`0.4.4`/`0.4.8` 都漏过这一步,站点停在旧版本而没人发现。
+正式版**不再同步到公开站点**(2026-10-23):站点只发测试版 β 与开发版 dev,
+各自走 `publish-beta.sh` / `publish-dev.sh`,再用 `publish-site.sh` 推产物。
+判据是**公开站点上那份与本地产物逐字节一致**。
 
-第 6 步(`publish-site.sh`)是 2026-10-08 站点 monorepo 化之后的一步:站点源码在
-本仓库 `web/`,构建在这里,产物推进公开仓 `adam-ikari/gaia`,Pages 从那个仓的
-`main` 分支发布。**公开仓里没有源码,只有产物**。
+站点源码在本仓库 `web/`,构建在这里,产物推进公开仓 `adam-ikari/gaia`,
+Pages 从那个仓的 `main` 分支发布。**公开仓里没有源码,只有产物**。
 
 ## 一次真实的漂移(2026-10-05,写这条规则的原因)
 
@@ -157,10 +153,10 @@ tools/release/publish-site.sh
 
 | 验什么 | 判据 |
 | --- | --- |
-| 公开站点上的 `media/gaia.apk` 是这次的包 | 与本地产物**逐字节**一致（轮询到对为止） |
+| 公开站点上的 `media/gaia-beta.apk` 是这次的包 | 与本地产物**逐字节**一致（轮询到对为止） |
 | 公开站点的首页是这次的产物 | 与本地产物的 `index.html` 逐字节一致 |
 | 页面上给用户的 sha256 对得上 | 产物里 APK 的 sha256 与注入值一致 |
-| 产物里没有指向 404 的下载链接 | 三条渠道的 APK 要么在产物里、要么按钮不渲染 |
+| 产物里没有指向 404 的下载链接 | 两条渠道的 APK 要么在产物里、要么按钮不渲染 |
 
 关键区分:**release 资产、Pages 产物、公开站点上是三个东西**。
 上传成功就能过 `releases/latest/download/…` 那道 200,而站点按钮发的是站点上那份,

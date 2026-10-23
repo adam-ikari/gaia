@@ -122,8 +122,7 @@ else
 这个包不做任何保证:不过混淆、没跑端到端测试。资产名带 git hash。
 
 **为什么标成 prerelease**:不标的话 GitHub 会把它当成 latest,
-而站点 deploy.yml 的正式版正是按 latest 取的 ⇒ 会去这个 release 里找
-\`app-release.apk\` ⇒ 找不到 ⇒ 部署失败、正式版下载按钮挂掉。" >/dev/null \
+而 latest 应该指向最近一次正式发布,不是一份滚动覆盖的开发版。" >/dev/null \
     || die "建 release 失败"
 fi
 
@@ -131,8 +130,8 @@ fi
 #
 # 2026-10-06 第一次写这段时,它被放进了 `else` 分支(只在**新建**时跑)。
 # 而那个 release 已经存在 ⇒ **这段从来没执行过** ⇒ `prerelease=false`
-# ⇒ dev-latest 成了 GitHub 的 latest ⇒ 站点部署连续失败两次,
-# 正式版下载按钮整个挂掉,而日志里只有一行 `no assets match the file pattern`。
+# ⇒ dev-latest 成了 GitHub 的 latest。站点现在不消费 latest,
+# 但 latest 指向一份开发版仍然是错误的发布状态。
 #
 # ⇒ 放在 if/else 之外(每次都跑),**并回读确认** ——
 #   「命令返回了」不等于「生效了」,这是今天第三次在这件事上栽。
@@ -151,8 +150,7 @@ if [ -n "$rid" ]; then
   if [ "$is_pre" != "true" ]; then
     die "$DEV_TAG 没能标成 prerelease(现在是 $is_pre)
      不标的后果不是「dev 渠道显示不出来」,而是**它会 hijack GitHub 的 latest**:
-     站点 deploy.yml 的正式版按 latest 取,于是去这个 release 里找
-     app-release.apk → 找不到 → 部署失败 → 正式版下载按钮挂掉。"
+     latest 会指向一份开发版,而不是最近一次正式发布。"
   fi
   echo "    prerelease ✓ (回读确认过)"
 fi

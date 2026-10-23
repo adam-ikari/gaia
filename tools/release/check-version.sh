@@ -9,14 +9,13 @@
 # |---|---|---|
 # | `app/build.gradle.kts` 的 `versionName` | 应用自己报的版本 | 人,改代码时顺手改 |
 # | `app/build.gradle.kts` 的 `versionCode` | Android 升级判据 | 人,改代码时顺手改 |
-# | `v*` tag | CI 的触发条件、release 页标题、**站点页面显示的版本号** | 人,打 tag 时写 |
+# | `v*` tag | CI 的触发条件、release 页标题与资产名 | 人,打 tag 时写 |
 #
 # 三者没有任何一处强制对齐,于是有两种静默失败:
 #
-# 1. **站点说 0.9.9,应用报 0.5.0。** 站点版本号来自 tag
-#    (`hwkbd_ime-web/.github/workflows/deploy.yml` 把 tag 剥掉 `v` 注入
-#    `VITE_APP_VERSION`),应用版本号来自 `versionName`。两者不一致时,
-#    用户从站点下到"0.9.9"、装完应用里写着 0.5.0 —— 没有报错,只是骗人。
+# 1. **Release 说 0.9.9,应用报 0.5.0。** Release 标题与资产名来自 tag,
+#    应用版本号来自 `versionName`。两者不一致时,
+#    用户从 Release 下到"0.9.9"、装完应用里写着 0.5.0 —— 没有报错,只是骗人。
 # 2. **忘了加 versionCode ⇒ 装不上。** Android 要求升级时 `versionCode` **严格大于**
 #    已装版本,否则 PackageInstaller 拒装(`INSTALL_FAILED_VERSION_DOWNGRADE`)。
 #    站点是直接发 APK 文件(不走商店),所以这一步只有用户装的时候才会暴露 ——

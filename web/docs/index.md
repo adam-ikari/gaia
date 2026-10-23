@@ -5,7 +5,7 @@ tagline: 专为全键盘设计。
 note: 只为 Unihertz Titan 2
 actions:
   - text: 下载测试版
-    link: /media/gaia.apk
+    link: /media/gaia-beta.apk
     primary: true
     # 必须有:不带 download 时 VitePress 会把站内 .apk 链接当网页路由接管,点击 → 404 页
     download: true

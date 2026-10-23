@@ -15,8 +15,8 @@ npm run build    # 产出 web/docs/.vitepress/dist
 npm run preview  # 预览构建结果
 ```
 
-本地构建拿不到版本号与三条渠道的可用性（它们在构建期注入），
-所以下载文件名退回 `gaia-ime.apk`、可选渠道的按钮不渲染。这是设计如此，不是坏了。
+本地构建拿不到 β 的 hash 与 dev 的可用性（它们在构建期注入），
+所以下载文件名退回 `gaia-ime.apk`、dev 按钮不渲染。这是设计如此，不是坏了。
 
 ## 结构
 
@@ -24,10 +24,10 @@ npm run preview  # 预览构建结果
 docs/
   .vitepress/
     config.mts            站点配置（base 必须是 /gaia/）
-    download.ts           三条渠道的链接与文件名 —— 唯一来源，一排按钮共用
+    download.ts           两条渠道（β / dev）的链接与文件名 —— 唯一来源
     theme/index.ts        扩展默认主题，注册全局组件
     theme/layouts/Home.vue 自定义首页布局（内容全部来自 index.md）
-    theme/components/     Downloads（三条渠道一排按钮）/ VerifyLine
+    theme/components/     Downloads（β / dev 两个按钮）/ VerifyLine
     styles/               apple / home / responsive 三个样式表
   index.md                首页（hero + 各 band）
   public/.nojekyll        跳过 Pages 的 Jekyll 处理
@@ -57,13 +57,5 @@ tools/release/publish-site.sh --skip-fetch # 用 media/ 里已有的包（离线
 Pages 从分支发布，`push` 成功与站点已更新是两件事；CDN 还会缓存刚推的那一版。
 脚本轮询到字节对上为止，对不上就非零退出。
 
-需要发布的人自己写下来的东西有两个 —— 站点无从推断：
-
-| 变量 | 含义 |
-| --- | --- |
-| `STABLE_STATUS` | `official` / `withdrawn`。**默认 `withdrawn`** |
-| `STABLE_NOTE` | 有已知问题时显示在按钮下面的说明 |
-
-默认 `withdrawn` 是刻意的：GitHub 上没有「这个版本是经流水线发的」这种标记，
-而 v0.7.10 就是在 Actions 账单锁定时手工发的、带一个已知缺陷。
-「这个包可不可信」只有发布的人知道，所以由发布的人写。
+站点只发两条渠道：**测试版 β（主下载）** 与 **开发版 dev（可选）**。
+β 取不到就不发布（首页按钮会 404）；dev 取不到只让按钮不渲染，不阻断发布。

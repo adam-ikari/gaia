@@ -172,20 +172,14 @@ git tag -a v0.7.10 -m "v0.7.10"
 git push origin v0.7.10
 ```
 
-第 4 步之后:`release.yml` 建 release、`publish-site` 同步站点仓。
-**没配 `WEB_RELEASE_TOKEN` 时那个 job 会 skipped 且退出码 0** ——
-伪装成成功,必须手动补:
-
-```bash
-tools/release/sync-apk-to-site.sh v0.7.10
-```
-
-该脚本现在自己等 `Deploy site` 跑完,并**逐字节**比对 Pages 上的 `gaia.apk`。
+第 4 步之后:`release.yml` 只在应用仓库建 release,不再同步到公开站点。
+**站点从 2026-10-23 起只发测试版 β 与开发版 dev**,正式版不占站点位置 ——
+原来的 `publish-site` job 与 `sync-apk-to-site.sh` 已删除。
 
 ### 为什么 tag 是「发布动作」
 
 推 tag 之前,代码可以随便改 —— 没人看得到。
-推 tag 之后,就有了三样必须对齐的东西:`tag`、`versionName`、站点显示的版本号。
+推 tag 之后,就有了必须对齐的东西:`tag` 与 `versionName`(以及 Release 标题/资产名)。
 `check-version.sh` 守的就是这个对齐。
 
 ---

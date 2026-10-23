@@ -41,8 +41,8 @@
 #   整个 release 都建不出来。
 # · **prerelease 标记必须在 if/else 之外,并回读确认**:2026-10-06 把它放进了
 #   「只在新建时跑」的分支 ⇒ 那个 release 一直没被标成 prerelease ⇒
-#   它 hijack 了 GitHub 的 latest ⇒ 站点正式版去它里面找 `app-release.apk`
-#   找不到 ⇒ **正式版下载按钮整个挂掉**,而日志里只有一行「没有匹配的资产」。
+#   它 hijack 了 GitHub 的 latest。站点现在不消费 latest(只发 β/dev),
+#   但 latest 仍是对外的发布状态 —— 测试版不该冒充它。
 # · **上传后回读远端资产清单**核对大小:命令返回了 ≠ 东西在;
 #   命令失败了 ≠ 东西不在(实测过上传返回非零而服务端其实存好了)。
 # · **查询失败与「没有这东西」要分开**:前者重试,后者才是真的没有。
@@ -171,8 +171,7 @@ if [ -n "$rid" ]; then
   if [ "$is_pre" != "true" ]; then
     die "$TAG 没能标成 prerelease(现在是 $is_pre)
      不标的后果不是「测试版本次不上线」,而是**它会 hijack GitHub 的 latest**:
-     站点 deploy.yml 的正式版按 latest 取,于是去它里面找 app-release.apk →
-     找不到 → 部署失败 → 正式版下载按钮挂掉。"
+     latest 会指向一个测试版,而不是最近一次正式发布。"
   fi
   ok "prerelease ✓(回读确认过)"
 fi

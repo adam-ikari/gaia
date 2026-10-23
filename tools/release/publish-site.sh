@@ -38,7 +38,10 @@
 #
 # 环境变量:
 #   SITE_REPO   公开仓(默认 adam-ikari/gaia)
-#   STABLE_STATUS / STABLE_NOTE   主渠道的状态与提示文字(见下面「状态是内容,不是逻辑」)
+#
+# 站点只发**两条渠道**:测试版 β(主下载)与开发版 dev。2026-10-23 起不再有
+# 正式版主渠道 —— 这个项目从来没有正式版,原来的主渠道只是一份挂着「已撤回」
+# 状态的旧包,留着比删掉更容易误导。
 
 set -uo pipefail
 
@@ -68,35 +71,8 @@ command -v npm >/dev/null || die "需要 npm"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# ---- 主渠道的状态:这是**内容**,所以在这里,不在 download.ts 的逻辑里 ---------
-#
-# 取值:
-#   official   正常,可作主渠道推
-#   withdrawn  有已知问题,不该当主渠道推;NOTE 会显示在按钮下面
-#
-# 为什么必须是**发布的人写下来**,而不是脚本从 release 属性推:
-# GitHub 上没有「这个版本是经流水线发的」这种标记。v0.7.10 是在应用仓
-# Actions 账单锁定时**手工**发的,而它带着一个已知缺陷。
-# 「这个包可不可信」**只有发布的人知道**。
-#
-# 2026-10-08:仍是 withdrawn。v0.7.10 的缺陷(拼音部分消费后剩余拼音没有候选)
-# 在本仓库 master 上已修(`cd04b5a`),但**没发过新版**,所以主渠道还指着它。
-#
-# **提示里不再指别的渠道**。原来这句尾巴是「已撤回,建议改用下面的测试版或开发版」,
-# 两处错:
-#   · **方向**:β/dev 在第二节,主按钮在最后一节 —— 「下面的」指的是上面。
-#   · **撞名**:主渠道自己就叫「测试版」,而 β 在页面上也叫「测试版」,
-#     于是这句话读成「建议改用下面的测试版」时**分不清在说谁**。
-# ⇒ 渠道称呼统一由 `web/docs/.vitepress/download.ts` 那节定:只有主渠道用
-#   「测试版」,β/dev 用在系统里看得到的应用名。而「修复在哪条线上」这句
-#   挪到用户**正在挑构建**的那一节(`AltDownloads.vue`),不留在页面最底下。
-STABLE_STATUS="${STABLE_STATUS:-withdrawn}"
-# **标点用全角**。这句是直接上页面的散文,而整站正文都是全角标点;
-# 半角逗号混进去(「问题:拼音被部分消费后,剩余…」)在截图里一眼看得出来。
-STABLE_NOTE="${STABLE_NOTE:-0.7.10 有一个已知问题：拼音被部分消费后，剩余拼音没有候选（例如 nihao 选「你」之后 hao 的候选不出现）。}"
-
 # ============================================================================
-# 第一步:取三条渠道的 APK
+# 第一步:取两条渠道的 APK
 # ============================================================================
 #
 # ## 权威大小 = **远端实际存着多少字节**
@@ -120,10 +96,10 @@ STABLE_NOTE="${STABLE_NOTE:-0.7.10 有一个已知问题：拼音被部分消费
 #
 # ## `fatal` 只管「缺」,不管「坏」—— 这两件事后果不同
 #
-# **缺**:主渠道**致命**,beta/dev **非致命**。
-# 照抄主渠道那句 `test -s ... || exit 1` 给 beta/dev 的话,
-# 「还没发过 beta」就会让整个脚本失败 ⇒ **主渠道也更新不了、站点停在上一次**。
-# 一个可选功能能弄挂生产,这是最坏的形状。
+# **缺**:测试版**致命**,开发版**非致命**。
+# 测试版现在是站点的主下载,首页按钮直接指向它 —— 取不到它,按钮就是 404。
+# 开发版可选:取不到就不渲染按钮;一个可选渠道不能弄挂整个发布,
+# 否则「这次没有 dev 包」会连测试版也更新不了,站点停在上一次。
 #
 # **坏**(文件在、但字节不完整):本脚本里**不会**走到「跳过」那条路 ——
 # 下载那步按**字节数**判完整性,取不到完整的就当没取到(重试 5 次后按 fatal 分流)。
@@ -144,16 +120,14 @@ STABLE_NOTE="${STABLE_NOTE:-0.7.10 有一个已知问题：拼音被部分消费
 # ## 结果直接写进 shell 变量,不写 env 文件再 source
 #
 # 第一版是把 `KEY=value` 追加到一个文件、构建前 `.` 进来。
-# 而 `STABLE_NOTE` 是**中文散文**,里面有 `(`、`「`、`,` ——
-# `KEY=0.7.10 有一个已知问题:…(例如 …)` 不是合法的 shell 赋值,
-# source 报 syntax error。**脚本照样往下跑**(没开 `set -e`),于是提示文字静悄悄没了,
-# 页面上的「已知问题」那一行消失,而构建全绿。
+# 而注入值里一旦有中文散文,`(`, `「`, `,` 就不是合法的 shell 赋值,
+# source 报 syntax error,脚本却照样往下跑(没开 `set -e`)——
+# 文字静悄悄没了,而构建全绿。
 #
 # 这正是本项目反复付过学费的那一类失败:**报错被吞掉,后果是少说一句话**。
 # ⇒ 变量直接进 shell,连 source 这一步都取消。
 take_channel() {
-  local label=$1 ref=$2 prefix=$3 dest=$4 var=$5 fatal=$6 id_from=${7:-asset}
-  local ID_FROM="$id_from"
+  local label=$1 ref=$2 prefix=$3 dest=$4 var=$5 fatal=$6
   local asset ver want got attempt sha bytes out q_ok
 
   # ## 身份**永远**从远端资产名读 —— 包括「文件已在盘上」这条路
@@ -239,13 +213,8 @@ take_channel() {
     return 0
   fi
 
-  # 主渠道的身份**从 tag 来**,不从资产名 —— 它是 `app-release.apk`,
-  # 没有 hash 尾巴可剥,硬剥会得到字面量 `app-release`。
-  # beta/dev 相反:身份在资产名的 hash 尾巴里,tag 只是滚动/预发的容器。
-  case "$ID_FROM" in
-    tag)  ver="${ref#v}" ;;
-    *)    ver="${asset#$prefix-}"; ver="${ver%.apk}" ;;
-  esac
+  # 身份在资产名的 hash 尾巴里,tag 只是预发/滚动的容器。
+  ver="${asset#$prefix-}"; ver="${ver%.apk}"
   if [ -z "$ver" ] || [ "$ver" = "$asset" ] || [ "$ver" = "$prefix" ]; then
     if [ "$fatal" = yes ]; then
       echo "::error::$label: 资产名 $asset 里解析不出身份 —— 发布流程断了" >&2
@@ -332,43 +301,43 @@ if [ "$SKIP_FETCH" = 1 ]; then
   mkdir -p "$WEB/docs/public/media"
   ok "跳过取包"
 else
-  step "取三条渠道的 APK(来自 $SITE_REPO 的 release)"
+  step "取两条渠道的 APK(来自 $SITE_REPO 的 release)"
   mkdir -p "$WORK/dl" "$WEB/docs/public/media"
 
-  # ---- 主渠道:最新的正式 release(latest 不含 prerelease)----
-  #
-  # ## dev 为什么必须是 prerelease
-  # `dev-latest` 一旦不是 prerelease,GitHub 就把它当成 latest ⇒
-  # 主渠道那步去 `dev-latest` 里找 `app-release.apk`,找不到 ⇒ 部署失败
-  # ⇒ **主渠道下载按钮整个挂掉**。2026-10-06 实测踩过。
-  STABLE_TAG=$(gh release view -R "$SITE_REPO" --json tagName -q .tagName 2>/dev/null || echo "")
-  [ -n "$STABLE_TAG" ] || die "取不到 $SITE_REPO 的 latest release"
-  echo "    主渠道: $STABLE_TAG"
-  take_channel "主渠道" "$STABLE_TAG" "app-release" "$WEB/docs/public/media/gaia.apk" "STABLE" yes tag || exit 1
-  # **tag 带 v,文件名里不带**:`v0.7.11` → `0.7.11`
-  APP_VERSION="${STABLE_TAG#v}"
+  # 旧主渠道的包如果还留在源目录,VitePress 会把它原样复制进产物 ——
+  # 页面上没有按钮,文件却仍然能下载。删掉它,「站点不再提供正式版」才是真的。
+  rm -f "$WEB/docs/public/media/gaia.apk"
 
   # ---- 测试版:挑一个**真的含有 app-beta-* 资产**的 prerelease ----
   #
   # ## 不能按「最新的 prerelease」挑
   # 因为 dev 也是 prerelease,「最新 prerelease」可能就是 `dev-latest`。
   # 判据改成「这个 release 的资产里有没有 `app-beta-*`」——
-  # **按内容挑,不按命名约定挑**。这样 beta 与 dev 谁新谁旧都不影响,
-  # 将来多了第四个 prerelease 渠道也不会选错。
+  # **按内容挑,不按命名约定挑**。这样 beta 与 dev 谁新谁旧都不影响。
   #
-  # 2026-10-08 实测:gaia 上**现在没有任何含 app-beta-* 的 release**
-  # ⇒ 测试版渠道长期缺席,页面上的测试版按钮不渲染(非致命,按设计)。
-  BETA_TAG=$(gh api "repos/$SITE_REPO/releases" --paginate --jq \
-    '[.[] | select(.prerelease == true)
-        | {tag: .tag_name,
-           hasBeta: ([.assets[].name | select(startswith("app-beta-"))] | length > 0)}]
-     | map(select(.hasBeta)) | first | .tag // ""' 2>/dev/null || true)
-  if [ -z "$BETA_TAG" ]; then
-    echo "::warning::$SITE_REPO 上还没有含 app-beta-* 的 release,测试版本次不上线(非致命)"
-  else
-    echo "    测试版: $BETA_TAG"
-    take_channel "测试版" "$BETA_TAG" "app-beta" "$WEB/docs/public/media/gaia-beta.apk" "BETA" no
-  fi
+  # ## 查询失败 ≠ 没有 beta
+  # `gh api` 抖一下返回空,不能据此断言「gaia 上没有 beta 资产」——
+  # 那个断言会让发布停下,而真正的故障在网络上。重试 5 次,仍然取不到
+  # 就是**不知道**,按致命处理并说清楚;取到了空结果才是真的没有。
+  BETA_TAG=""
+  q_ok=0
+  for attempt in 1 2 3 4 5; do
+    if BETA_TAG=$(gh api "repos/$SITE_REPO/releases" --paginate --jq \
+      '[.[] | select(.prerelease == true)
+          | {tag: .tag_name,
+             hasBeta: ([.assets[].name | select(startswith("app-beta-"))] | length > 0)}]
+       | map(select(.hasBeta)) | first | .tag // ""' 2>/dev/null); then
+      q_ok=1
+      break
+    fi
+    sleep $((attempt * 3))
+  done
+  [ "$q_ok" = 1 ] || die "连续 5 次取不到 $SITE_REPO 的 release 清单 —— 这**不代表没有 beta**,
+     先自己核对一次:gh release list -R $SITE_REPO"
+  [ -n "$BETA_TAG" ] || die "$SITE_REPO 上还没有含 app-beta-* 的 release ——
+     测试版是站点的主下载,取不到它,首页按钮就是 404,不许发布"
+  echo "    测试版: $BETA_TAG"
+  take_channel "测试版" "$BETA_TAG" "app-beta" "$WEB/docs/public/media/gaia-beta.apk" "BETA" yes || exit 1
 
   # ---- 开发版:固定 tag 的滚动 release ----
   # dev **不是发布**,它没有语义版本号(应用仓那边刻意不给),
@@ -397,21 +366,18 @@ step "构建站点"
 # 的前提下判。
 BUILD_DIR="$REPO_ROOT/$WEB/docs/.vitepress/dist"
 rm -rf "$BUILD_DIR"
+# `--skip-fetch` 走的是另一条路:上面那段 `rm` 不会执行,旧的 gaia.apk
+# 可能还躺在 public/media 里。这里再删一次,保证它不进任何一次构建。
+rm -f "$WEB/docs/public/media/gaia.apk"
 # `VITE_*` 只在**构建期**注入,产物里是编译好的值 —— 静态站点没有运行时。
 # 变量清单与 `web/docs/.vitepress/download.ts` 顶部的表一一对应。
 #
 # `--skip-fetch` 时取包那步整个跳过,所以这些变量可能根本没被赋过值;
 # `${X:-}` 给的是空串,而 download.ts 的 `usable()` 会把空串挡掉
-# (拼出 `gaia-ime-v.apk` 那种「看起来像成功了」的文件名)。
-export VITE_APP_VERSION="${APP_VERSION:-}"
-export VITE_STABLE_STATUS="${STABLE_STATUS:-withdrawn}"
-export VITE_STABLE_NOTE="${STABLE_NOTE:-}"
-export VITE_STABLE_SHA256="${STABLE_SHA256:-}"
-export VITE_STABLE_SIZE="${STABLE_SIZE:-}"
+# (拼出 `gaia-ime-beta-.apk` 那种「看起来像成功了」的文件名)。
 export VITE_BETA_VERSION="${BETA_VERSION:-}"
 export VITE_BETA_SHA256="${BETA_SHA256:-}"
 export VITE_BETA_SIZE="${BETA_SIZE:-}"
-export VITE_HAS_BETA="${BETA_HAS:-}"
 export VITE_DEV_VERSION="${DEV_VERSION:-}"
 export VITE_DEV_SHA256="${DEV_SHA256:-}"
 export VITE_DEV_SIZE="${DEV_SIZE:-}"
@@ -421,22 +387,20 @@ export VITE_HAS_DEV="${DEV_HAS:-}"
   || { tail -40 "$WORK/build.log" >&2; die "构建挂了(完整日志 $WORK/build.log)"; }
 ok "构建完成"
 
-# ---- 产物里必须有主渠道 APK:这是**致命**的 ----
-[ -s "$BUILD_DIR/media/gaia.apk" ] \
-  || die "构建产物里没有 media/gaia.apk,下载链接会 404"
-ok "产物里有 media/gaia.apk"
+# ---- 产物里必须有测试版 APK:这是**致命**的 ----
+[ -s "$BUILD_DIR/media/gaia-beta.apk" ] \
+  || die "构建产物里没有 media/gaia-beta.apk,主下载链接会 404"
+ok "产物里有 media/gaia-beta.apk"
 
-# beta/dev 在产物里有没有**不致命** —— 它们本来就可能没上线。
+# 开发版在产物里有没有**不致命** —— 它本来就可能没上线。
 # 这里只报事实,让「按钮指向 404」这件事在日志里看得见。
-for f in gaia-beta.apk gaia-dev.apk; do
-  if [ -s "$BUILD_DIR/media/$f" ]; then ok "产物里有 $f"
-  else echo "    无 $f(该渠道本次未上线,对应按钮不渲染)"; fi
-done
+if [ -s "$BUILD_DIR/media/gaia-dev.apk" ]; then ok "产物里有 gaia-dev.apk"
+else echo "    无 gaia-dev.apk(该渠道本次未上线,对应按钮不渲染)"; fi
 
 # **产物里的 sha256 必须等于源文件的** —— 页面上给用户的就是这个数。
 # 构建会不会顺手改 APK?不会,但这一行是「页面上写的校验值对应哪些字节」的唯一权威,
 # 而用户正靠它分辨「下全了没有」(2026-10-06 用户下载后装不上,只得到「软件包无效」)。
-for pair in "gaia.apk:STABLE" "gaia-beta.apk:BETA" "gaia-dev.apk:DEV"; do
+for pair in "gaia-beta.apk:BETA" "gaia-dev.apk:DEV"; do
   f="${pair%%:*}"; var="${pair##*:}"
   [ -s "$BUILD_DIR/media/$f" ] || continue
   src="$WEB/docs/public/media/$f"
@@ -491,7 +455,7 @@ gh repo clone "$SITE_REPO" "$SITE_WORK" -- --depth=1 >/dev/null 2>&1 \
   cp -a "$BUILD_DIR"/. dist/ || { echo "::error::复制产物失败" >&2; exit 4; }
   # 复制之后再确认产物真的在那儿 —— 「命令回 0」不等于「文件在」。
   [ -s dist/index.html ] || { echo "::error::dist/index.html 复制后不存在" >&2; exit 4; }
-  [ -s dist/media/gaia.apk ] || { echo "::error::dist/media/gaia.apk 复制后不存在" >&2; exit 4; }
+  [ -s dist/media/gaia-beta.apk ] || { echo "::error::dist/media/gaia-beta.apk 复制后不存在" >&2; exit 4; }
   git add -A
   if git diff --cached --quiet; then
     echo "    产物与远端**逐字节相同** —— 这次没有任何要更新的东西"
@@ -552,16 +516,13 @@ verify_one() {
   return 1
 }
 
-verify_one "media/gaia.apk" "主渠道" || die "主渠道 APK 在站点上与本地产物不一致 —— 这次更新没生效,别当成成功"
+verify_one "media/gaia-beta.apk" "测试版" || die "测试版 APK 在站点上与本地产物不一致 —— 这次更新没生效,别当成成功"
 if [ -s "$BUILD_DIR/media/gaia-dev.apk" ]; then
   verify_one "media/gaia-dev.apk" "开发版" || die "开发版 APK 与本地产物不一致"
 fi
-if [ -s "$BUILD_DIR/media/gaia-beta.apk" ]; then
-  verify_one "media/gaia-beta.apk" "测试版" || die "测试版 APK 与本地产物不一致"
-fi
 
 # 页面本身也要看一眼:产物目录对不等于**页面引用的路径**对。
-# 「dist 里有 gaia.apk」与「页面按钮指向 /media/gaia.apk」是两个独立事实,
+# 「dist 里有 gaia-beta.apk」与「页面按钮指向 /media/gaia-beta.apk」是两个独立事实,
 # 而后者错了的症状是 404 页(VitePress 把 .apk 当网页路由接管,2026-10-02 真机报障)。
 HTML_SHA=$(sha256sum "$BUILD_DIR/index.html" | cut -d' ' -f1)
 for attempt in 1 2 3 4 5 6 7 8; do
@@ -585,6 +546,5 @@ done
 
 echo
 printf '\033[32m✓ 站点已更新\033[0m %s\n' "$SITE_URL/"
-echo "  主渠道 $STABLE_TAG(状态 $STABLE_STATUS)"
-[ -n "${BETA_TAG:-}" ] && echo "  测试版 $BETA_TAG" || echo "  测试版 本次未上线(gaia 上没有 app-beta-* 资产)"
+echo "  测试版 $BETA_TAG"
 [ -n "${DEV_VERSION:-}" ] && echo "  开发版 dev-$DEV_VERSION" || echo "  开发版 本次未上线"
