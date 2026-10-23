@@ -4,8 +4,11 @@
       ## 两个按钮(2026-10-23)
 
       一条渠道一个按钮,按钮上写清是哪条渠道、哪个 commit,下面一行校验值。
-      β 是推荐下载(实心),dev 是可选(描边)。站点不再有正式版渠道 ——
+      Beta版是推荐下载(实心),dev版是可选(描边)。站点不再有正式版渠道 ——
       这个项目从来没有正式版,原来的主渠道只是一份挂着「已撤回」的旧包。
+
+      按钮本身写「下载」:这里直接放在 hero 里,不再有「下载。」这行标题
+      替它们说明来意(只写 `Beta版 a2f69d8` 像版本号,不像能点的下载)。
     -->
     <p class="gi-dl-row">
       <span v-for="c in channels" :key="c.label" class="gi-dl-cell">
@@ -39,17 +42,19 @@
  * 可用性由构建期 flag 决定 —— 站点是纯静态,没有运行时可探测,
  * 而一个指向 404 的按钮比没有按钮更糟(它让人以为「点不动是我网络的问题」)。
  *
- * ## β 是主渠道
+ * ## 站点上写 Beta版 / dev版
  *
- * β / dev 用 β / dev 这两个短名 —— 它们在手机上就是
- * `盖亚输入法 β` / `盖亚输入法 dev`(`app/src/{beta,dev}/res/values/strings.xml`),
- * 页面称呼和装完看到的称呼同一个词。
+ * 2026-10-23 用户要求不用希腊字母 β:页面上一律写 `Beta版` / `dev版`。
+ * 装到手机上的应用名仍是 `盖亚输入法 β` / `盖亚输入法 dev`
+ * (`app/src/{beta,dev}/res/values/strings.xml`)。
  *
- * ## 深浅底色
+ * ## Beta版是主渠道
  *
- * 这一节落在 band 轮换出的底色上(现在是 `ink` 深底),所以正文与降级按钮
- * **不用 `--vp-c-text-*` / `--vp-c-bg-soft`** —— 那些跟的是站点主题,
- * 深底上会变成深灰字。统一 `color: inherit` + `opacity`。
+ * ## 位置与配色
+ *
+ * 2026-10-23 起放在 hero 里(浅色白底 / 深色模式黑底,与站点主题同步),
+ * 所以校验行直接用 `--vp-c-text-*` 就行;两个按钮都用品牌色,
+ * 无论底是白是黑都成立。
  */
 import VerifyLine from './VerifyLine.vue'
 import {
@@ -78,7 +83,7 @@ interface Channel {
 /** 没有 hash 时只写渠道名 —— 空着不误导,有值才可信。 */
 const channels: Channel[] = [
   {
-    label: BETA_VERSION ? `β ${BETA_VERSION}` : '测试版',
+    label: BETA_VERSION ? `下载 Beta版 ${BETA_VERSION}` : '下载 Beta版',
     url: BETA_DOWNLOAD_URL,
     filename: BETA_FILENAME,
     sha: BETA_SHA256,
@@ -86,7 +91,7 @@ const channels: Channel[] = [
     primary: true,
   },
   ...(HAS_DEV
-    ? [{ label: `dev ${DEV_VERSION}`, url: DEV_DOWNLOAD_URL, filename: DEV_FILENAME, sha: DEV_SHA256, size: DEV_SIZE }]
+    ? [{ label: `下载 dev版 ${DEV_VERSION}`, url: DEV_DOWNLOAD_URL, filename: DEV_FILENAME, sha: DEV_SHA256, size: DEV_SIZE }]
     : []),
 ]
 </script>
@@ -94,7 +99,7 @@ const channels: Channel[] = [
 <style scoped>
 .gi-dl {
   margin: 0 auto;
-  max-width: 640px;
+  max-width: 720px;
 }
 
 .gi-dl-row {
@@ -102,7 +107,7 @@ const channels: Channel[] = [
   flex-wrap: wrap;
   justify-content: center;
   align-items: flex-start;
-  gap: 14px 12px;
+  gap: 14px 28px;
   margin: 0;
 }
 
@@ -154,7 +159,7 @@ const channels: Channel[] = [
 }
 
 /*
- * 非默认渠道:描边。β 是唯一的默认推荐,两个并列的实心按钮会把这件事稀释掉。
+ * 非默认渠道:描边。Beta版是唯一的默认推荐,两个并列的实心按钮会把这件事稀释掉。
  * 描边仍用品牌色,所以认得出一等公民,不是脚注。
  */
 .gi-dl-btn-alt {
@@ -167,5 +172,21 @@ const channels: Channel[] = [
 .gi-dl-btn-alt:hover {
   background: var(--vp-c-brand-1);
   color: #fff;
+}
+
+/* 窄屏上两个按钮并排会把各自挤到 160 多像素、标签折行 —— 叠成整行。 */
+@media (max-width: 430px) {
+  .gi-dl-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .gi-dl-cell {
+    width: 100%;
+  }
+
+  .gi-dl-btn {
+    width: 100%;
+  }
 }
 </style>

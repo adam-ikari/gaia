@@ -58,18 +58,6 @@ html {
     line-height: 1.5;
   }
 
-  .gaia-hero-actions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .gaia-btn {
-    width: 100%;
-    text-align: center;
-    padding: 13px 20px;
-  }
-
   .gaia-band {
     padding: 56px 20px;
   }
@@ -267,12 +255,7 @@ html {
 /* ---------------------------------------------------------------- 触控 */
 
 @media (hover: none) {
-  .gaia-btn {
-    padding: 14px 26px;
-  }
-
-  .VPDoc a,
-  .gaia-btn {
+  .VPDoc a {
     min-height: 44px;
   }
 }

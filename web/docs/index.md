@@ -3,12 +3,6 @@ layout: apple-home
 title: 盖亚输入法
 tagline: 专为全键盘设计。
 note: 只为 Unihertz Titan 2
-actions:
-  - text: 下载测试版
-    link: /media/gaia-beta.apk
-    primary: true
-    # 必须有:不带 download 时 VitePress 会把站内 .apk 链接当网页路由接管,点击 → 404 页
-    download: true
 ---
 
 ::: band
@@ -16,13 +10,6 @@ actions:
 <h2>每页五个，空格上屏。</h2>
 <p>第一个词占住正中间，空格就是它；另外四个分别在 Shift、Sym、Ctrl、Alt 上。在键盘上往上滑也能上屏。</p>
 <p>Ctrl 那一格靠的是键盘上的 Fn 键，得先在系统设置里把它改成 Ctrl。</p>
-</div>
-:::
-
-::: band
-<div class="gaia-band-inner gaia-band-narrow">
-<h2>下载。</h2>
-<Downloads />
 </div>
 :::
 
