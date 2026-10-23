@@ -55,11 +55,11 @@ jobs:
       #
       # ## 「缺」与「坏」是两件事,致命性不同
       #
-      # **缺**可选渠道 —— 不 fatal。与 `publish-site.sh` 里同一条规则:
-      # 「还没发过 beta」只是一个渠道没上线,不该让**主渠道也更新不了**,
+      # **缺**开发版 —— 不 fatal。它只是可选渠道,不该让**测试版主下载也更新不了**,
       # 于是站点停在上一次。一个可选功能能弄挂生产,这是最坏的形状。
+      # **缺**测试版 —— fatal:它是站点的主下载,首页按钮直接指向它。
       #
-      # **坏**(存在但截断/不完整)—— **fatal,三条渠道一视同仁**。
+      # **坏**(存在但截断/不完整)—— **fatal,所有已上线的 APK 一视同仁**。
       # 这里的不对称不是按渠道重要性分的,是按「这字节要不要发出去」分的:
       # 我们**明知**有一份坏字节要发布却让它上线,用户点开发版下载只会得到
       # 「软件包无效」—— 正是 2026-10-06 那次报障的症状。
@@ -81,10 +81,10 @@ jobs:
           set -uo pipefail
           fail() { echo "::error::$1"; exit 1; }
 
-          # ---- 主渠道:缺了就致命 ----
+          # ---- 测试版(主下载):缺了就致命 ----
           [ -s dist/index.html ] || fail "dist/index.html 不存在或为空 —— 站点会是一片空白"
-          [ -s dist/media/gaia.apk ] || fail "dist/media/gaia.apk 不存在 —— 主下载按钮会 404"
-          echo "✓ 主渠道 APK 在产物里($(stat -c%s dist/media/gaia.apk) 字节)"
+          [ -s dist/media/gaia-beta.apk ] || fail "dist/media/gaia-beta.apk 不存在 —— 主下载按钮会 404"
+          echo "✓ 测试版 APK 在产物里($(stat -c%s dist/media/gaia-beta.apk) 字节)"
 
           # ---- 每条渠道:是完整的 APK,不是下载截断的半截 ----
           #
@@ -114,6 +114,12 @@ jobs:
           for f in dist/media/*.apk; do
             [ -e "$f" ] || continue
             name=$(basename "$f")
+            # 站点只发 β 与 dev。别的 APK 留在产物里 = 「删掉正式版」只删了按钮,
+            # 文件仍然能下载 —— 这里把它当成失败,而不是一行 warning。
+            case "$name" in
+              gaia-beta.apk|gaia-dev.apk) ;;
+              *) fail "$name 不是站点渠道 —— 站点只发 beta 与 dev";;
+            esac
             if ! unzip -tqq "$f" >/dev/null 2>&1; then
               fail "$name 不是完整的 APK(unzip 校验失败)—— 用户会看到「软件包无效」"
             fi
@@ -178,11 +184,9 @@ jobs:
           print(f"✓ 页面上的 {len(shown)} 个校验值都能对上产物里的 APK")
           PY
 
-          # ---- 可选渠道:缺了只报事实,不算失败 ----
-          for f in dist/media/gaia-beta.apk dist/media/gaia-dev.apk; do
-            if [ -s "$f" ]; then echo "✓ 有 $(basename "$f")"
-            else echo "::notice::无 $(basename "$f")(该渠道未上线,页面对应按钮不渲染)"; fi
-          done
+          # ---- 开发版可选:缺了只报事实,不算失败 ----
+          if [ -s dist/media/gaia-dev.apk ]; then echo "✓ 有 gaia-dev.apk"
+          else echo "::notice::无 gaia-dev.apk(该渠道未上线,页面对应按钮不渲染)"; fi
 
           echo
           echo "产物清单:"; find dist -type f | sort | sed 's/^/  /'
