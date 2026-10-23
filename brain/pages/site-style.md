@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [Apple 风格:design, theme]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-23T12:51:40"
+updated: "2026-10-23T13:21:42"
 ---
 
 <!-- compiled_truth -->
@@ -76,3 +76,9 @@ updated: "2026-10-23T12:51:40"
   summary: "下载区移入 hero:两条渠道(β 主 / dev 可选)的按钮与校验值直接放在标题与 tagline 下方;原「下载。」分区与 frontmatter 单按钮移除。≤430px 时两按钮堆叠成整行。"
   source: "2026-10-23 用户要求「下载放到 hero 区域」"
   affects: [site-style, site-mobile]
+
+- time: 2026-10-23T13:21:42
+  kind: decision
+  summary: "下载按钮显示 APK 的完整 versionName(0.7.11-beta.<hash>),不再只有 hash;发布脚本从下载到的包 manifest 读出并在构建期注入,测试版读不出就拒绝发布"
+  source: "2026-10-23 用户要求「beta版本要显示版本号的」"
+  affects: [site-style, site-copy, release-flow]
