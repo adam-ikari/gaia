@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-21T12:22:30"
+updated: "2026-10-23T12:04:22"
 ---
 
 <!-- compiled_truth -->
@@ -310,3 +310,9 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   summary: "2026-10-21 首个 beta 已上线:beta-5dd8fb1(0.7.11-beta.5dd8fb1,7.8MB),站点测试版按钮出现;踩到 gate 版本检查问错对象(加 --beta 模式)与 .dirty 包不许发两条"
   source: "2026-10-21 发 beta 实跑"
   affects: [release-flow]
+
+- time: 2026-10-23T12:04:22
+  kind: reversal
+  summary: "站点只保留 β + dev(2026-10-23):移除正式版主渠道 gaia.apk;β 成为主下载(fatal),dev 可选;删除 release.yml 的 publish-site job 与 sync-apk-to-site.sh;gaia deploy.yml 对产物做渠道白名单"
+  source: "用户「统一网站 只有beta版本和dev版本 删除其他的版」"
+  affects: [release-flow, site-repo-topology, site-analytics]

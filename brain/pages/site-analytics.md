@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [Cloudflare Workers 自建 Umami:analytics, umami, cloudflare]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-08T01:04:10"
+updated: "2026-10-23T12:04:22"
 ---
 
 <!-- compiled_truth -->
@@ -31,14 +31,11 @@ updated: "2026-10-08T01:04:10"
 
 Umami 的访问量是辅助指标,同理由用户自己看后台。
 
-**页面上的下载入口是纯静态的,不发任何客户端请求**:
-`https://github.com/adam-ikari/gaia/releases/latest/download/app-release.apk`
-由 GitHub 站点直接服务(302 到 release-assets),**不走 REST 配额**。
-未认证 REST 配额 60 次/小时、**按出口 IP 计**,同 IP 后面的访客互相抢,403 是常态。
-前提:目标 release 不是 draft / prerelease,否则 `latest` 不指向它。
-
-包挂在**公开的站点仓库** `adam-ikari/gaia` 上(应用仓库 `adam-ikari/hwkbd_ime` 是私有的,
-那边的下载链接需要登录态,访客拿不到)。站点只提供正式版。
+**页面上的下载入口是纯静态的,不发任何客户端请求**:按钮指向站点自己的
+`/media/gaia-beta.apk` 与 `/media/gaia-dev.apk`,由 Pages 直接服务。
+包挂在**公开的站点仓库** `adam-ikari/gaia` 的产物里(应用仓库 `adam-ikari/hwkbd_ime`
+是私有的,那边的下载链接需要登录态,访客拿不到)。站点从 2026-10-23 起只提供
+β 与 dev,不再链 `releases/latest` —— 那个入口只对正式版有意义,而站点已经不发正式版。
 
 **一条可复用的判据**:页面上该不该显示一个数字,先问"访客拿它做什么决策"。
 答不上来就归到"给我看的",归到我这边的信息不进访客的页面。
@@ -86,4 +83,10 @@ Umami 的访问量是辅助指标,同理由用户自己看后台。
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
+  affects: [site-analytics]
+
+- time: 2026-10-23T12:04:22
+  kind: decision
+  summary: "站点只发 β/dev 后,下载入口改为站点自有 /media/ 路径,不再链 releases/latest"
+  source: "2026-10-23 站点渠道收缩"
   affects: [site-analytics]

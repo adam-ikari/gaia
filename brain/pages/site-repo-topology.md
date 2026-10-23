@@ -5,17 +5,21 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-08T01:16:46"
+updated: "2026-10-23T12:04:16"
 ---
 
 <!-- compiled_truth -->
 站点源码与构建在本仓库 `web/`,构建产物推到公开仓 `adam-ikari/gaia` 的 `dist/`,
 Pages 从那个仓发布。**公开仓里没有源码,只有产物。**
 
+站点从 2026-10-23 起只发两条渠道:**测试版 β(主下载)** 与 **开发版 dev(可选)**。
+正式版渠道(旧的 `/media/gaia.apk`)已移除;`release.yml` 的 `publish-site` job
+与 `sync-apk-to-site.sh` 一并删除 —— 它们只服务正式版进站点,留着就是一条会失败的死链路。
+
 ```
 hwkbd_ime/web/       站点源码(VitePress: md / config / 组件 / 样式)
-hwkbd_ime/tools/release/publish-site.sh   取包 + 构建 + 推产物 + 验
-gaia/dist/           构建产物(含 APK),进 git
+hwkbd_ime/tools/release/publish-site.sh   取 β/dev + 构建 + 推产物 + 验
+gaia/dist/           构建产物(含两个 APK),进 git
 gaia/.github/workflows/deploy.yml   验产物自洽 + 交 Pages,不构建
 ```
 
@@ -23,6 +27,7 @@ gaia/.github/workflows/deploy.yml   验产物自洽 + 交 Pages,不构建
 
 原来站点源码在 gaia(公开),应用在这里(私有)。发一版要动两个地方:应用仓打 tag →
 CI 出包 → `sync-apk-to-site.sh` 传包到 gaia → 推 gaia 触发 Pages。
+那条链在 2026-10-23 随正式版渠道一起删除了,但它的教训仍然是这个仓的由来。
 
 那条链上「推 gaia」这一步**没有任何验证**,而且失败是静默的:
 `release.yml` 里等价的 `publish-site` job 要 `WEB_RELEASE_TOKEN`,
@@ -76,38 +81,39 @@ CI 出包 → `sync-apk-to-site.sh` 传包到 gaia → 推 gaia 触发 Pages。
 
 三处(取包、构建、CI 验)都是同一条规则:
 
-- **缺**主渠道 = 发布流程断了 ⇒ **fatal**。
-- **缺**可选渠道(beta/dev) = 这个渠道还没上线 ⇒ **不 fatal**。
-  照抄主渠道的检查给它的话,「还没发过 beta」会让整个流程失败 ⇒
-  **主渠道也更新不了、站点停在上一次**。一个可选功能能弄挂生产,最坏的形状。
-- **坏**(存在但截断)⇒ **fatal,三条渠道一视同仁**。
+- **缺测试版** = 主下载断开 ⇒ **fatal**:首页按钮直接指向 `/media/gaia-beta.apk`。
+- **缺开发版** = 这个渠道还没上线 ⇒ **不 fatal**。
+  照抄测试版的检查给它的话,「这次没有 dev 包」会让整个流程失败 ⇒
+  **测试版也更新不了、站点停在上一次**。一个可选功能能弄挂生产,最坏的形状。
+- **坏**(存在但截断)⇒ **fatal,所有已上线的 APK 一视同仁**。
   这里的不对称不是按渠道重要性分的,是按「这字节要不要发出去」分的:
-  明知有坏字节要发布却放它上线,用户点开发版下载只会得到「软件包无效」
+  明知有坏字节要发布却放它上线,用户点下载只会得到「软件包无效」
   ——正是 2026-10-06 那次报障的症状。而「缺」时页面上根本没有那个按钮
-  (可用性由构建期 flag 决定),不存在「点到一个坏包」这种可能。
+  (dev 的可用性由构建期 flag 决定),不存在「点到一个坏包」这种可能。
 
 ## 两条渠道身份规则(别混)
 
-- **主渠道**:身份 = tag(`v0.7.10` → `0.7.10`)。资产名是 `app-release.apk`,
-  **没有 hash 尾巴可剥** —— 硬剥会得到字面量 `app-release`。
-- **beta/dev**:身份 = **release 资产名里的 hash**(`app-dev-c271426.apk` → `c271426`),
-  不是从 tag 推导。资产名是「远端确实存着什么」,是这件事的权威。
+β/dev 的身份都是 **release 资产名里的 hash**(`app-beta-a2f69d8.apk` → `a2f69d8`),
+不是从 tag 推导。资产名是「远端确实存着什么」,是这件事的权威。
 
-三条渠道的 **release 引用一律显式传**,不留「默认取 latest」:
+两条渠道的 **release 引用一律显式传**,不留「默认取 latest」:
 dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
 在 `v*` 里找 `app-dev-*` 找不到 ⇒ **dev 渠道静悄悄没上线**,而部署 success。
-`dev-latest` 必须标 prerelease,否则它会 hijack GitHub 的 latest ⇒
-主渠道去它里面找 `app-release.apk` 找不到 ⇒ **主渠道按钮整个挂掉**(2026-10-06 实测)。
+`dev-latest` 必须标 prerelease,否则会 hijack GitHub 的 latest;
+站点不再消费 latest,但 latest 指向开发版仍是错误的发布状态(2026-10-06 实测过)。
 
-## 站点源码里的两条不可省约束
+## 站点源码里的不可省约束
 
-- **下载链接的 `download` 属性不能省**,URL 固定 `/media/gaia.apk`、版本进文件名。
+- **下载链接的 `download` 属性不能省**,URL 固定 `/media/gaia-beta.apk`、版本进文件名。
   少了 `download`,VitePress 的 router 会把 `.apk` 当网页接管 ⇒ 渲染 404 页
   (真机报障,而直接访问同一 URL 却能下)。URL 固定是为了发版不用改 md ——
   漏改的后果是 404 或永远下不到新版。
 - **包必须由 Pages 自己发**,不能链 GitHub 的 release 下载地址:
   那条链要跳两次(github.com → release-assets),在 Titan 2 的浏览器上
   直接落到 Chrome 的「网页可能暂时无法连接」错误页(真机复现,同机 curl 是 200)。
+- **产物渠道白名单**:`dist/media/` 里只允许 `gaia-beta.apk` 与 `gaia-dev.apk`。
+  别的 APK(包括旧的 `gaia.apk`)会让 deploy.yml 直接失败 ——
+  防止「页面上删了按钮,文件却仍然能下载」。
 
 ## 这个仓里还有哪些别处
 
@@ -136,3 +142,9 @@ dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
   summary: "Pages 部署方式试过纯从分支直接发布,又改回保留 workflow:从分支发布时构建失败只写在 Pages 设置页、不在任何一次 run 上,「推了但没更新」与「推了且更新了」在 git 历史里长得一样;且没有地方放产物自洽的检查"
   source: 2026-10-08
   affects: [site-repo-topology, release-flow]
+
+- time: 2026-10-23T12:04:16
+  kind: decision
+  summary: "站点只发 β + dev(2026-10-23):移除正式版主渠道与同步链路;β 是主下载(fatal),dev 可选;产物渠道白名单"
+  source: "2026-10-23 用户「统一网站 只有beta版本和dev版本 删除其他的版」"
+  affects: [site-repo-topology]
