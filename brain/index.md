@@ -1,8 +1,9 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-22T08:07:54.319Z._
+_Auto-generated. Last updated 2026-10-23T00:08:07.077Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
+- [chinese-ime-lm-survey](pages/chinese-ime-lm-survey.md) — category: reference | tags: [survey, license, eval] | - **它是什么**:`metasequoiaime/chinese-ime-lm`(Rust,仓库 GPL-3.0,2025-11 建,869 stars),面向中文输入法的语言模型工程,配套输入法是 MSIME。
 - [clipboard-panel](pages/clipboard-panel.md) — category: decision | tags: [ime, clipboard, l6, ui] | ## 剪贴板历史面板(2026-10-16 定案,2026-10-17 补读取防御)
 - [e2e-capture](pages/e2e-capture.md) — category: project | tags: [e2e, ci, emulator, media, capture] | ## 当前状态(2026-10-03,v0.7.0)
 - [fly-zone-basis](pages/fly-zone-basis.md) — category: decision | tags: [gesture, layout, ux] | 上滑选字有**两条起手路径**，它们各自把横向空间五等分，而**基准不是同一个量**：
