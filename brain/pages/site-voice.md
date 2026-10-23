@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [naming, voice, content]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-08T01:04:11"
+updated: "2026-10-23T12:53:30"
 ---
 
 <!-- compiled_truth -->
@@ -59,3 +59,9 @@ updated: "2026-10-08T01:04:11"
   summary: "\"第三方署名要跟着换内核一起改:引擎换了、组件删了,页脚与设置页的署名不会自动跟着变,必须手动核\""
   source: "\"2026-10-04 同上\""
   affects: [site-voice, site-copy]
+
+- time: 2026-10-23T12:53:30
+  kind: decision
+  summary: "渠道名在站点上写「Beta版」「dev版」,不用希腊字母 β;应用内的名字仍是「盖亚输入法 β」「盖亚输入法 dev」"
+  source: "2026-10-23 用户要求「用Beta版和dev版这样的文字 别用希腊字母」"
+  affects: [site-voice, site-style, site-copy]

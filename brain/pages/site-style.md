@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [Apple 风格:design, theme]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-08T01:04:11"
+updated: "2026-10-23T12:51:40"
 ---
 
 <!-- compiled_truth -->
@@ -70,3 +70,9 @@ updated: "2026-10-08T01:04:11"
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
   affects: [site-style]
+
+- time: 2026-10-23T12:51:40
+  kind: decision
+  summary: "下载区移入 hero:两条渠道(β 主 / dev 可选)的按钮与校验值直接放在标题与 tagline 下方;原「下载。」分区与 frontmatter 单按钮移除。≤430px 时两按钮堆叠成整行。"
+  source: "2026-10-23 用户要求「下载放到 hero 区域」"
+  affects: [site-style, site-mobile]
