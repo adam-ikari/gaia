@@ -324,6 +324,12 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        // Vosk 模型以官方 zip 形式放在 assets 里,首次使用解压到 filesDir。
+        // zip 本身已是压缩格式,再压一遍只浪费构建时间、还会让 AssetManager 读取变慢。
+        noCompress += "zip"
+    }
+
     defaultConfig {
 
 
@@ -401,6 +407,11 @@ dependencies {
     // 无法在 JVM 单测里直接跑官方实现。折中办法见 [SpringBridge] —— 把**参数语义**
     // (响应/阻尼比 ↔ stiffness/damping、落点判定)抽成纯函数单测,积分交给官方。
     implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
+
+    // 离线语音识别:Vosk(Kaldi 系,Apache 2.0)。模型走 assets,不依赖任何云服务。
+    implementation("com.alphacephei:vosk-android:0.3.75")
+    // 讯飞流式听写要走 WebSocket;腾讯一句话识别用 HttpURLConnection,不需要它。
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     // 手势流化的时序单测:runTest 虚拟时间

@@ -11,6 +11,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import dev.hwkbd.ime.ImeRuntime
 import dev.hwkbd.ime.R
@@ -30,6 +31,12 @@ import dev.hwkbd.ime.strategy.FieldKind
 import dev.hwkbd.ime.strategy.ImeRegistry
 import dev.hwkbd.ime.rime.RimeEngine
 import dev.hwkbd.ime.strategy.PinyinInputMethod
+import dev.hwkbd.ime.service.voice.StartResult
+import dev.hwkbd.ime.service.voice.VoiceError
+import dev.hwkbd.ime.service.voice.VoiceErrorKind
+import dev.hwkbd.ime.service.voice.VoiceInput
+import dev.hwkbd.ime.service.voice.VoiceSettings
+import dev.hwkbd.ime.service.voice.VoiceState
 import dev.hwkbd.ime.ui.CandidateBarView
 import dev.hwkbd.ime.ui.ImeRootView
 import java.util.concurrent.Executors
@@ -220,6 +227,101 @@ class ImeService : InputMethodService() {
         override fun cancelLongPress() {
             mainHandler.removeCallbacks(longPressRunnable)
         }
+
+        override fun startVoiceInput(languageId: String): Boolean =
+            when (voiceInput.start(languageId)) {
+                StartResult.STARTED -> true
+                StartResult.NO_PERMISSION -> {
+                    toast(this@ImeService, R.string.voice_error_permission)
+                    false
+                }
+                StartResult.UNAVAILABLE -> {
+                    toast(this@ImeService, R.string.voice_error_config)
+                    false
+                }
+                StartResult.UNSUPPORTED_LANGUAGE -> {
+                    toast(this@ImeService, R.string.voice_error_language_local)
+                    false
+                }
+                StartResult.FAILED -> {
+                    toast(this@ImeService, R.string.voice_error_start)
+                    false
+                }
+            }
+
+        override fun stopVoiceInput() {
+            voiceInput.stop()
+        }
+
+        override fun cancelVoiceInput() {
+            voiceInput.cancel()
+        }
+    }
+
+    /**
+     * 语音 HUD 文字(null = 不显示)。复用条上方的拼音气泡:
+     * 语音只在空闲态启动,不会和组词同时存在,不需要再加一层视图。
+     */
+    private var voiceHud: String? = null
+
+    // 显式类型:`host` 与 `voiceInput` 互相引用,不写死会触发 Kotlin 的递归类型推断
+    private val voiceInput: VoiceInput = VoiceInput(
+        this,
+        settingsProvider = { VoiceSettings.read(ImeRuntime.prefs) },
+        onState = { state, partial ->
+            val next = when (state) {
+                VoiceState.PREPARING -> getString(R.string.voice_preparing)
+                VoiceState.CONNECTING -> getString(R.string.voice_connecting)
+                VoiceState.LISTENING ->
+                    if (partial.isNullOrEmpty()) getString(R.string.voice_listening)
+                    else getString(R.string.voice_partial, partial)
+                VoiceState.RECOGNIZING ->
+                    if (partial.isNullOrEmpty()) getString(R.string.voice_recognizing)
+                    else getString(R.string.voice_partial, partial)
+                VoiceState.IDLE -> null
+            }
+            if (next != voiceHud) {
+                voiceHud = next
+                if (next == null) updateUi() else requestRender()
+            }
+        },
+        onText = { text ->
+            voiceHud = null
+            host.commitText(text)
+            updateUi()
+        },
+        onError = { error ->
+            voiceHud = null
+            updateUi()
+            toastVoiceError(error)
+        },
+    )
+
+    private fun toast(context: android.content.Context, res: Int) {
+        Toast.makeText(context, res, Toast.LENGTH_LONG).show()
+    }
+
+    /** 识别错误 → 用户能看懂的一句。服务商细节只放进带 `%s` 的模板,不泄露密钥。 */
+    private fun toastVoiceError(error: VoiceError) {
+        val res = when (error.kind) {
+            VoiceErrorKind.NO_PERMISSION -> R.string.voice_error_permission
+            VoiceErrorKind.UNAVAILABLE -> R.string.voice_error_config
+            VoiceErrorKind.BUSY -> R.string.voice_error_busy
+            VoiceErrorKind.NO_MATCH -> R.string.voice_error_no_match
+            VoiceErrorKind.NETWORK -> R.string.voice_error_network
+            VoiceErrorKind.LANGUAGE -> R.string.voice_error_language_local
+            VoiceErrorKind.AUTH -> R.string.voice_error_auth
+            VoiceErrorKind.PROVIDER -> R.string.voice_error_provider
+            VoiceErrorKind.GENERIC -> R.string.voice_error_generic
+        }
+        val text = when {
+            error.kind == VoiceErrorKind.PROVIDER && !error.detail.isNullOrBlank() ->
+                getString(res, error.detail)
+            error.kind == VoiceErrorKind.GENERIC && !error.detail.isNullOrBlank() ->
+                getString(R.string.voice_error_generic_detail, error.detail)
+            else -> getString(res)
+        }
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
     // ------------------------------------------------------------------ 生命周期
@@ -276,6 +378,7 @@ class ImeService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        voiceInput.destroy()
         scope.cancel() // 敲击窗口事件流的收集(见 startGestureCollector)
         ImeRuntime.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         // 原先这里 saveUserDict():旧引擎的用户词频是应用自己的 JSON,退出时要落盘。
@@ -420,6 +523,8 @@ class ImeService : InputMethodService() {
 
     override fun onFinishInput() {
         // 同样不需要保存用户词频,理由见 onDestroy。
+        // 识别中的会话必须在换框/收键盘时停掉,否则结果会落到下一个输入框。
+        voiceInput.cancel()
         super.onFinishInput()
     }
 
@@ -1019,6 +1124,10 @@ class ImeService : InputMethodService() {
         // **拼音输入中长按 L 插分隔符不受它管** —— 那条不可关闭,
         // 见 ImeController.tryArmLongPress。
         controller.longPressSymbolEnabled = p.getBoolean(PREF_LONGPRESS_L2, true)
+        // 长按空格语音输入(默认关;权限在设置页申请,IME 自己不能弹权限框)。
+        // 引擎/密钥变化时重建会话;关开关时立刻停掉正在收音的那次。
+        controller.voiceInputEnabled = p.getBoolean(PREF_VOICE_INPUT, false)
+        voiceInput.applySettings(VoiceSettings.read(p), controller.voiceInputEnabled)
         // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
         haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
         // 按键与滑动之间的门:按住键期间一律不接手势,抬手后再挡 blockMs 那么久
@@ -1319,6 +1428,13 @@ class ImeService : InputMethodService() {
             mainHandler.postDelayed(preeditProbe, PREEDIT_PROBE_MS)
         }
         preeditRow?.apply {
+            val voice = voiceHud
+            if (voice != null) {
+                // 语音只在空闲态启动,和拼音组词互斥;气泡此时显示听写状态/部分结果。
+                if (visibility != View.VISIBLE) visibility = View.VISIBLE
+                if (text.toString() != voice) text = voice
+                return@apply
+            }
             val raw = s.raw
             // 拼音条同样带自动分隔符(见 syncComposing 的 shown):App 不渲染
             // composing 区时( Termux 类)这条气泡是用户唯一看得见拼音的地方。
@@ -1446,6 +1562,7 @@ class ImeService : InputMethodService() {
         // 上屏收敛为点选。key 留着不管(老设置里的残留值无害),但不再有开关读它。
         const val PREF_SWIPE_PAGE = "swipe_page"
         const val PREF_LONGPRESS_L2 = "longpress_l2"
+        const val PREF_VOICE_INPUT = "voice_input"
         const val PREF_FLY_THRESHOLD = "fly_threshold"
 
         /** 左右滑翻页所需距离(2026-10-02 用户「左右滑动阈值需要可调节性」)。值是档位名。 */

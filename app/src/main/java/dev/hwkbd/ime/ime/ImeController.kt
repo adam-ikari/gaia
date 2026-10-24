@@ -125,6 +125,12 @@ class ImeController(
      */
     var longPressSymbolEnabled = true
 
+    /**
+     * 长按空格 = 语音输入(设置开关,默认关)。只改**空闲 L1** 的空格;短按仍是空格。
+     * 识别的实际启动/停止由 [ImeHost] 那条通道做 —— 控制器只负责判定与时机。
+     */
+    var voiceInputEnabled = false
+
     private var symDown = false
     private var symProducedKey = false
     private var ctrlDownAlone = false
@@ -161,7 +167,11 @@ class ImeController(
         var symbol = ""
             private set
 
-        /** 300ms 已确认(出过屏)。 */
+        /** 这次长按的落点是语音输入(空格独有),不是 L2 符号/分节符。 */
+        var voice = false
+            private set
+
+        /** 300ms 已确认(出过屏 / 已开始收音)。 */
         var fired = false
             private set
 
@@ -175,11 +185,18 @@ class ImeController(
         /** 连发吞断期:待判定中或已确认(已出屏,不能再溅字);作废的不吞。 */
         val swallowing: Boolean get() = code != 0 && !canceled
 
-        fun arm(code: Int, caps: Boolean, separator: Boolean, symbol: String) {
+        fun arm(
+            code: Int,
+            caps: Boolean,
+            separator: Boolean,
+            symbol: String,
+            voice: Boolean = false,
+        ) {
             this.code = code
             this.caps = caps
             this.separator = separator
             this.symbol = symbol
+            this.voice = voice
             fired = false
             canceled = false
         }
@@ -201,6 +218,7 @@ class ImeController(
             caps = false
             separator = false
             symbol = ""
+            voice = false
             fired = false
             canceled = false
         }
@@ -309,6 +327,8 @@ class ImeController(
         // 代价(随开关一起给):开开关期间字母提交从 DOWN 挪到 UP,快速连打无感,
         // 慢按有"松手才出字"的感觉;关开关则完全回到旧行为。
         if (!shift && !repeat && tryArmLongPress(code, caps)) return true
+        // 长按空格 = 语音输入。放在字母之后:空格不在 A-Z 里,两者不会抢同一把键。
+        if (!shift && !ctrl && !repeat && tryArmVoiceLongPress(code)) return true
         if (repeat && lp.swallowing && code == lp.code) return true
         return handleNormalKey(code, shift, caps)
     }
@@ -366,8 +386,16 @@ class ImeController(
         if (lp.code != 0 && code == lp.code) {
             val emit = lp.pending // 只有"还待判定的短按"要补输出
             val caps = lp.caps
+            val voice = lp.voice
+            val voiceRunning = voice && lp.fired
             lp.clear()
             host.cancelLongPress()
+            // 语音走的是自己的启动/停止,不装 L2 Hold,也不会补字母。
+            if (voice) {
+                if (emit) return handleNormalKey(code, false, false)
+                if (voiceRunning) host.stopVoiceInput()
+                return true
+            }
             // 撤 [onLongPressFire] 装上的 Hold:层可能是 L2 也可能是 L3(设置定的),
             // 所以认 [holdCode] 而不是写死哪一层。先恢复层再出字母,反了字母会变该层符号。
             if (holdMod != null && holdCode == code) endHold()
@@ -435,6 +463,30 @@ class ImeController(
     }
 
     /**
+     * 空闲长按空格 = 语音输入(设置开关,默认关)。
+     *
+     * 与字母长按共用 [LongPress] 与同一个 300ms 定时器:DOWN 先不出空格,短按在 UP
+     * 补一个空格,长按到点交给 [ImeHost.startVoiceInput]。只有**纯空闲 L1**才武装 ——
+     * 层、组词、密码框、数字框、L5 面板都各有自己的空格语义,不能被语音抢走:
+     * - 层生效(Alt/Sym/Shift 按住或锁定)⇒ 空格是层组合键/普通空格;
+     * - 组词中 ⇒ 空格是选首选;
+     * - 密码框 ⇒ 不该把语音内容送进密码;
+     * - 数字框 ⇒ 空格本来就吞掉,没有语音可接;
+     * - L5 面板开着 ⇒ 空格归面板态,敲键应先收面板。
+     */
+    private fun tryArmVoiceLongPress(code: Int): Boolean {
+        if (code != KeyEvent.KEYCODE_SPACE) return false
+        if (!voiceInputEnabled) return false
+        if (fieldProfile().digitsOnly || state.secure) return false
+        if (state.hasComposition || l5Open) return false
+        if (holdMod != null) return false
+        if (state.effectiveLayer != Layer.L1) return false
+        lp.arm(code, caps = false, separator = false, symbol = "", voice = true)
+        host.scheduleLongPress(code)
+        return true
+    }
+
+    /**
      * 长按到点([ImeHost.scheduleLongPress] 的 300ms 回调):键仍未松开 ⇒ 出屏。
      *
      * 组词中插分节符(`raw += '` 后按新界线重新查询 —— 分节位约束匹配的语义),
@@ -443,6 +495,15 @@ class ImeController(
     fun onLongPressFire() {
         if (!lp.pending) return
         lp.confirm()
+        if (lp.voice) {
+            // 启动失败(无权限/无识别服务)时补一个空格:用户按住的是空格,
+            // 不该因为语音不可用就什么都不发生。成功时松手才停止收音。
+            if (!host.startVoiceInput(state.languageId)) {
+                handleNormalKey(KeyEvent.KEYCODE_SPACE, shift = false, caps = false)
+            }
+            haptics?.confirm()
+            return
+        }
         // 状态与显示一致(用户 2026-10-15 定):长按确认这一刻才把层状态跳到 L2,
         // 与符号同帧出现;松手(endHold)恢复。**DOWN 不跳** —— 否则短按也会
         // 闪一下 alt 状态项,那是预览而不是一致性。
@@ -1209,9 +1270,11 @@ class ImeController(
         state.closePanels() // 窗口收起/调出 = 一次新的空闲态(与层、大写一起归零)
         // 敲击计数 / 敲击窗口 / 按住时长 / 吸收窗:全在一处,一次清干净
         gestures.resetAll()
-        // 长按字母键的待判定一起取消:窗口都收了,还挂着个 300ms 定时器会莫名出符号
+        // 长按字母键/空格语音的待判定一起取消:窗口都收了,还挂着个 300ms 定时器会莫名出符号
         lp.clear()
         host.cancelLongPress()
+        // 正在收音也要停:窗口都收了,继续录没有任何意义,还占着麦克风
+        host.cancelVoiceInput()
         host.render()
     }
 

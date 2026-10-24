@@ -671,4 +671,8 @@ private class RecordingHost : ImeHost {
     // 长按调度/取消:本类不验长按,空实现即可
     override fun scheduleLongPress(code: Int) {}
     override fun cancelLongPress() {}
+
+    override fun startVoiceInput(languageId: String): Boolean = false
+    override fun stopVoiceInput() {}
+    override fun cancelVoiceInput() {}
 }

@@ -33,6 +33,14 @@ class ImeControllerTest {
         /** 长按待判定的调度记录:最近一次 schedule 的键码,null = 当前没有挂起的。 */
         var longPressCode: Int? = null
 
+        /** 语音输入:启动时的语言 id、停止次数、取消次数。 */
+        val voiceStarts = mutableListOf<String>()
+        var voiceStops = 0
+        var voiceCancels = 0
+
+        /** 让测试模拟「没有权限 / 没有识别服务」:startVoiceInput 返回 false。 */
+        var voiceStartOk = true
+
         override fun commitText(text: String) {
             commits += text
         }
@@ -46,6 +54,16 @@ class ImeControllerTest {
         override fun scheduleLongPress(code: Int) { longPressCode = code }
 
         override fun cancelLongPress() { longPressCode = null }
+
+        override fun startVoiceInput(languageId: String): Boolean {
+            if (!voiceStartOk) return false
+            voiceStarts += languageId
+            return true
+        }
+
+        override fun stopVoiceInput() { voiceStops++ }
+
+        override fun cancelVoiceInput() { voiceCancels++ }
     }
 
 
@@ -1819,5 +1837,152 @@ class ImeControllerTest {
         r.down(KeyEvent.KEYCODE_T)
         assertEquals(KeyEvent.KEYCODE_T, r.pendingLongPress())
         r.c.onKeyUp(KeyEvent.KEYCODE_T)
+    }
+
+    // ------------------------------------------------------------ 长按空格语音输入
+
+    /** 开关关着:空格行为一点不变(按下即上屏,不挂长按)。 */
+    @Test
+    fun `voice off leaves space unchanged`() {
+        val r = rig()
+        r.down(KeyEvent.KEYCODE_SPACE)
+        assertEquals(listOf(" "), r.h.commits)
+        assertNull(r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertTrue(r.h.voiceStarts.isEmpty())
+    }
+
+    /** 空闲长按空格:DOWN 不出屏,到点启动识别,松手停止;全程不补空格。 */
+    @Test
+    fun `idle long press space starts voice and release stops it`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.down(KeyEvent.KEYCODE_SPACE)
+        assertTrue(r.h.commits.isEmpty())
+        assertEquals(KeyEvent.KEYCODE_SPACE, r.pendingLongPress())
+
+        r.c.onLongPressFire()
+        assertEquals(listOf(ChineseLanguage.id), r.h.voiceStarts)
+        assertTrue(r.h.commits.isEmpty())
+
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertEquals(1, r.h.voiceStops)
+        assertTrue(r.h.commits.isEmpty())
+    }
+
+    /** 开关开着也照样能短按空格:松手补一个空格,不启动识别。 */
+    @Test
+    fun `short space with voice on commits one space`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.down(KeyEvent.KEYCODE_SPACE)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertEquals(listOf(" "), r.h.commits)
+        assertTrue(r.h.voiceStarts.isEmpty())
+        assertNull(r.pendingLongPress())
+    }
+
+    /** 按住期间的连发全吞:不会先漏出一串空格。 */
+    @Test
+    fun `space auto repeat is swallowed while voice is armed`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.down(KeyEvent.KEYCODE_SPACE)
+        r.down(KeyEvent.KEYCODE_SPACE, repeat = true)
+        r.c.onLongPressFire()
+        r.down(KeyEvent.KEYCODE_SPACE, repeat = true)
+        assertTrue(r.h.commits.isEmpty())
+        assertEquals(1, r.h.voiceStarts.size)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertEquals(1, r.h.voiceStops)
+    }
+
+    /** 识别启动不了(无权限/无服务):按住的是空格,至少补一个空格。 */
+    @Test
+    fun `voice start failure falls back to a single space`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.h.voiceStartOk = false
+        r.down(KeyEvent.KEYCODE_SPACE)
+        r.c.onLongPressFire()
+        assertEquals(listOf(" "), r.h.commits)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertEquals(listOf(" "), r.h.commits)
+        assertTrue(r.h.voiceStarts.isEmpty())
+    }
+
+    /** Shift+空格 / Sym+空格 各有自己的语义,不被语音抢走。 */
+    @Test
+    fun `shift or sym space does not start voice`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.c.onKeyDown(KeyEvent.KEYCODE_SPACE, false, true)
+        assertNull(r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+
+        r.tap(KeyEvent.KEYCODE_SYM)
+        r.down(KeyEvent.KEYCODE_SPACE)
+        assertNull(r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+
+        assertTrue(r.h.voiceStarts.isEmpty())
+    }
+
+    /** 组词中空格是选首选,不是语音。 */
+    @Test
+    fun `composing space still selects candidate instead of voice`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.type("ni")
+        r.down(KeyEvent.KEYCODE_SPACE)
+        assertNull(r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertEquals(listOf("你"), r.h.commits)
+        assertTrue(r.h.voiceStarts.isEmpty())
+    }
+
+    /** 密码框与数字框都不开语音:不该把话送进密码,数字框空格本来就吞。 */
+    @Test
+    fun `secure and digit fields do not start voice`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.c.state.secure = true
+        r.down(KeyEvent.KEYCODE_SPACE)
+        assertNull(r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+
+        r.c.state.secure = false
+        r.c.setFieldKind(FieldKind.PHONE)
+        r.down(KeyEvent.KEYCODE_SPACE)
+        assertNull(r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+
+        assertTrue(r.h.voiceStarts.isEmpty())
+    }
+
+    /** 语音跟随键盘当前语言(英文态交给识别服务 en-US)。 */
+    @Test
+    fun `voice follows current language`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.c.setLanguage("en")
+        r.down(KeyEvent.KEYCODE_SPACE)
+        r.c.onLongPressFire()
+        assertEquals(listOf("en"), r.h.voiceStarts)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+    }
+
+    /** 收窗口/换框的复位要取消待判定与正在收音,不能留着麦克风。 */
+    @Test
+    fun `resetLayers cancels pending and running voice`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.down(KeyEvent.KEYCODE_SPACE)
+        r.c.resetLayers()
+        assertNull(r.pendingLongPress())
+        assertEquals(1, r.h.voiceCancels)
+        // 定时器到点也不该再启动(待判定已清)
+        r.c.onLongPressFire()
+        assertTrue(r.h.voiceStarts.isEmpty())
     }
 }

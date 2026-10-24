@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 长按空格语音输入:本地 Vosk 与云端识别都需要录音 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 云端识别(腾讯云 / 讯飞)只在用户选云端时使用;本地 Vosk 完全离线 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- 探测页导出键值日志：用系统分享面板导出文本，因此声明可见查询 -->
     <queries>
         <intent>

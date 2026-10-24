@@ -54,4 +54,16 @@
         <item>300</item>
         <item>500</item>
     </string-array>
+
+    <!-- 语音识别引擎。值必须与 voice.AsrBackend 的枚举名(忽略大小写)一致。 -->
+    <string-array name="voice_engine_entries">
+        <item>本地 Vosk(离线)</item>
+        <item>腾讯云一句话识别</item>
+        <item>讯飞流式听写</item>
+    </string-array>
+    <string-array name="voice_engine_values">
+        <item>LOCAL</item>
+        <item>TENCENT</item>
+        <item>XFYUN</item>
+    </string-array>
 </resources>

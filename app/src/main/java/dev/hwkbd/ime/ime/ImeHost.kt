@@ -22,4 +22,18 @@ interface ImeHost {
 
     /** 取消待判定的长按(松手 / 换键 / 复位时)。 */
     fun cancelLongPress()
+
+    /**
+     * 长按空格到点后开始语音输入。
+     *
+     * @return false = 这次没真正启动(无麦克风权限 / 无识别服务 / 启动异常),
+     * 控制器会补一个空格,免得用户按了键却什么都没有。
+     */
+    fun startVoiceInput(languageId: String): Boolean
+
+    /** 松开空格:停止收音,等最终识别结果。 */
+    fun stopVoiceInput()
+
+    /** 丢弃这次识别(换框 / 收窗口 / 关开关 / 服务销毁)。 */
+    fun cancelVoiceInput()
 }

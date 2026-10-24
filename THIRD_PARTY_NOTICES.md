@@ -28,7 +28,7 @@
 ## 3. Rime 输入引擎（librime） — BSD-3-Clause
 
 **2026-10-03 换内核**:此前是自己写的查表引擎,词库由 `tools/dictgen` 在构建期
-从 jieba + pinyin-pro 生成 `dict.txt.gz`。那一整套(第 4 节的 jieba / pinyin-pro
+从 jieba + pinyin-pro 生成 `dict.txt.gz`。那一整套(jieba / pinyin-pro
 以及 `dict.txt.gz`)**已经随换内核删除,不再随应用分发**。
 
 - 用途:拼音引擎内核。子模块 `app/src/main/cpp/librime`,编译为 `librime_jni.so`
@@ -91,7 +91,27 @@ librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
   **该文件本身没有附带许可声明,来源仓库也未标明许可** ——
   见下面「待补」。
 
-## 4. 待补:essay.txt 的许可(2026-10-04 记下)
+## 4. 语音识别 — Apache License 2.0
+
+- `com.alphacephei:vosk-android:0.3.75`（Vosk / Kaldi 系离线语音识别）
+  - 来源：https://github.com/alphacep/vosk-api
+  - 随包提供 `libvosk.so`；通过 JNA 调用。
+- `vosk-model-small-cn-0.22`（内置中文小模型，`assets/vosk/`）
+  - 来源：https://alphacephei.com/vosk/models
+  - 该模型在 Vosk 模型页标注为 Apache 2.0。
+- `net.java.dev.jna:jna`（Vosk 的 JNI 桥，随包提供 `libjnidispatch.so`）
+  - 来源：https://github.com/java-native-access/jna
+  - 双许可：Apache License 2.0 / LGPL-2.1-or-later；本项目按 Apache 2.0 使用。
+- `com.squareup.okhttp3:okhttp:4.12.0`（讯飞流式听写的 WebSocket 客户端）
+  - 来源：https://github.com/square/okhttp
+- `com.squareup.okio:okio`（OkHttp 的依赖）
+  - 来源：https://github.com/square/okio
+- 许可证全文：https://www.apache.org/licenses/LICENSE-2.0
+
+**云端识别不包含任何服务商代码**：腾讯云与讯飞只通过公开 HTTP/WebSocket 接口调用，
+录音只在用户选择对应引擎时发送；密钥由用户在本机填写，不随包分发。
+
+## 5. 待补:essay.txt 的许可(2026-10-04 记下)
 
 `assets/rime/essay.txt` 有 297,731 行词频,是「越打越顺手」那个功能的依据,
 随包分发 3.8MB。它来自 `adam-ikari/term-ime-dict`,但:

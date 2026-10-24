@@ -116,6 +116,19 @@
 # Kotlin 的内部符号表与协程调试信息
 -dontnote kotlin.**
 
+# -----------------------------------------------------------------------------
+# 9. 本地语音识别(Vosk / JNA)
+# -----------------------------------------------------------------------------
+# Vosk 的 `org.vosk.**` 与 JNA 的 `com.sun.jna.**` 都通过反射/JNI 按名字找类和
+# native 方法;混淆后症状是模型加载成功、第一次 `acceptWaveForm` 才崩。
+# OkHttp 自带 consumer rules,不用额外 keep。
+-keep class org.vosk.** { *; }
+-keepclasseswithmembernames class org.vosk.** {
+    native <methods>;
+}
+-keep class com.sun.jna.** { *; }
+-dontwarn com.sun.jna.**
+
 
 # =============================================================================
 # ⚠ 下面两条**故意没写**,说明为什么
