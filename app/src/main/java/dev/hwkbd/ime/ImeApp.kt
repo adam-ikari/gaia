@@ -41,6 +41,28 @@ object ImeRuntime {
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+        purgeCloudCredentials()
+    }
+
+    /**
+     * 云端识别退役(2026-10-24)后,老用户本机可能还留着填过的密钥。
+     *
+     * 代码已经不再读这几个键,但**留在 SharedPreferences 里就等于白留** ——
+     * 备份到别的设备、或以后有人 root 取证,都还在。启动即抹掉,一次性。
+     */
+    private fun purgeCloudCredentials() {
+        val keys = listOf(
+            "voice_engine",
+            "tencent_secret_id",
+            "tencent_secret_key",
+            "xfyun_app_id",
+            "xfyun_api_key",
+            "xfyun_api_secret",
+        )
+        if (!keys.any(prefs::contains)) return
+        val editor = prefs.edit()
+        keys.forEach { editor.remove(it) }
+        editor.apply()
     }
 }
 

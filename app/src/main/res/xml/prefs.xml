@@ -33,14 +33,6 @@
             android:defaultValue="false"
             android:title="@string/pref_voice_input"
             android:summary="@string/pref_voice_input_desc" />
-        <!-- 语音识别引擎:默认本地离线;云端需要用户自己的密钥 -->
-        <ListPreference
-            android:key="voice_engine"
-            android:defaultValue="LOCAL"
-            android:title="@string/pref_voice_engine"
-            android:entries="@array/voice_engine_entries"
-            android:entryValues="@array/voice_engine_values"
-            android:summary="%s" />
         <SwitchPreferenceCompat
             android:key="swipe_page"
             android:defaultValue="true"
@@ -75,33 +67,6 @@
             android:key="page_reverse"
             android:defaultValue="false"
             android:title="@string/pref_page_reverse" />
-    </PreferenceCategory>
-
-    <PreferenceCategory
-        android:key="voice_cloud_category"
-        android:title="@string/pref_voice_cloud_category">
-        <Preference
-            android:key="voice_cloud_warning"
-            android:enabled="false"
-            android:shouldDisableView="false"
-            android:summary="@string/pref_voice_cloud_warning" />
-        <!-- 腾讯云一句话识别 -->
-        <EditTextPreference
-            android:key="tencent_secret_id"
-            android:title="@string/pref_tencent_id" />
-        <EditTextPreference
-            android:key="tencent_secret_key"
-            android:title="@string/pref_tencent_key" />
-        <!-- 讯飞流式听写 -->
-        <EditTextPreference
-            android:key="xfyun_app_id"
-            android:title="@string/pref_xfyun_app_id" />
-        <EditTextPreference
-            android:key="xfyun_api_key"
-            android:title="@string/pref_xfyun_api_key" />
-        <EditTextPreference
-            android:key="xfyun_api_secret"
-            android:title="@string/pref_xfyun_api_secret" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_category_keys">

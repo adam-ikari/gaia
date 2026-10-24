@@ -11,7 +11,6 @@ import kotlin.math.sqrt
 /**
  * 16kHz / 单声道 / PCM16 的录音读取器。
  *
- * 云端与本地共用同一份采集参数,避免"本地 16k、云端 8k"这种只在某一家才复现的偏差。
  * [onChunk] 在采集线程上调用,回调实现必须自己保证线程安全;需要碰 UI 的用 Handler 转主线程。
  */
 class PcmRecorder(

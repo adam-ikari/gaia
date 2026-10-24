@@ -21,15 +21,15 @@ import java.util.zip.ZipInputStream
  * 本地离线识别:sherpa-onnx + Paraformer-zh-small。
  *
  * 非流式(整段录完再解码),正好匹配「按住说、松手出字」的交互:
- * 拾音期间不占用解码器,松手后一次性出结果,也就没有云端那种分片语义。
+ * 拾音期间不占用解码器,松手后一次性出结果。
  *
  * 模型以 zip 放在 assets,首次使用解压到 `filesDir/sherpa/…`,之后直接复用。
- * 不联网、不需要账号。
+ * 不联网、不需要账号、没有任何可配置项。
  */
 class SherpaLocalEngine(
     private val context: Context,
     private val callbacks: VoiceCallbacks,
-) : VoiceEngine {
+) {
 
     private val main = Handler(Looper.getMainLooper())
     private val pcm = ByteArrayOutputStream()
@@ -51,18 +51,16 @@ class SherpaLocalEngine(
     private var loading = false
     private var pendingStart = false
     private var stopRequested = false
-    private var pendingPcm: ByteArray? = null
-    private var pendingPcmGen = 0
     private var recorder: PcmRecorder? = null
     private var generation = 0
 
-    override fun prepare() {
+    fun prepare() {
         if (recognizer != null || loading || destroyed) return
         loading = true
         Thread({ loadModel() }, "sherpa-load").apply { isDaemon = true }.start()
     }
 
-    override fun start(languageId: String): StartResult {
+    fun start(languageId: String): StartResult {
         if (languageId != "zh") {
             callbacks.error(VoiceError(VoiceErrorKind.LANGUAGE))
             return StartResult.UNSUPPORTED_LANGUAGE
@@ -78,7 +76,7 @@ class SherpaLocalEngine(
         return if (beginListening()) StartResult.STARTED else StartResult.FAILED
     }
 
-    override fun stop() {
+    fun stop() {
         if (pendingStart && recognizer == null) {
             stopRequested = true
             return
@@ -99,38 +97,10 @@ class SherpaLocalEngine(
         startDecode(audio, gen)
     }
 
-    /**
-     * 识别一整段已经录好的 PCM(云端失败后的回落路径)。
-     *
-     * 不走麦克风,所以 [stop] 与它无关;取消仍走 [cancel]。
-     */
-    fun recognize(pcmData: ByteArray, languageId: String): Boolean {
-        if (languageId != "zh") {
-            callbacks.error(VoiceError(VoiceErrorKind.LANGUAGE))
-            return false
-        }
-        if (destroyed || pcmData.isEmpty()) return false
-        cancelled = false
-        stopRequested = false
-        generation++
-        val gen = generation
-        if (recognizer == null) {
-            pendingPcm = pcmData.copyOf()
-            pendingPcmGen = gen
-            callbacks.state(VoiceState.PREPARING)
-            prepare()
-            return true
-        }
-        callbacks.state(VoiceState.RECOGNIZING)
-        startDecode(pcmData.copyOf(), gen)
-        return true
-    }
-
-    override fun cancel() {
+    fun cancel() {
         cancelled = true
         generation++
         pendingStart = false
-        pendingPcm = null
         stopRequested = false
         collecting = false
         recorder?.stop()
@@ -139,7 +109,7 @@ class SherpaLocalEngine(
         callbacks.state(VoiceState.IDLE)
     }
 
-    override fun destroy() {
+    fun destroy() {
         cancel()
         destroyed = true
         if (!decoding) releaseRecognizer()
@@ -156,9 +126,7 @@ class SherpaLocalEngine(
             }
             if (ok == null) {
                 Log.w(TAG, "本地语音模型加载失败", loaded.exceptionOrNull())
-                val hadBuffered = pendingPcm != null
-                pendingPcm = null
-                if (pendingStart || hadBuffered) {
+                if (pendingStart) {
                     pendingStart = false
                     callbacks.state(VoiceState.IDLE)
                     callbacks.error(VoiceError(VoiceErrorKind.UNAVAILABLE, "本地模型加载失败"))
@@ -166,17 +134,6 @@ class SherpaLocalEngine(
                 return@post
             }
             recognizer = ok
-            val buffered = pendingPcm
-            if (buffered != null) {
-                pendingPcm = null
-                if (cancelled || pendingPcmGen != generation) {
-                    callbacks.state(VoiceState.IDLE)
-                } else {
-                    callbacks.state(VoiceState.RECOGNIZING)
-                    startDecode(buffered, pendingPcmGen)
-                }
-                return@post
-            }
             if (pendingStart) {
                 pendingStart = false
                 if (stopRequested || cancelled) {
@@ -277,7 +234,7 @@ class SherpaLocalEngine(
             samples[j++] = s / 32_768f
             i += 2
         }
-        // OfflineRecognizer 不是线程安全的:回落解码与下一次麦克风解码可能重叠。
+        // OfflineRecognizer 不是线程安全的:上一次解码可能还没收尾。
         return synchronized(rec) {
             val stream = rec.createStream()
             try {

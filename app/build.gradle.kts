@@ -412,8 +412,6 @@ dependencies {
     // AAR 里带 arm64-v8a/x86_64 的 libsherpa-onnx-jni.so 与官方 Kotlin 封装;
     // 模型用 Paraformer-zh-small(非流式,适合按住说话)。
     implementation("com.bihe0832.android:lib-sherpa-onnx:6.25.21")
-    // 讯飞流式听写要走 WebSocket;腾讯一句话识别用 HttpURLConnection,不需要它。
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     // 手势流化的时序单测:runTest 虚拟时间

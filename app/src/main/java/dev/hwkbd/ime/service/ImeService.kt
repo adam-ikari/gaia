@@ -35,7 +35,6 @@ import dev.hwkbd.ime.service.voice.StartResult
 import dev.hwkbd.ime.service.voice.VoiceError
 import dev.hwkbd.ime.service.voice.VoiceErrorKind
 import dev.hwkbd.ime.service.voice.VoiceInput
-import dev.hwkbd.ime.service.voice.VoiceSettings
 import dev.hwkbd.ime.service.voice.VoiceState
 import dev.hwkbd.ime.ui.CandidateBarView
 import dev.hwkbd.ime.ui.ImeRootView
@@ -240,7 +239,7 @@ class ImeService : InputMethodService() {
                     false
                 }
                 StartResult.UNAVAILABLE -> {
-                    toast(this@ImeService, R.string.voice_error_config)
+                    toast(this@ImeService, R.string.voice_error_local)
                     false
                 }
                 StartResult.UNSUPPORTED_LANGUAGE -> {
@@ -268,11 +267,9 @@ class ImeService : InputMethodService() {
     // 显式类型:`host` 与 `voiceInput` 互相引用,不写死会触发 Kotlin 的递归类型推断
     private val voiceInput: VoiceInput = VoiceInput(
         this,
-        settingsProvider = { VoiceSettings.read(ImeRuntime.prefs) },
         onState = { state, partial ->
             voiceHud = when (state) {
                 VoiceState.PREPARING -> getString(R.string.voice_preparing)
-                VoiceState.CONNECTING -> getString(R.string.voice_connecting)
                 VoiceState.LISTENING ->
                     if (partial.isNullOrEmpty()) getString(R.string.voice_listening)
                     else getString(R.string.voice_partial, partial)
@@ -296,7 +293,6 @@ class ImeService : InputMethodService() {
             toastVoiceError(error)
         },
         onLevel = { level -> voiceLevelView?.setLevel(level) },
-        onFallback = { toast(this, R.string.voice_fallback_local) },
     )
 
     /** 把 [voiceHud] 照到悬浮视图上;语音与拼音组词互斥,不会同时出现。 */
@@ -316,22 +312,16 @@ class ImeService : InputMethodService() {
         Toast.makeText(context, res, Toast.LENGTH_LONG).show()
     }
 
-    /** 识别错误 → 用户能看懂的一句。服务商细节只放进带 `%s` 的模板,不泄露密钥。 */
+    /** 识别错误 → 用户能看懂的一句。 */
     private fun toastVoiceError(error: VoiceError) {
         val res = when (error.kind) {
             VoiceErrorKind.NO_PERMISSION -> R.string.voice_error_permission
-            VoiceErrorKind.UNAVAILABLE -> R.string.voice_error_config
-            VoiceErrorKind.BUSY -> R.string.voice_error_busy
+            VoiceErrorKind.UNAVAILABLE -> R.string.voice_error_local
             VoiceErrorKind.NO_MATCH -> R.string.voice_error_no_match
-            VoiceErrorKind.NETWORK -> R.string.voice_error_network
             VoiceErrorKind.LANGUAGE -> R.string.voice_error_language_local
-            VoiceErrorKind.AUTH -> R.string.voice_error_auth
-            VoiceErrorKind.PROVIDER -> R.string.voice_error_provider
             VoiceErrorKind.GENERIC -> R.string.voice_error_generic
         }
         val text = when {
-            error.kind == VoiceErrorKind.PROVIDER && !error.detail.isNullOrBlank() ->
-                getString(res, error.detail)
             error.kind == VoiceErrorKind.GENERIC && !error.detail.isNullOrBlank() ->
                 getString(R.string.voice_error_generic_detail, error.detail)
             else -> getString(res)
@@ -1145,9 +1135,9 @@ class ImeService : InputMethodService() {
         // 见 ImeController.tryArmLongPress。
         controller.longPressSymbolEnabled = p.getBoolean(PREF_LONGPRESS_L2, true)
         // 长按空格语音输入(默认关;权限在设置页申请,IME 自己不能弹权限框)。
-        // 引擎/密钥变化时重建会话;关开关时立刻停掉正在收音的那次。
+        // 开关一关就立刻停掉正在收音的那次。
         controller.voiceInputEnabled = p.getBoolean(PREF_VOICE_INPUT, false)
-        voiceInput.applySettings(VoiceSettings.read(p), controller.voiceInputEnabled)
+        voiceInput.applySettings(controller.voiceInputEnabled)
         // 震动反馈总开关:关掉后锁定/翻页/飞字四处全部静默,状态机判定不受影响
         haptics?.enabled = p.getBoolean(PREF_HAPTIC, true)
         // 按键与滑动之间的门:按住键期间一律不接手势,抬手后再挡 blockMs 那么久

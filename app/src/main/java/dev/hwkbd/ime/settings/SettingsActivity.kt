@@ -6,22 +6,16 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.preference.EditTextPreference
-import androidx.preference.ListPreference
 import androidx.preference.Preference
-import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import dev.hwkbd.ime.R
 import dev.hwkbd.ime.ImeRuntime
 import dev.hwkbd.ime.service.ImeService
-import dev.hwkbd.ime.service.voice.AsrBackend
-import dev.hwkbd.ime.service.voice.VoiceSettings
 import dev.hwkbd.ime.telemetry.UserData
 
 /**
@@ -87,11 +81,10 @@ class SettingsActivity : AppCompatActivity() {
             }
             bindSectionHeaders()
             bindVoiceSwitch()
-            bindVoiceSettings()
         }
 
         /**
-         * 语音开关:打开前先确认所选引擎已配置(本地永远可用,云端要填密钥)。
+         * 语音开关:识别跑在本机,唯一的门槛是麦克风权限。
          *
          * IME 是 Service,不能自己弹权限框 —— 所以权限只能在这里要。权限没给时
          * 让开关保持关闭,而不是留一个「开着但长按没反应」的假状态。
@@ -105,54 +98,11 @@ class SettingsActivity : AppCompatActivity() {
             }
             pref.setOnPreferenceChangeListener { _, newValue ->
                 if (newValue != true) return@setOnPreferenceChangeListener true
-                // 云端没填密钥也允许开:本地模型随包内置,长按时会自动兜底。
                 if (hasRecordAudioPermission()) return@setOnPreferenceChangeListener true
                 pendingVoiceEnable = true
                 recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
                 false
             }
-        }
-
-        /**
-         * 引擎选择与云端密钥。
-         *
-         * 密钥用密码输入框显示,摘要只露「已设置/未设置」—— 密钥本身不回显。
-         * 选本地时整块云端设置收起,避免让用户以为离线也要填这些。
-         */
-        private fun bindVoiceSettings() {
-            bindCredential(VoiceSettings.PREF_TENCENT_ID)
-            bindCredential(VoiceSettings.PREF_TENCENT_KEY)
-            bindCredential(VoiceSettings.PREF_XFYUN_APP_ID)
-            bindCredential(VoiceSettings.PREF_XFYUN_API_KEY)
-            bindCredential(VoiceSettings.PREF_XFYUN_API_SECRET)
-
-            val engine = findPreference<ListPreference>(VoiceSettings.PREF_ENGINE)
-            engine?.setOnPreferenceChangeListener { _, newValue ->
-                val backend = AsrBackend.fromPref(newValue?.toString())
-                updateCloudVisibility(backend)
-                true
-            }
-            updateCloudVisibility(VoiceSettings.read(ImeRuntime.prefs).backend)
-        }
-
-        private fun bindCredential(key: String) {
-            val pref = findPreference<EditTextPreference>(key) ?: return
-            pref.setOnBindEditTextListener {
-                it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            }
-            pref.summary = secretSummary(pref.text)
-            pref.setOnPreferenceChangeListener { p, value ->
-                (p as EditTextPreference).summary = secretSummary(value?.toString())
-                true
-            }
-        }
-
-        private fun secretSummary(value: String?): String =
-            getString(if (value.isNullOrBlank()) R.string.pref_secret_unset else R.string.pref_secret_set)
-
-        private fun updateCloudVisibility(backend: AsrBackend) {
-            findPreference<PreferenceCategory>("voice_cloud_category")?.isVisible =
-                backend != AsrBackend.LOCAL
         }
 
         private fun hasRecordAudioPermission(): Boolean =

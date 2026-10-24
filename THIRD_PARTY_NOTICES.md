@@ -101,14 +101,10 @@ librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
   - 来源：https://github.com/k2-fsa/sherpa-onnx/releases（`sherpa-onnx-paraformer-zh-small-2024-03-09`）
   - 权重源自 FunASR / ModelScope 的 Paraformer 中文小模型，经 sherpa-onnx 转为 ONNX 后以 Apache 2.0 分发。
   - 上游项目：https://github.com/modelscope/FunASR（Apache License 2.0）
-- `com.squareup.okhttp3:okhttp:4.12.0`（讯飞流式听写的 WebSocket 客户端）
-  - 来源：https://github.com/square/okhttp
-- `com.squareup.okio:okio`（OkHttp 的依赖）
-  - 来源：https://github.com/square/okio
 - 许可证全文：https://www.apache.org/licenses/LICENSE-2.0
 
-**云端识别不包含任何服务商代码**：腾讯云与讯飞只通过公开 HTTP/WebSocket 接口调用，
-录音只在用户选择对应引擎时发送；密钥由用户在本机填写，不随包分发。
+**语音识别完全离线**：不请求任何云服务，不发送录音，应用也没有声明 `INTERNET` 权限。
+2026-10-24 移除云端引擎（腾讯云 / 讯飞）时，OkHttp / Okio 随之退出依赖。
 
 ## 5. 待补:essay.txt 的许可(2026-10-04 记下)
 

@@ -121,7 +121,6 @@
 # -----------------------------------------------------------------------------
 # `com.k2fsa.sherpa.onnx.**` 的 config/recognizer 由 JNI 按类名与字段名读取;
 # 混淆后症状是模型路径传进去、第一次 `decode` 才崩。
-# OkHttp 自带 consumer rules,不用额外 keep。
 -keep class com.k2fsa.sherpa.onnx.** { *; }
 -keepclasseswithmembernames class com.k2fsa.sherpa.onnx.** {
     native <methods>;
