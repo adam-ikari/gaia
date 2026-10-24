@@ -93,15 +93,14 @@ librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
 
 ## 4. 语音识别 — Apache License 2.0
 
-- `com.alphacephei:vosk-android:0.3.75`（Vosk / Kaldi 系离线语音识别）
-  - 来源：https://github.com/alphacep/vosk-api
-  - 随包提供 `libvosk.so`；通过 JNA 调用。
-- `vosk-model-small-cn-0.22`（内置中文小模型，`assets/vosk/`）
-  - 来源：https://alphacephei.com/vosk/models
-  - 该模型在 Vosk 模型页标注为 Apache 2.0。
-- `net.java.dev.jna:jna`（Vosk 的 JNI 桥，随包提供 `libjnidispatch.so`）
-  - 来源：https://github.com/java-native-access/jna
-  - 双许可：Apache License 2.0 / LGPL-2.1-or-later；本项目按 Apache 2.0 使用。
+- `com.bihe0832.android:lib-sherpa-onnx:6.25.21`（sherpa-onnx 的 Android 打包，随包提供 `libsherpa-onnx-jni.so`）
+  - 上游：https://github.com/k2-fsa/sherpa-onnx
+  - 打包来源：https://github.com/bihe0832/AndroidAppFactory
+  - 上游项目为 Apache License 2.0。
+- `paraformer-zh-small`（内置中文模型，`assets/sherpa/`）
+  - 来源：https://github.com/k2-fsa/sherpa-onnx/releases（`sherpa-onnx-paraformer-zh-small-2024-03-09`）
+  - 权重源自 FunASR / ModelScope 的 Paraformer 中文小模型，经 sherpa-onnx 转为 ONNX 后以 Apache 2.0 分发。
+  - 上游项目：https://github.com/modelscope/FunASR（Apache License 2.0）
 - `com.squareup.okhttp3:okhttp:4.12.0`（讯飞流式听写的 WebSocket 客户端）
   - 来源：https://github.com/square/okhttp
 - `com.squareup.okio:okio`（OkHttp 的依赖）

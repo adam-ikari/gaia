@@ -73,6 +73,10 @@ class ImeService : InputMethodService() {
     private var statusShift: TextView? = null
     private var statusFullWidth: TextView? = null
     private var preeditRow: TextView? = null
+    private var voiceHudView: View? = null
+    private var voiceHudText: TextView? = null
+    private var voiceLevelView: dev.hwkbd.ime.ui.VoiceLevelView? = null
+    private var voiceMic: android.widget.ImageView? = null
     private var l5PanelView: dev.hwkbd.ime.ui.L5PanelView? = null
     private var l4Panel: dev.hwkbd.ime.ui.L4PanelView? = null
 
@@ -258,10 +262,7 @@ class ImeService : InputMethodService() {
         }
     }
 
-    /**
-     * 语音 HUD 文字(null = 不显示)。复用条上方的拼音气泡:
-     * 语音只在空闲态启动,不会和组词同时存在,不需要再加一层视图。
-     */
+    /** 语音 HUD 文字(null = 不显示)。HUD 是条上方那枚悬浮的麦克风 + 音量表。 */
     private var voiceHud: String? = null
 
     // 显式类型:`host` 与 `voiceInput` 互相引用,不写死会触发 Kotlin 的递归类型推断
@@ -269,7 +270,7 @@ class ImeService : InputMethodService() {
         this,
         settingsProvider = { VoiceSettings.read(ImeRuntime.prefs) },
         onState = { state, partial ->
-            val next = when (state) {
+            voiceHud = when (state) {
                 VoiceState.PREPARING -> getString(R.string.voice_preparing)
                 VoiceState.CONNECTING -> getString(R.string.voice_connecting)
                 VoiceState.LISTENING ->
@@ -280,22 +281,36 @@ class ImeService : InputMethodService() {
                     else getString(R.string.voice_partial, partial)
                 VoiceState.IDLE -> null
             }
-            if (next != voiceHud) {
-                voiceHud = next
-                if (next == null) updateUi() else requestRender()
-            }
+            syncVoiceHud()
         },
         onText = { text ->
             voiceHud = null
+            syncVoiceHud()
             host.commitText(text)
             updateUi()
         },
         onError = { error ->
             voiceHud = null
+            syncVoiceHud()
             updateUi()
             toastVoiceError(error)
         },
+        onLevel = { level -> voiceLevelView?.setLevel(level) },
+        onFallback = { toast(this, R.string.voice_fallback_local) },
     )
+
+    /** 把 [voiceHud] 照到悬浮视图上;语音与拼音组词互斥,不会同时出现。 */
+    private fun syncVoiceHud() {
+        val view = voiceHudView ?: return
+        val text = voiceHud
+        if (text == null) {
+            if (view.visibility != View.GONE) view.visibility = View.GONE
+            voiceLevelView?.setLevel(0f)
+            return
+        }
+        if (voiceHudText?.text?.toString() != text) voiceHudText?.text = text
+        if (view.visibility != View.VISIBLE) view.visibility = View.VISIBLE
+    }
 
     private fun toast(context: android.content.Context, res: Int) {
         Toast.makeText(context, res, Toast.LENGTH_LONG).show()
@@ -417,6 +432,11 @@ class ImeService : InputMethodService() {
             }
         }
         preeditRow = root.findViewById(R.id.preedit_row)
+        voiceHudView = root.findViewById(R.id.voice_hud)
+        voiceHudText = root.findViewById(R.id.voice_text)
+        voiceLevelView = root.findViewById(R.id.voice_level)
+        voiceMic = root.findViewById(R.id.voice_mic)
+        syncVoiceHud()
         l4Panel = root.findViewById<dev.hwkbd.ime.ui.L4PanelView>(R.id.l4_panel).apply {
             onL4Key = { commitL4Tapped(it) }
             // L4 中区不接横滑(那条路留给飞字手势,见 L4PanelView 类注释),这里接门是为将来:
@@ -1166,6 +1186,9 @@ class ImeService : InputMethodService() {
         // 一眼分得开,不用再靠「位置」猜哪段是拼音。
         // 主题在设置页换,prefsListener 会再跑一次这里,换色即时生效。
         preeditRow?.setTextColor(theme.accent)
+        // 语音 HUD:麦克风与音量表跟拼音条同色(主题 accent),文字用候选前景色。
+        voiceMic?.imageTintList = android.content.res.ColorStateList.valueOf(theme.accent)
+        voiceLevelView?.setBarColor(theme.accent)
         statusRow?.setBackgroundColor(theme.barBg)
         candidateRow?.setBackgroundColor(theme.barBg)
         // L5 面板的底色/键帽色由 [L5PanelView.setContent] 按 theme 重建,这里不预染。
@@ -1428,13 +1451,6 @@ class ImeService : InputMethodService() {
             mainHandler.postDelayed(preeditProbe, PREEDIT_PROBE_MS)
         }
         preeditRow?.apply {
-            val voice = voiceHud
-            if (voice != null) {
-                // 语音只在空闲态启动,和拼音组词互斥;气泡此时显示听写状态/部分结果。
-                if (visibility != View.VISIBLE) visibility = View.VISIBLE
-                if (text.toString() != voice) text = voice
-                return@apply
-            }
             val raw = s.raw
             // 拼音条同样带自动分隔符(见 syncComposing 的 shown):App 不渲染
             // composing 区时( Termux 类)这条气泡是用户唯一看得见拼音的地方。

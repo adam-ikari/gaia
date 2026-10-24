@@ -29,6 +29,9 @@ class XfyunEngine(
 
     private val main = Handler(Looper.getMainLooper())
     private val segments = TreeMap<Int, String>()
+
+    /** 已发给讯飞的 PCM 副本:云端失败时用它回落本地模型。上限同 [MAX_PCM_BYTES]。 */
+    private val pcm = java.io.ByteArrayOutputStream()
     private val autoStopPosted = AtomicBoolean(false)
     private var timeout: Runnable? = null
 
@@ -67,6 +70,7 @@ class XfyunEngine(
         totalBytes = 0
         lastPartial = null
         segments.clear()
+        pcm.reset()
         language = languageId
         generation++
         val gen = generation
@@ -133,6 +137,7 @@ class XfyunEngine(
         webSocket = null
         connected = false
         segments.clear()
+        pcm.reset()
         callbacks.state(VoiceState.IDLE)
     }
 
@@ -150,11 +155,13 @@ class XfyunEngine(
             onChunk = { chunk ->
                 if (finished || cancelled || gen != generation) return@PcmRecorder
                 totalBytes += chunk.size
+                pcm.write(chunk)
                 sendAudio(chunk, if (firstFrame) 0 else 1)
                 if (totalBytes >= MAX_PCM_BYTES && autoStopPosted.compareAndSet(false, true)) {
                     main.post { if (gen == generation) stop() }
                 }
             },
+            onLevel = { callbacks.level(it) },
             onError = { message ->
                 main.post {
                     if (gen == generation) fail(VoiceError(VoiceErrorKind.GENERIC, message))
@@ -250,6 +257,7 @@ class XfyunEngine(
         webSocket = null
         val text = joinSegments()
         segments.clear()
+        pcm.reset()
         callbacks.state(VoiceState.IDLE)
         if (text.isBlank()) {
             callbacks.error(VoiceError(VoiceErrorKind.NO_MATCH))
@@ -267,8 +275,14 @@ class XfyunEngine(
         webSocket?.cancel()
         webSocket = null
         segments.clear()
+        val audio = pcm.toByteArray()
+        pcm.reset()
         callbacks.state(VoiceState.IDLE)
-        callbacks.error(error)
+        if (audio.isNotEmpty() && error.kind.isCloudUnavailable()) {
+            callbacks.fallbackAudio(audio, error)
+        } else {
+            callbacks.error(error)
+        }
     }
 
     private fun joinSegments(): String {

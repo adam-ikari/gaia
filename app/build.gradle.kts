@@ -325,7 +325,7 @@ android {
     }
 
     androidResources {
-        // Vosk 模型以官方 zip 形式放在 assets 里,首次使用解压到 filesDir。
+        // 语音模型以 zip 形式放在 assets 里,首次使用解压到 filesDir。
         // zip 本身已是压缩格式,再压一遍只浪费构建时间、还会让 AssetManager 读取变慢。
         noCompress += "zip"
     }
@@ -408,8 +408,10 @@ dependencies {
     // (响应/阻尼比 ↔ stiffness/damping、落点判定)抽成纯函数单测,积分交给官方。
     implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
 
-    // 离线语音识别:Vosk(Kaldi 系,Apache 2.0)。模型走 assets,不依赖任何云服务。
-    implementation("com.alphacephei:vosk-android:0.3.75")
+    // 离线语音识别:sherpa-onnx(新一代 Kaldi,Apache 2.0)。模型走 assets,不依赖任何云服务。
+    // AAR 里带 arm64-v8a/x86_64 的 libsherpa-onnx-jni.so 与官方 Kotlin 封装;
+    // 模型用 Paraformer-zh-small(非流式,适合按住说话)。
+    implementation("com.bihe0832.android:lib-sherpa-onnx:6.25.21")
     // 讯飞流式听写要走 WebSocket;腾讯一句话识别用 HttpURLConnection,不需要它。
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 

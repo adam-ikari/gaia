@@ -41,7 +41,7 @@ data class VoiceSettings(
         }
 
     /**
-     * 引擎实例的复用键。本地只认 backend(改云端密钥不该把已加载的 Vosk 模型丢掉);
+     * 引擎实例的复用键。本地只认 backend(改云端密钥不该把已加载的 Paraformer 模型丢掉);
      * 云端把凭据算进去,换了账号/密钥就重建会话。
      */
     val engineKey: String

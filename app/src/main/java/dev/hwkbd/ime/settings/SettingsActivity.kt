@@ -105,10 +105,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             pref.setOnPreferenceChangeListener { _, newValue ->
                 if (newValue != true) return@setOnPreferenceChangeListener true
-                if (!VoiceSettings.read(ImeRuntime.prefs).configured) {
-                    Toast.makeText(requireContext(), R.string.voice_error_config, Toast.LENGTH_LONG).show()
-                    return@setOnPreferenceChangeListener false
-                }
+                // 云端没填密钥也允许开:本地模型随包内置,长按时会自动兜底。
                 if (hasRecordAudioPermission()) return@setOnPreferenceChangeListener true
                 pendingVoiceEnable = true
                 recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)

@@ -71,6 +71,7 @@ class TencentEngine(
                 }
                 pcm.write(chunk)
             },
+            onLevel = { callbacks.level(it) },
             onError = { message ->
                 main.post {
                     if (gen != generation || !recording) return@post
@@ -161,7 +162,7 @@ class TencentEngine(
                 setRequestProperty("Authorization", authorization)
             }
         }.getOrElse {
-            fail(VoiceError(VoiceErrorKind.GENERIC, it.message), gen)
+            fail(VoiceError(VoiceErrorKind.GENERIC, it.message), gen, pcmData)
             return
         }
         connection = conn
@@ -173,19 +174,19 @@ class TencentEngine(
                 .orEmpty()
             if (cancelled || gen != generation) return
             if (body.isBlank()) {
-                fail(VoiceError(VoiceErrorKind.NETWORK, "HTTP $code 无响应体"), gen)
+                fail(VoiceError(VoiceErrorKind.NETWORK, "HTTP $code 无响应体"), gen, pcmData)
                 return
             }
             val response = JSONObject(body).optJSONObject("Response")
             if (response == null) {
-                fail(VoiceError(VoiceErrorKind.PROVIDER, "响应缺少 Response"), gen)
+                fail(VoiceError(VoiceErrorKind.PROVIDER, "响应缺少 Response"), gen, pcmData)
                 return
             }
             val error = response.optJSONObject("Error")
             if (error != null) {
                 val errCode = error.optString("Code")
                 val msg = error.optString("Message")
-                fail(mapError(errCode, msg), gen)
+                fail(mapError(errCode, msg), gen, pcmData)
                 return
             }
             val text = response.optString("Result").trim()
@@ -199,7 +200,7 @@ class TencentEngine(
         } catch (e: Exception) {
             if (!cancelled && gen == generation) {
                 Log.w(TAG, "腾讯云识别失败", e)
-                fail(VoiceError(VoiceErrorKind.NETWORK, e.javaClass.simpleName), gen)
+                fail(VoiceError(VoiceErrorKind.NETWORK, e.javaClass.simpleName), gen, pcmData)
             }
         } finally {
             runCatching { conn.disconnect() }
@@ -207,10 +208,14 @@ class TencentEngine(
         }
     }
 
-    private fun fail(error: VoiceError, gen: Int) {
+    private fun fail(error: VoiceError, gen: Int, audio: ByteArray? = null) {
         if (cancelled || gen != generation) return
         callbacks.state(VoiceState.IDLE)
-        callbacks.error(error)
+        if (audio != null && audio.isNotEmpty() && error.kind.isCloudUnavailable()) {
+            callbacks.fallbackAudio(audio, error)
+        } else {
+            callbacks.error(error)
+        }
     }
 
     private fun mapError(code: String, message: String): VoiceError {
