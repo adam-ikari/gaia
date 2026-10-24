@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-23T05:21:42.684Z._
+_Auto-generated. Last updated 2026-10-24T08:17:55.736Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [chinese-ime-lm-survey](pages/chinese-ime-lm-survey.md) — category: reference | tags: [survey, license, eval] | - **它是什么**:`metasequoiaime/chinese-ime-lm`(Rust,仓库 GPL-3.0,2025-11 建,869 stars),面向中文输入法的语言模型工程,配套输入法是 MSIME。
@@ -33,4 +33,5 @@ _Auto-generated. Last updated 2026-10-23T05:21:42.684Z._
 - [state-machine-approach](pages/state-machine-approach.md) — category: decision | tags: [architecture, state-machine] | ## 状态机怎么做(2026-10-16 定案)
 - [tt2-hardware-constraints](pages/tt2-hardware-constraints.md) — category: project | tags: [titan2, hardware, gesture] | Titan 2（Android 15）的物理键盘既是输入设备也是一块电容触摸面，但**输入法拿不到它的触摸轨迹**，因此一切依赖"键盘滑动"的交互都必须换成系统事件或屏幕手势。
 - [unverified-as-fact](pages/unverified-as-fact.md) — category: decision | tags: [lessons, method, verification, e2e] | 2026-10-08 真机首日(Titan 2):测出来的和推断出来的混在一起写成结论,于是**当时自认为已经知道**的东西全是错的 —— 但它们错得很有说服力,因为每一条都能自圆其说。
+- [voice-input](pages/voice-input.md) — category: decision | tags: [ime, voice, permission] | 语音输入**不再依赖系统 `SpeechRecognizer`**(它默认落到 Google 语音服务),改为应用内可切换的三个引擎:
 - [windows-native-build](pages/windows-native-build.md) — category: project | tags: [librime, windows, cmake, ndk, toolchain, build] | ## ????

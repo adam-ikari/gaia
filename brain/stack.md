@@ -2,7 +2,7 @@
 slug: stack
 title: Tech stack
 role: tech-stack choices
-updated: "2026-09-23T04:27:03"
+updated: "2026-10-24T16:12:31"
 ---
 
 # Tech stack
@@ -18,11 +18,12 @@ updated: "2026-09-23T04:27:03"
 | 拼音引擎 | 移植老版 LatinIME / RIME / 自研轻量引擎 | **自研轻量引擎** | 可可的经验是老 LatinIME 坑多；本项目只需前缀匹配 + 分词组词，自研可控 |
 | 词库格式 | LatinIME 二进制 / RIME dict / 纯文本 TSV | **assets 里的 gzip TSV**（`拼音\t词\t词频`，按拼音排序） | 二分前缀查询，零依赖、可 diff、可被外部工具生成 |
 | 用户词频 | SQLite / JSON 文件 | **JSON 文件**（`filesDir/user_dict.json`，停止输入时落盘） | 量级几千条，避免迁移/锁的复杂度 |
+| 语音识别 | 系统 SpeechRecognizer / 内置 Vosk / 云端 API | **内置 Vosk（默认）+ 腾讯云 / 讯飞可选** | 不依赖 Google 服务；本地完全离线，云端由用户自填密钥，见 [[voice-input]] |
 | 设置 | PreferenceFragment / 自写 Activity | **androidx.preference** | 缓存里已有 1.2.1，够用 |
 
 ## 决策
 
-- 不引入网络权限：候选、词库、设置全部本地，输入法权限面最小。
+- 网络权限只服务**用户自选的云端语音识别**（腾讯云一句话识别 / 讯飞流式听写）；本地 Vosk、候选、词库、设置全部离线。云端密钥只存本机 SharedPreferences，不打进 APK。
 - 单模块 `app`，内部按 `keymap / engine / ime / ui / settings / probe` 分包，物理键管线与拼音引擎不依赖 Android UI，便于 JVM 单测。
 
 ## 待定项
