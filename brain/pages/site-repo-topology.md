@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-26T11:14:13"
+updated: "2026-10-26T11:17:21"
 ---
 
 <!-- compiled_truth -->
@@ -153,3 +153,8 @@ dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
   kind: evidence
   summary: "2026-10-26 源码侧的上传墙解除:模型出仓库后,未推送的 9 个 commit 里 112.5MB 是死掉的 vosk/sherpa blob、源码只 1.05MB。在临时克隆里跑 filter-branch 丢这两个路径,回活仓只做一次 git update-ref CAS(备份 tag backup/pre-rewrite-20261026),af244e7..2ad3515 推送成功。**产物侧仍未解除**:gaia/dist/media 现在那份是 7.8MB+11.6MB,下次发版要塞进 git 的是 β 99MB + dev 124MB ≈ 224MB,而这台机器单个 git 请求超过 ~20 秒就被 408 掐断(实测 8MB 挂、2MB 过;release 资产 10MB 在 ~101s 超时)。私有源仓的 Actions 按分钟计费,公开 gaia 的 deploy.yml 免费但按设计不构建、不取外物"
   affects: [tools/release/publish-site.sh, tools/release/publish-beta.sh, tools/release/publish-dev.sh]
+
+- time: 2026-10-26T11:17:21
+  kind: evidence
+  summary: "2026-10-26 复测修正上一条的形状判断:单个 12MB 随机数据的 git push 在 20.5 秒整被 HTTP 408 掐断(未留下远端分支)。所以墙不是「体积 >8MB」而是「单个 HTTP 请求持续 >~20 秒」,本机吞吐现在达不到推 12MB 所需的速度 ⇒ 224MB 走本机正式排除。gaia 上现存那个 11.6MB blob 是网络状态不同时的产物,不能当作今天的依据"
+  affects: [site-repo-topology]
