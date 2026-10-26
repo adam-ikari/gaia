@@ -94,10 +94,21 @@ tools/release/gate.sh --beta    # 单测 / 构建 / R8 / JNI 照跑,版本两步
 发布测试版走自己的脚本(不是正式版那条链):
 
 ```bash
-tools/release/gate.sh --beta          # 产物侧闸门(单测/构建/R8/JNI)
+tools/release/gate.sh --beta          # 产物侧闸门(单测/构建/R8/JNI)—— 本地跑
+# 下面三步在**公开仓 gaia 的 runner** 上跑,不在开发机上:
+#   gh workflow run publish-ime.yml -R adam-ikari/gaia -f source_ref=master
+#   它按序执行 publish-beta.sh → publish-dev.sh → publish-site.sh
 tools/release/publish-beta.sh         # 编 + 发到公开仓 gaia 的 beta-<hash> prerelease
 tools/release/publish-site.sh         # 构建站点 + 推产物 + 验线上字节
 ```
+
+**为什么那三步换机器**(2026-10-26):一次发版要塞进 GitHub 的是 β 99MB + dev 124MB
++ 站点产物,合计约 224MB;而开发机的墙是「单个 HTTP 请求持续 ~20 秒就被 408 掐断」
+(实测 12MB 的 `git push` 在 20.5 秒整失败、2MB 通过)。一个请求切不小、git 不续传,
+所以换的不是「谁来传」而是「谁来编」。执行位置变了,判据没变 —— workflow 只是调
+同一批脚本,逻辑只有一份(详见 gaia 的 `.github/workflows/publish-ime.yml` 与 brain 的
+`site-repo-topology`)。前提:**要发的那个 commit 必须先推到 `origin/master`**,
+runner 检出的是远端,不是这个工作区。
 
 beta 的 release 是**每次构建一个** `beta-<hash>`(prerelease),
 站点按**内容**挑渠道:找 prerelease 里**含 `app-beta-*` 资产**的那个,
@@ -120,8 +131,10 @@ git tag -a v0.5.2 -m "v0.5.2" && git push origin v0.5.2
 各自走 `publish-beta.sh` / `publish-dev.sh`,再用 `publish-site.sh` 推产物。
 判据是**公开站点上那份与本地产物逐字节一致**。
 
-站点源码在本仓库 `web/`,构建在这里,产物推进公开仓 `adam-ikari/gaia`,
-Pages 从那个仓的 `main` 分支发布。**公开仓里没有源码,只有产物**。
+站点源码在本仓库 `web/`,构建脚本是这里的 `publish-site.sh`(2026-10-26 起由 gaia 的
+runner 执行),产物推进公开仓 `adam-ikari/gaia`,
+Pages 从那个仓的 `main` 分支发布。**公开仓里没有应用源码,只有产物** ——
+例外是一条构建这些产物的 workflow(2026-10-26 起),它不含应用源码。
 
 ## 一次真实的漂移(2026-10-05,写这条规则的原因)
 

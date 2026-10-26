@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-23T12:04:22"
+updated: "2026-10-26T11:31:37"
 ---
 
 <!-- compiled_truth -->
@@ -316,3 +316,9 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   summary: "站点只保留 β + dev(2026-10-23):移除正式版主渠道 gaia.apk;β 成为主下载(fatal),dev 可选;删除 release.yml 的 publish-site job 与 sync-apk-to-site.sh;gaia deploy.yml 对产物做渠道白名单"
   source: "用户「统一网站 只有beta版本和dev版本 删除其他的版」"
   affects: [release-flow, site-repo-topology, site-analytics]
+
+- time: 2026-10-26T11:31:37
+  kind: decision
+  summary: "β/dev/站点三步发布链今后在公开仓 gaia 的 publish-ime.yml 里执行(workflow_dispatch 手动触发),不在开发机上跑、也不占私有仓的计费分钟。执行位置和判据分离:判据仍在 tools/release/publish-*.sh 里(工作区必须干净、versionName == HEAD 短 hash、带 .dirty 的包拒发、先建空 release 再上传、上传后回读资产清单核对字节、下载侧比期望字节数)。gate.sh --beta 那一步仍在本地跑;要发的那一版必须先提交并推到 origin/master,否则 runner 检出不到。首次运行前需要在 gaia 配 secret IME_SOURCE_PAT(fine-grained,只读 hwkbd_ime 的 Contents)"
+  source: 2026-10-26
+  affects: [.github/workflows/publish-ime.yml]

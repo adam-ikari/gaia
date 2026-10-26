@@ -5,12 +5,13 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-26T11:17:21"
+updated: "2026-10-26T11:31:27"
 ---
 
 <!-- compiled_truth -->
 站点源码与构建在本仓库 `web/`,构建产物推到公开仓 `adam-ikari/gaia` 的 `dist/`,
-Pages 从那个仓发布。**公开仓里没有源码,只有产物。**
+Pages 从那个仓发布。**公开仓里没有应用源码** —— 只有产物,加一个
+**构建产物的 workflow**(2026-10-26 起,见下面「发布链的执行者」)。
 
 站点从 2026-10-23 起只发两条渠道:**测试版 β(主下载)** 与 **开发版 dev(可选)**。
 正式版渠道(旧的 `/media/gaia.apk`)已移除;`release.yml` 的 `publish-site` job
@@ -21,6 +22,7 @@ hwkbd_ime/web/       站点源码(VitePress: md / config / 组件 / 样式)
 hwkbd_ime/tools/release/publish-site.sh   取 β/dev + 构建 + 推产物 + 验
 gaia/dist/           构建产物(含两个 APK),进 git
 gaia/.github/workflows/deploy.yml   验产物自洽 + 交 Pages,不构建
+gaia/.github/workflows/publish-ime.yml   在公开仓的 runner 上执行发布链(不构建站点本身)
 ```
 
 ## 为什么是 monorepo:「站点是否与代码同步」原来是个跨仓的人工约定
@@ -48,6 +50,36 @@ CI 出包 → `sync-apk-to-site.sh` 传包到 gaia → 推 gaia 触发 Pages。
 理由:走流水线时,线上那一份对应哪次构建、那次构建有没有失败,
 只存在于某次 CI run 的状态里 —— 而那个状态可以 skipped 且退出码 0。
 产物进 git 之后,线上那一份**可追溯到某个 commit**。
+
+## 发布链的执行者在公开仓:224MB 上不了这台机器的网(2026-10-26)
+
+发一版要塞进 GitHub 的是 β(99MB)+ dev(124MB)+ 站点产物,合计约 224MB。开发机的墙
+不是体积阈值,是**单个 HTTP 请求持续 ~20 秒就被 408 掐断**:实测 12MB 的 `git push`
+在 20.5 秒整失败、2MB 通过;`gh release upload` 3MB 通过、10MB 在 ~101 秒超时。
+git 不续传、也不能把那一个请求切小 ⇒ 这 224MB 从这台机器送不出去。
+源码那一侧同一堵墙已经用「模型出仓库」拆掉了(见 [[voice-input]]);产物这一侧拆不掉,只能换执行机器。
+
+⇒ `gaia/.github/workflows/publish-ime.yml`:在公开仓的**免费** runner 上检出私有源码,
+调**同一批** `tools/release/publish-*.sh`,把产物提交进 `main`。判据全在脚本里,
+逻辑只有一份,搬走的只是执行它的那台机器。私有仓的 Actions 按分钟计费,这条链一分钟都不占。
+
+三条不是风格问题的约束:
+
+1. **只有 `workflow_dispatch`。** 公开仓里任何人都能造出一个触发事件,而这个 job 手里握着
+   能读私有源码的凭据。加 `pull_request_target` / `issue_comment` / `repository_dispatch` / `push`
+   的后果不是「跑到一半失败」,是外人可以发起一次把私有源码打进公开日志的操作。
+   dispatch 需要本仓 write ⇒ 发起方只有维护者本人。
+2. **凭据不对称。** 读私有源码 = secret `IME_SOURCE_PAT`(fine-grained,只授权 `hwkbd_ime` 一个仓、
+   Contents **read-only**,配 `persist-credentials: false`);写 release 资产与 `main` = 本 job 自带的
+   `GITHUB_TOKEN`。手填的 `source_ref` 先在服务端解析成**完整 commit** 再检出:既过一道字符白名单,
+   也让每次发布对应一个确定的 SHA,而不是「master 当时大概指哪儿」。
+3. **签名钥匙绝不进公开仓。** `hwkbd.keystore` 和它的口令本来就提交在私有源码仓里,所以这个 workflow
+   不需要任何签名 secret —— 但它往 `main` 上写的只可能是 APK 与站点产物。钥匙一旦进了公开历史就收不回来,
+   而换钥匙的代价是老用户不能原地升级(Android 按签名判同包)。
+
+公开那份 workflow 会对外透露私有仓的名字、脚本路径与 NDK 版本。闭源项目的元数据少露一点更好
+(见 [[project-licensing]]),但换不掉:不写清这些,下一个改它的人会把免费分钟和凭据范围弄错。
+副作用:`deploy.yml` 监听 `push: [main]` ⇒ 推产物这一步顺带把 Pages 触发掉了,不用再手动 dispatch。
 
 ## Pages 为什么保留 workflow,而不是纯从分支发布
 
@@ -158,3 +190,15 @@ dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
   kind: evidence
   summary: "2026-10-26 复测修正上一条的形状判断:单个 12MB 随机数据的 git push 在 20.5 秒整被 HTTP 408 掐断(未留下远端分支)。所以墙不是「体积 >8MB」而是「单个 HTTP 请求持续 >~20 秒」,本机吞吐现在达不到推 12MB 所需的速度 ⇒ 224MB 走本机正式排除。gaia 上现存那个 11.6MB blob 是网络状态不同时的产物,不能当作今天的依据"
   affects: [site-repo-topology]
+
+- time: 2026-10-26T11:31:27
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-26 发布链执行者移到公开仓 runner"
+  affects: [site-repo-topology]
+
+- time: 2026-10-26T11:31:27
+  kind: decision
+  summary: "发布链的执行者移到公开仓 gaia:新增 .github/workflows/publish-ime.yml(仅 workflow_dispatch),在免费 runner 上用只读 fine-grained PAT 检出私有源码、调同一批 tools/release/publish-*.sh、把 β/dev/站点产物提交进 main。理由是 224MB 从开发机送不出去(单个 HTTP 请求 ~20s 被 408 掐断),不是分钟钱的问题。安全形状三条:只有 workflow_dispatch(公开仓任何人可造触发事件,而这个 job 握有读私有源码的凭据);凭据不对称(读源码 IME_SOURCE_PAT read-only 单仓 + persist-credentials:false,写产物用本 job 的 GITHUB_TOKEN);签名钥匙 hwkbd.keystore 永不进公开仓。source_ref 先解析成完整 commit 再检出。副作用:推 main 顺带触发 deploy.yml"
+  source: "2026-10-26 用户「转到公开仓库」→ 澄清为「只把构建搬到 gaia」"
+  affects: [.github/workflows/publish-ime.yml, tools/release/publish-beta.sh, tools/release/publish-dev.sh, tools/release/publish-site.sh]

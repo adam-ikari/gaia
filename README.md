@@ -96,6 +96,15 @@
 - **Release**(`.github/workflows/release.yml`):推送 `v*` tag → 测试 + 构建 release/debug APK → 创建 GitHub Release
   - 可选签名:仓库 Secrets 配置 `SIGNING_KEYSTORE_BASE64`(jks 的 base64)、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`,release 包自动签名;未配置则出未签名包
 
+- **发布 β / dev / 站点**(2026-10-26 起)**不在本机跑**,在公开仓 `adam-ikari/gaia` 的
+  `.github/workflows/publish-ime.yml` 里(手动 `workflow_dispatch`):它检出本仓、按序调
+  `tools/release/publish-beta.sh` → `publish-dev.sh` → `publish-site.sh`。
+  一次发版要往 GitHub 上传约 224MB,而开发机的单个 HTTP 请求超过 ~20 秒就被 408 掐断;
+  公开仓的执行免费也不占私有仓的计费分钟。
+  需要先在本仓配好一个只读本仓的 fine-grained PAT,存成 gaia 的 secret `IME_SOURCE_PAT`。
+  `gate.sh --beta` 仍在本地跑,且要发的那个 commit **必须先推到 `origin/master`**。
+  背景与判据见 `docs/versioning.md`。
+
 安装:`adb install app-debug.apk` 或下载 Release 包手动安装,然后系统设置里启用并选择本输入法。首次打开任意输入框会后台加载词库(约 1-2 秒)。
 
 ## 许可
