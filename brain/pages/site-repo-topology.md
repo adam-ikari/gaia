@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-26T14:31:05"
+updated: "2026-10-26T15:26:06"
 ---
 
 <!-- compiled_truth -->
@@ -269,3 +269,9 @@ manifest 里写死 release + 资产名,正是为了让部署侧**没有可猜的
   summary: "新部署步在推之前跑过 18 个分支:happy(两渠道落地)、下载失败三次、截断、同长度换字节、资产名匹配到两个、文件改名、target 越界/非白名单、sha 非十六进制、size 字符串或负数、release 含空格或斜杠、version 含空白、schema=2、site_repo 不匹配、缺 beta、source_commit 非 SHA —— 失败路径全部 rc=1 且 dist/media 为空(不放任何东西上去)。自己写的第一版有个真缺陷:python 的诊断走 stdout 被命令替换吸进变量,失败时只剩一句「解析 manifest 失败」,看不出哪个字段不对 ⇒ 改成数据进文件、诊断进 stderr。真 run 只验到迁移分支(旧形状照旧部署、deploy-pages success、线上首页与两个 apk URL 全 200);manifest 分支在真 runner 上取 100MB 级资产、以及 upload-pages-artifact 承载约 222MB 仍未跑过"
   source: "2026-10-26 本地仿真(stub gh + 真旧产物)+ 真 run 40279394840"
   affects: [gaia/.github/workflows/deploy.yml]
+
+- time: 2026-10-26T15:26:06
+  kind: evidence
+  summary: "站点侧唯一未验的物理假设实测通过:upload-pages-artifact 能承载 233MB。dist/media 里放 103,060,018 + 130,072,818 = 233,132,836 字节的 /dev/urandom 数据(不是 truncate —— 稀疏文件是 0 字节而 artifact 流式压缩上传,全零会被压没,那会验出假绿),抽头 8MB gzip 后 ≈100% 当场自证压不动。存下来的 Final size = 233,204,557 字节(差 71,721 是压缩容器),上传 6.4 秒,整个 job 16 秒 ⇒ runner 侧吞吐约 36MB/s,与本机那条 ~20-30 秒的窗口无关。没有 deploy-pages 那一步,线上一个字节未动 ⇒ 发布链不再有已知未知,只剩第一次真跑的工程风险"
+  source: "2026-10-26 gaia run 40285493319(一次性探针 workflow,已从 main 删除、artifact 已删)"
+  affects: [gaia/.github/workflows/deploy.yml, tools/release/publish-site.sh]
