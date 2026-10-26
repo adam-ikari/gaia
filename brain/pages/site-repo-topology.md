@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-23T12:04:16"
+updated: "2026-10-26T11:14:13"
 ---
 
 <!-- compiled_truth -->
@@ -148,3 +148,8 @@ dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
   summary: "站点只发 β + dev(2026-10-23):移除正式版主渠道与同步链路;β 是主下载(fatal),dev 可选;产物渠道白名单"
   source: "2026-10-23 用户「统一网站 只有beta版本和dev版本 删除其他的版」"
   affects: [site-repo-topology]
+
+- time: 2026-10-26T11:14:13
+  kind: evidence
+  summary: "2026-10-26 源码侧的上传墙解除:模型出仓库后,未推送的 9 个 commit 里 112.5MB 是死掉的 vosk/sherpa blob、源码只 1.05MB。在临时克隆里跑 filter-branch 丢这两个路径,回活仓只做一次 git update-ref CAS(备份 tag backup/pre-rewrite-20261026),af244e7..2ad3515 推送成功。**产物侧仍未解除**:gaia/dist/media 现在那份是 7.8MB+11.6MB,下次发版要塞进 git 的是 β 99MB + dev 124MB ≈ 224MB,而这台机器单个 git 请求超过 ~20 秒就被 408 掐断(实测 8MB 挂、2MB 过;release 资产 10MB 在 ~101s 超时)。私有源仓的 Actions 按分钟计费,公开 gaia 的 deploy.yml 免费但按设计不构建、不取外物"
+  affects: [tools/release/publish-site.sh, tools/release/publish-beta.sh, tools/release/publish-dev.sh]
