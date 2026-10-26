@@ -97,8 +97,13 @@ librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
   - 上游：https://github.com/k2-fsa/sherpa-onnx
   - 打包来源：https://github.com/bihe0832/AndroidAppFactory
   - 上游项目为 Apache License 2.0。
-- `paraformer-zh-small`（内置中文模型，`assets/sherpa/`）
-  - 来源：https://github.com/k2-fsa/sherpa-onnx/releases（`sherpa-onnx-paraformer-zh-small-2024-03-09`）
+- `paraformer-zh-small`（内置中文模型，构建期打进 `assets/sherpa/`）
+  - 来源：https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2
+  - 压缩包 sha256：`da92b3db5218c5be53aad53e57d1b6e63e7fc98a0e054fbdd6dbe18e9c6b1450`（77,920,048 字节）
+  - **模型不在版本库里**：`:app:fetchVoiceModel` 按上面这个 URL 下载、校验 sha256，
+    解出 `model.int8.onnx` + `tokens.txt` 重打包成 `paraformer-zh-small.zip` 挂进 assets。
+    原件缓存 `.cache/voice-model/`（gitignore），离线时用 `-PvoiceModelTar=<路径>` 指给构建。
+    钉 sha256 是因为上游 release 资产可被替换：不校验的话「构建成功」只说明拿到过某个 79MB 的包。
   - 权重源自 FunASR / ModelScope 的 Paraformer 中文小模型，经 sherpa-onnx 转为 ONNX 后以 Apache 2.0 分发。
   - 上游项目：https://github.com/modelscope/FunASR（Apache License 2.0）
 - 许可证全文：https://www.apache.org/licenses/LICENSE-2.0

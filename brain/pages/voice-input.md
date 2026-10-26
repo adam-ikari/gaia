@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, voice, permission]
 created: "2026-10-24T14:31:03"
-updated: "2026-10-24T22:05:17"
+updated: "2026-10-26T10:49:15"
 ---
 
 <!-- compiled_truth -->
@@ -17,7 +17,7 @@ updated: "2026-10-24T22:05:17"
 | 语言 | **仅中文**。英文长按空格直接提示不支持,没有云端可换 |
 | 配置 | **零配置**。没有引擎选择、没有密钥输入框、没有任何需要填写的东西 |
 | 网络 | 不联网,Manifest **不声明 `INTERNET`**;`RECORD_AUDIO` 是应用唯一的敏感权限 |
-| 体积 | 模型 zip 约 71MB(`assets/sherpa/`),dev APK 约 124MB |
+| 体积 | 模型 zip 约 71MB(**构建期下载**,不在仓库里),dev APK 约 124MB |
 
 ## 为什么删掉云端
 
@@ -40,7 +40,12 @@ updated: "2026-10-24T22:05:17"
 
 ## 本地模型
 
-- zip 放在 `app/src/main/assets/sherpa/paraformer-zh-small.zip`,`noCompress += "zip"`。首次使用解压到 `filesDir/sherpa/paraformer-zh-small/`:先解到 `.tmp`,校验 zip-slip,写完 `.ready` 再改名;中断不会留下半份模型。
+- zip 由 `:app:fetchVoiceModel` 在构建期产出到 `build/generated/voiceAssets/sherpa/`(作为 main assets 的一个 srcDir),模型**不在版本库里**;`noCompress += "zip"`。首次使用解压到 `filesDir/sherpa/paraformer-zh-small/`:先解到 `.tmp`,校验 zip-slip,写完 `.ready` 再改名;中断不会留下半份模型。
+- 源包:`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2`(77,920,048 字节,sha256 `da92b3db5218c5be53aad53e57d1b6e63e7fc98a0e054fbdd6dbe18e9c6b1450`)。任务只取 `model.int8.onnx` + `tokens.txt`,按固定条目时间与顺序重打包 —— 同一个源包编出同一个 zip,否则「按 hash 复现」被一个随机器时间变的二进制破坏。
+- **为什么不提交进仓库(2026-10-26 推翻「直接内置」)**:这台机器到 GitHub 的**上传**在 8MB 就被 HTTP 408 掐断(实测 2MB 过、8MB/20MB 挂;release 资产 3MB 过、10MB 挂)。74MB 的模型进 git 等于**整个仓库推不上去** —— 源码那几 MB 被一个二进制绑死。
+- 缓存与截断:`<root>/.cache/voice-model/paraformer/<版本>/` 只存原始 tar.bz2(gitignore,`./gradlew clean` 不清它);解包放 `build/tmp/`(上游包里白带着 fp32 模型与测试音频,400MB 上下)。这条网络**连下载也会静默截断**(实测只拿到 46,872,955/77,920,048 字节而连接正常结束),所以下载按 `.tmp` 断点续传、**先对字节数再对 sha256**;字节数完整而 sha 不符才判定为上游换包。
+- 离线逃生口:`-PvoiceModelTar=/path/to/那个tar.bz2`,用本地那份,依旧校验 sha256。
+
 - 开关一打开就 `prepare()` 预热,别让用户长按时等解压;松手到出字在 Titan 2 上约 0.3–0.7s。
 - R8 要 keep `com.k2fsa.sherpa.onnx.**`:config/recognizer 由 JNI 按类名与字段名读取,混淆后症状是模型路径传进去、第一次 `decode` 才崩。
 
@@ -123,3 +128,71 @@ updated: "2026-10-24T22:05:17"
   summary: "老用户本机填过的云端密钥要抹掉:ImeRuntime.init 一次性 remove voice_engine 与五个密钥键 —— 代码不读不等于不存在,备份/取证仍会带走"
   source: "2026-10-24 移除云端时的隐私自查"
   affects: [voice-input]
+
+
+## Timeline
+
+- time: 2026-10-24T14:31:03
+  kind: decision
+  summary: "Created this page: 长按空格语音输入:系统 SpeechRecognizer + 设置开关"
+  source: created via brain create-page
+  affects: [voice-input]
+
+- time: 2026-10-24T14:31:11
+  kind: decision
+  summary: "语音输入定为:设置开关默认关、空闲 L1 长按空格才武装、按住说话松手上屏;权限只能由设置页申请,IME 启动失败退回一个空格"
+  source: "2026-10-24 用户「添加语音输入方式 / 触发方式是长按空格键 设置里增加一个开关」"
+  affects: [voice-input]
+
+- time: 2026-10-24T16:12:17
+  kind: decision
+  summary: "语音输入改用可切换引擎:默认内置 Vosk 离线,云端可选腾讯云一句话识别或讯飞流式听写;彻底移除系统 SpeechRecognizer"
+  source: "2026-10-24 用户「不能依赖google服务 选择其他的方法」「先做本地 云端使用腾讯云和讯飞两个服务」「直接内置」"
+  affects: [voice-input]
+
+- time: 2026-10-24T16:17:55
+  kind: evidence
+  summary: "构建验证:testDebugUnitTest(含两个签名固定向量)通过;assembleDebug 与 assembleBeta(R8)通过;beta APK 60MB、debug 86MB(双 ABI),均含 43.9MB 模型 zip;Vosk/JNA keep 规则生效(mapping 中 org.vosk 未改名)。真机拾音与模型解压仍未验证"
+  source: "2026-10-24 本地构建"
+  affects: [voice-input]
+
+- time: 2026-10-24T18:10:49
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-24 用户「本地语音识别效果很差 换一个模型」→ 选 Paraformer-zh-small;同时加入云端失败自动回落与语音 HUD"
+  affects: [voice-input]
+
+- time: 2026-10-24T18:10:49
+  kind: decision
+  summary: "本地引擎从 Vosk small 换成 sherpa-onnx + Paraformer-zh-small(int8,71MB zip);云端失败自动用本地重识别,5 分钟冷却;语音 HUD 显示麦克风+音量表;无云端密钥也可开启语音开关"
+  source: "2026-10-24 用户「本地语音识别效果很差 换一个模型」「云端api不可调用或者额度耗尽的时候使用本地模型」「语音识别的时候需要显示一个悬浮的麦克风图标和音量表」"
+  affects: [voice-input]
+
+- time: 2026-10-24T22:05:07
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-24 用户「删除云端API和配置页面项」"
+  affects: [voice-input]
+
+- time: 2026-10-24T22:05:08
+  kind: reversal
+  summary: "推翻「云端可选 + 失败自动回落本地」:整体删除腾讯云/讯飞引擎、签名实现与单测、引擎选择与密钥设置项、云端回落逻辑、INTERNET 权限与 OkHttp 依赖。语音输入只剩本地 sherpa-onnx Paraformer,仅中文、零配置"
+  source: "2026-10-24 用户「删除云端API和配置页面项」;此前确认云端不填 key 无法使用(TC3/HMAC 鉴权在请求本体内)"
+  affects: [voice-input, stack]
+
+- time: 2026-10-24T22:05:17
+  kind: note
+  summary: "老用户本机填过的云端密钥要抹掉:ImeRuntime.init 一次性 remove voice_engine 与五个密钥键 —— 代码不读不等于不存在,备份/取证仍会带走"
+  source: "2026-10-24 移除云端时的隐私自查"
+  affects: [voice-input]
+
+- time: 2026-10-26T10:49:03
+  kind: decision
+  summary: "语音模型改为构建期下载+缓存(不在仓库):钉 URL/sha256、断点续传、-PvoiceModelTar 逃生口;理由是这台机器 GitHub 上传 8MB 即 408"
+  source: "用户 2026-10-26「模型构建时下载缓存」"
+  affects: [voice-input]
+
+- time: 2026-10-26T10:49:15
+  kind: reversal
+  summary: "推翻「模型 zip 直接内置进仓库(app/src/main/assets/sherpa/paraformer-zh-small.zip)」:改为 :app:fetchVoiceModel 构建期按固定 URL+sha256 下载、解包重打包到 build/generated/voiceAssets 并挂进 main assets。理由不是洁癖,是这台机器 git push 到 8MB 就 HTTP 408 —— 带着 74MB 的仓库根本推不上去,连源码一起锁死"
+  affects: [app/build.gradle.kts, app/src/main/assets/sherpa, .gitignore, THIRD_PARTY_NOTICES.md, README.md]

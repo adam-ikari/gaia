@@ -78,6 +78,12 @@
 
 要求 JDK 17,Android SDK(compileSdk 36 缺失时 AGP 自动下载)。
 
+**第一次构建需要网络**:离线语音模型(Paraformer-zh-small,压缩包 78MB)**不在版本库里**,
+由 `:app:fetchVoiceModel` 按钉死的 URL 下载并校验 sha256,解出 `model.int8.onnx` + `tokens.txt`
+重打包后作为 assets 挂进 APK。原件缓存 `.cache/voice-model/`,`./gradlew clean` 不清它。
+离线构建:`./gradlew :app:assembleDev -PvoiceModelTar=/path/to/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2`
+(依旧校验 sha256)。理由与实现见 `app/build.gradle.kts` 的 `FetchVoiceModel`。
+
 ## CI/CD
 
 - **CI**(GitHub Actions,`.github/workflows/ci.yml`):push/PR → 单测 + assembleDebug,上传 APK 构件
