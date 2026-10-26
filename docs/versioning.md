@@ -102,13 +102,23 @@ tools/release/publish-beta.sh         # 编 + 发到公开仓 gaia 的 beta-<has
 tools/release/publish-site.sh         # 构建站点 + 推产物 + 验线上字节
 ```
 
-**为什么那三步换机器**(2026-10-26):一次发版要塞进 GitHub 的是 β 99MB + dev 124MB
-+ 站点产物,合计约 224MB;而开发机的墙是「单个 HTTP 请求持续 ~20 秒就被 408 掐断」
-(实测 12MB 的 `git push` 在 20.5 秒整失败、2MB 通过)。一个请求切不小、git 不续传,
-所以换的不是「谁来传」而是「谁来编」。执行位置变了,判据没变 —— workflow 只是调
-同一批脚本,逻辑只有一份(详见 gaia 的 `.github/workflows/publish-ime.yml` 与 brain 的
-`site-repo-topology`)。前提:**要发的那个 commit 必须先推到 `origin/master`**,
-runner 检出的是远端,不是这个工作区。
+**为什么那三步换机器**(2026-10-26。这一条的理由当天纠正过一次,记在这里是因为
+错过的那版本听起来同样有道理):一次发版要塞进 GitHub 的是 β 103,060,018 +
+dev 130,072,818 字节,再加站点产物。
+
+- 先记的理由是「开发机的单个 HTTP 请求持续 ~20 秒就被 408 掐断」(实测 12MB 的
+  `git push` 在 20.5 秒整失败、2MB 通过)。那条**是真的,但它不是这次的原因** ——
+  它只说明这台机器传得慢,不说明为什么必须换形状。
+- 真正封死的是 GitHub 对**单文件 100.00MB** 的 push 硬上限(pre-receive hook 报
+  `GH001`),与机器、与网络都无关:本地拿一个 110MB 的**稀疏文件**(pack 里≈0 字节,
+  几乎不需要上传)推上去,4.1 秒被拒。
+- 所以换的其实是「谁来编」。runner 在 GitHub 自己的网络上取 release 资产、传
+  artifact,既不过那道 ~30 秒的窗口,也不受 push 上限的约束 —— 因为包**根本不进 git**
+  (见下面「站点侧的形状」)。
+
+执行位置变了,判据没变 —— workflow 只是调同一批脚本,逻辑只有一份(详见 gaia 的
+`.github/workflows/publish-ime.yml` 与 brain 的 `site-repo-topology`)。
+前提:**要发的那个 commit 必须先推到 `origin/master`**,runner 检出的是远端,不是这个工作区。
 
 beta 的 release 是**每次构建一个** `beta-<hash>`(prerelease),
 站点按**内容**挑渠道:找 prerelease 里**含 `app-beta-*` 资产**的那个,
@@ -132,9 +142,33 @@ git tag -a v0.5.2 -m "v0.5.2" && git push origin v0.5.2
 判据是**公开站点上那份与本地产物逐字节一致**。
 
 站点源码在本仓库 `web/`,构建脚本是这里的 `publish-site.sh`(2026-10-26 起由 gaia 的
-runner 执行),产物推进公开仓 `adam-ikari/gaia`,
-Pages 从那个仓的 `main` 分支发布。**公开仓里没有应用源码,只有产物** ——
-例外是一条构建这些产物的 workflow(2026-10-26 起),它不含应用源码。
+runner 执行),产物推进公开仓 `adam-ikari/gaia`,Pages 从那个仓的 `main` 分支发布。
+**公开仓里没有应用源码** —— 例外是两条构建产物的 workflow(2026-10-26 起),它们不含应用源码。
+
+### 站点侧的形状(2026-10-26 起)
+
+`main` 的 `dist/` 里**只有页面 + 一份 `_artifact-manifest.json`**,合计几百 KB。两个 APK
+不在 git 里,由 gaia 的 `deploy.yml` 在部署前按 manifest 从**本仓的 release 资产**取回来,
+放进 `dist/media/` 再交给 `upload-pages-artifact`(Pages 走 artifact 路线不限单文件大小)。
+
+manifest 长这样(`publish-site.sh` 构建前生成,页面注入的那些数字来自同一份数据):
+
+```json
+{"schema": 1, "site_repo": "adam-ikari/gaia", "source_repo": "adam-ikari/hwkbd_ime",
+ "source_commit": "<40 位 SHA>",
+ "channels": {"beta": {"release": "beta-<hash>", "asset": "app-beta-<hash>.apk",
+                       "target": "media/gaia-beta.apk", "version": "<hash>",
+                       "size": <字节>, "sha256": "<64 位>"}}}
+```
+
+部署侧对每一渠道核对**字节数**(截断)与 **sha256**(同名资产被换过),再落文件;
+任一条不对就让 run 红,而 `upload-pages-artifact` 在它后面 ⇒ 拿不到成功的 step
+就没有产物 ⇒ 站点停在上一次那一份自洽的东西上。取包失败也算错:manifest 里列了某渠道,
+就意味着页面**已经渲染了那个按钮**,少放一个包线上就是个点开 404 的按钮。
+
+「产物进 git」原本免费送的两样东西,由这条链补回来:
+**线上那份能追溯到某个 commit**(manifest 的 `source_commit`,部署日志第一行就打它),
+以及**部署出去的字节 == 构建时被核对过的字节**(同一个 sha256 在两处比)。
 
 ## 一次真实的漂移(2026-10-05,写这条规则的原因)
 
@@ -162,18 +196,23 @@ Pages 从那个仓的 `main` 分支发布。**公开仓里没有应用源码,只
 ### 第 6 步:验(2026-10-05 写,2026-10-08 换了脚本)
 
 原先是「打印一句提醒人去查」——**提醒不算验证**,所以它被漏过。
-`publish-site.sh` 自己做完:
+`publish-site.sh` 自己做完,加上 gaia 的 `deploy.yml` 那半场:
 
-| 验什么 | 判据 |
-| --- | --- |
-| 公开站点上的 `media/gaia-beta.apk` 是这次的包 | 与本地产物**逐字节**一致（轮询到对为止） |
-| 公开站点的首页是这次的产物 | 与本地产物的 `index.html` 逐字节一致 |
-| 页面上给用户的 sha256 对得上 | 产物里 APK 的 sha256 与注入值一致 |
-| 产物里没有指向 404 的下载链接 | 两条渠道的 APK 要么在产物里、要么按钮不渲染 |
+| 验什么 | 在哪验 | 判据 |
+| --- | --- | --- |
+| 公开站点上的 `media/gaia-beta.apk` 是这次的包 | publish-site | 与本地产物**逐字节**一致(轮询到对为止) |
+| 公开站点的首页是这次的产物 | publish-site | 与本地产物的 `index.html` 逐字节一致 |
+| 页面上给用户的 sha256 对得上 | 两边 | 产物里的静态资源里搜得到那份包字节的 sha256;部署侧再对一次 |
+| manifest 在产物里、且没人动过它 | publish-site | 与构建前写的那份 `cmp` 一致 |
+| 产物推得上去 | publish-site | `dist/` 里没有 >90MB 的文件 |
+| 站点没有指向 404 的下载链接 | deploy.yml | manifest 列了哪个渠道,那个渠道的包就必须取到并放进 `dist/` |
+| 部署出去的字节 == 构建时核对过的字节 | deploy.yml | 先比 `size`(截断)再比 `sha256`(被换过) |
 
-关键区分:**release 资产、Pages 产物、公开站点上是三个东西**。
-上传成功就能过 `releases/latest/download/…` 那道 200,而站点按钮发的是站点上那份,
-它只在产物推送之后才刷新 —— 所以「200」验不到它。
+关键区分:**release 资产、git 里的产物、部署时组装的 artifact、公开站点上是四个东西**。
+上传成功就能过 `releases/latest/download/…` 那道 200;git 里那份只证明「推上去了」;
+Pages 只在 `deploy-pages` 跑完之后才刷新 —— 所以「200」和「push 成功」都验不到线上那份。
+2026-10-26 之前这三样只有三个(包本身就在 git 的产物里),现在中间多了一跳,
+而那一跳是**部署时**发生的:所以判据里必须有「按 manifest 取回来的字节对不对」。
 
 **比字节而不是比 `versionCode`**:字节相同 ⇒ 版本号必然相同(它就在 APK 里);
 只比版本号会漏掉「同一版本号配不同字节」—— 安卓会拒装升级,

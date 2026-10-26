@@ -99,8 +99,11 @@
 - **发布 β / dev / 站点**(2026-10-26 起)**不在本机跑**,在公开仓 `adam-ikari/gaia` 的
   `.github/workflows/publish-ime.yml` 里(手动 `workflow_dispatch`):它检出本仓、按序调
   `tools/release/publish-beta.sh` → `publish-dev.sh` → `publish-site.sh`。
-  一次发版要往 GitHub 上传约 224MB,而开发机的单个 HTTP 请求超过 ~20 秒就被 408 掐断;
-  公开仓的执行免费也不占私有仓的计费分钟。
+  换机器的理由是 GitHub 对**单文件 100.00MB 的 push 硬上限**(`GH001`,与网络无关):
+  β 与 dev 各自 103,060,018 / 130,072,818 字节,本来就进不了 git;公开仓的执行还免费、
+  不占私有仓的计费分钟。于是 `gaia` 的 `main` 里只放**页面 + 一份 manifest**,
+  两个包由部署侧的 `deploy.yml` 按 manifest 从本仓 release 资产取回、核对字节数与
+  sha256 之后交给 Pages 的 artifact(那条路线不限单文件大小)。
   需要先在本仓配好一个只读本仓的 fine-grained PAT,存成 gaia 的 secret `IME_SOURCE_PAT`。
   `gate.sh --beta` 仍在本地跑,且要发的那个 commit **必须先推到 `origin/master`**。
   背景与判据见 `docs/versioning.md`。

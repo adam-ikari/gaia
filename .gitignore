@@ -27,10 +27,15 @@ node_modules/
 
 # 站点(web/,VitePress)
 #
-# **APK 不进本仓库的 git**:它每次发版变一次,6.9–28MB,进历史只是让每次
-# diff 都拖着一堆二进制。取包在 publish-site.sh 里做(落到下面这个目录),
-# 构建完只把**产物**推进公开仓。
+# APK 与 manifest 都是**构建期的中间产物**,不提交:
+#   · `_artifact-manifest.json` 由 publish-site.sh 每次构建前重写(指向那一版的
+#     release 资产),提交它就是把一个会过期的坐标放进历史;
+#   · `public/media/` 是包的老落点。2026-10-26 起包落去临时目录,因为 β/dev 各自
+#     103,060,018 / 130,072,818 字节**超过 GitHub 单文件 100.00MB 的服务端硬上限**
+#     (push 被 GH001 拒)。这条规则留着是因为有人为了看页面渲染手动丢一个包进去时,
+#     `git add -A` 会连它一起带走 —— 那正是上面那个上限要拦的东西。
 web/docs/public/media/
+web/docs/public/_artifact-manifest.json
 web/docs/.vitepress/dist/
 web/docs/.vitepress/cache/
 

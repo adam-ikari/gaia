@@ -5,12 +5,11 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-26T11:31:37"
+updated: "2026-10-26T14:32:38"
 ---
 
 <!-- compiled_truth -->
-ok
-测试版(beta)不是版本发布:闸门要有专门模式
+## 测试版(beta)不是版本发布:闸门要有专门模式
 
 beta 的身份是 **git hash**(`0.7.11-beta.<hash>`),不占 versionCode、不打 `v*` tag。
 所以闸门里「版本号漂移」「版本号 ↔ tag 对齐」那两步对它**不成立**:
@@ -131,26 +130,31 @@ APK 打完就删 NDK/CMake/`~/.gradle/caches`,并在 AVD 步骤前打 `df -h`。
 
 **教训:action 的输出前面一堆 INFO 时,先去尾部找 FATAL/ERROR,别顺着读。**
 
-## 站点同步:现在是两条手动步骤,判据在脚本退出码里
+## 站点同步:执行者在公开仓的 runner,判据还是脚本的退出码
 
-发版后站点更新要跑**两次**,都是本机脚本、不需要任何 secret:
+发版链三步(`publish-beta.sh` → `publish-dev.sh` → `publish-site.sh`)2026-10-26 起在
+公开仓 gaia 的 runner 上跑:
 
 ```bash
-tools/release/sync-apk-to-site.sh v0.7.10   # 把包挂到 gaia 的同名 Release
-tools/release/publish-site.sh               # 构建站点 + 推产物 + 验线上字节
+gh workflow run publish-ime.yml -R adam-ikari/gaia -f source_ref=master
 ```
 
-`release.yml` 里那个等价的 `publish-site` job 仍然需要 `WEB_RELEASE_TOKEN`,
-**没配就一直 skipped 且退出码 0** —— 流水线全绿但站点停在旧版本。
-2026-10-02 就这样让 v0.4.2 / v0.4.3 只存在于私有仓库。
-现在多一条 `::warning::` 说明这件事,但**判据仍然是脚本的退出码,不是 CI 的状态**。
+前提:**要发的那个 commit 先推到 `origin/master`** —— runner 检出的是远端,不是这个工作区。
+`gate.sh --beta` 也在链里:执行位置一换,「发之前有人先跑一次闸门」就从结构变成了习惯,
+所以它进链而不是靠人记得。
 
-验收不只看文件名:匿名下载 `releases/latest/download/app-release.apk` 与
-release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
-`lib/arm64-v8a/librime_jni.so` 在包里。Pages 那份同样要逐字节核对
-(`publish-site.sh` 最后一步自动做)。
+`sync-apk-to-site.sh` 与 `release.yml` 里那个 `publish-site` job 已在 2026-10-23 随正式版
+渠道一起删除。那个 job 的形状值得记住:它需要 `WEB_RELEASE_TOKEN`,**没配就一直
+skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 / v0.4.3 就是这么只存在于
+私有仓的)。**判据是脚本的退出码,不是 CI 的状态。**
 
-站点源码、产物布局、三道判据与「缺 vs 坏」的规则见 [[site-repo-topology]]。
+线上那份怎么算对:`publish-site.sh` 最后一步把公开站点的 `/media/gaia-beta.apk`、
+`/media/gaia-dev.apk` 与首页 HTML 同本地产物**逐字节**比,轮询到对为止(窗口约 20 分钟 ——
+2026-10-26 起部署侧多了一次「按 manifest 取回 ~220MB 再交 Pages」)。包本身**不进 git**:
+两个包都超过 GitHub 单文件 100.00MB 的 push 硬上限。细节与判据见 [[site-repo-topology]]。
+
+验收不看文件名,也不只看大小:sha256 一律从**下载回来的字节**算(资产 API 只给 name/size),
+再从 APK 里读 manifest 版本号 + 确认 `lib/arm64-v8a/librime_jni.so` 在包里。
 
 
 ## Timeline
@@ -322,3 +326,9 @@ release 附件**逐字节**比,再从 APK 里读 manifest 版本号 + 确认
   summary: "β/dev/站点三步发布链今后在公开仓 gaia 的 publish-ime.yml 里执行(workflow_dispatch 手动触发),不在开发机上跑、也不占私有仓的计费分钟。执行位置和判据分离:判据仍在 tools/release/publish-*.sh 里(工作区必须干净、versionName == HEAD 短 hash、带 .dirty 的包拒发、先建空 release 再上传、上传后回读资产清单核对字节、下载侧比期望字节数)。gate.sh --beta 那一步仍在本地跑;要发的那一版必须先提交并推到 origin/master,否则 runner 检出不到。首次运行前需要在 gaia 配 secret IME_SOURCE_PAT(fine-grained,只读 hwkbd_ime 的 Contents)"
   source: 2026-10-26
   affects: [.github/workflows/publish-ime.yml]
+
+- time: 2026-10-26T14:32:38
+  kind: decision
+  summary: "站点同步一节重写:三步链在 gaia runner 上跑(gate.sh --beta 进链),sync-apk-to-site.sh 与 publish-site job 已删,判据仍是脚本退出码;线上验收是逐字节轮询,窗口约 20 分钟;包不进 git(单文件 100.00MB 上限),由 deploy.yml 按 manifest 取。顺带修掉 compiled_truth 开头一个孤立的 ok 与丢了 ## 的标题"
+  source: "2026-10-26 站点侧掉头(包不进 git)+ 修掉 truth 开头一个孤立 ok"
+  affects: [release-flow]

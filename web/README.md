@@ -50,11 +50,17 @@ docs/
 ```bash
 tools/release/publish-site.sh              # 取包 + 构建 + 推产物 + 验
 tools/release/publish-site.sh --dry-run    # 只构建，打印会推什么
-tools/release/publish-site.sh --skip-fetch # 用 media/ 里已有的包（离线验证构建）
+tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建（隐含 --dry-run，产物不推）
 ```
 
-判据是**公开站点上那份与本地产物逐字节一致**，不是「push 成功了」。
-Pages 从分支发布，`push` 成功与站点已更新是两件事；CDN 还会缓存刚推的那一版。
+**推上去的产物里没有 APK**。`dist/` 只有页面本身加一份 `_artifact-manifest.json`；
+那两个 100MB 级的包由公开仓的 `deploy.yml` 在部署时按 manifest 从 release 资产取回来、
+装进 Pages artifact。原因是 GitHub 对单个文件有 100.00MB 的服务端硬上限，而带离线
+语音模型的包(beta 103.06MB / dev 130.07MB)**推进不去 git，在任何机器上都推进不去**。
+
+判据是**公开站点上那份与本次的包逐字节一致**，不是「push 成功了」。
+Pages 从 workflow 产物发布，`push` 成功与站点已更新是两件事；现在中间还多了一次部署
+(取包 ~220MB + 核对 + 交 Pages)，所以轮询窗口按 20 分钟放。CDN 还会缓存刚推的那一版。
 脚本轮询到字节对上为止，对不上就非零退出。
 
 站点只发两条渠道：**测试版 β（主下载）** 与 **开发版 dev（可选）**。
