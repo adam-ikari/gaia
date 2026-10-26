@@ -7,6 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.security.MessageDigest
 import java.util.Calendar
+import java.util.Properties
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -371,30 +372,32 @@ android {
     ndkVersion = "27.1.12297006"
 
     signingConfigs {
-        // 项目密钥(提交在仓库,个人项目权衡:本地/CI 签名一致 > 私密性)。
-        create("project") {
-            storeFile = rootProject.file("hwkbd.keystore")
-            storePassword = "REDACTED-SIGNING-PASSWORD"
-            keyAlias = "gaia"
-            keyPassword = "REDACTED-SIGNING-PASSWORD"
+        // 签名钥匙不进版本库:仓库是公开的,写死的值就不是「方便」而是公开的密码。
+        // 两个来源同一条路 —— local.properties(已 gitignore,本机)或 SIGNING_* 环境变量(CI 的 secrets)。
+        // 换钥匙的代价是老用户不能原地升级,所以这台机器上的那份就是唯一的钥匙。
+        val signingProps = Properties().apply {
+            val f = rootProject.file("local.properties")
+            if (f.isFile) f.inputStream().use { load(it) }
         }
-        // CI/CD:环境变量注入正式签名时优先于项目密钥
-        val ksPath = System.getenv("SIGNING_KEYSTORE")
-        val storePass = System.getenv("SIGNING_STORE_PASSWORD")
-        if (!ksPath.isNullOrEmpty() && !storePass.isNullOrEmpty() && file(ksPath).exists()) {
-            create("ci") {
-                storeFile = file(ksPath)
+        fun signingValue(key: String, env: String): String? =
+            signingProps.getProperty(key)?.ifBlank { null } ?: System.getenv(env)?.ifBlank { null }
+        val ksPath = signingValue("signing.storeFile", "SIGNING_KEYSTORE")
+        val storePass = signingValue("signing.storePassword", "SIGNING_STORE_PASSWORD")
+        if (ksPath != null && storePass != null) {
+            create("project") {
+                storeFile = rootProject.file(ksPath)
                 storePassword = storePass
-                keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: ""
-                keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: storePass
+                keyAlias = signingValue("signing.keyAlias", "SIGNING_KEY_ALIAS") ?: ""
+                keyPassword = signingValue("signing.keyPassword", "SIGNING_KEY_PASSWORD") ?: storePass
             }
         }
     }
 
     buildTypes {
         getByName("debug") {
-            // debug 也用项目密钥:本地与 CI 构建签名一致,install -r 不再冲突
-            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+            // 有项目密钥就用它(本地与 CI 签名一致,install -r 不冲突);
+            // 没有就什么都不设,退回 AGP 默认的 debug 密钥 —— 陌生人 clone 完也能装
+            signingConfigs.findByName("project")?.let { signingConfig = it }
 
             // **debug 加回 x86_64**:E2E 流水线跑在 x86_64 模拟器上
             // (见 e2e.yml 的 `system-images;android-34;default;x86_64`),
@@ -469,7 +472,7 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
-            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+            signingConfigs.findByName("project")?.let { signingConfig = it }
 
             matchingFallbacks += listOf("release")
         }
@@ -550,7 +553,7 @@ android {
                 abiFilters += listOf("arm64-v8a", "x86_64")
             }
 
-            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+            signingConfigs.findByName("project")?.let { signingConfig = it }
         }
         release {
         // **混淆 + 资源压缩**(2026-10-02「应用包需要安全加固 防止重新打包」)
@@ -567,8 +570,8 @@ android {
         isMinifyEnabled = true
         isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // CI 注入的正式签名优先;否则项目密钥,保证 release 包可直接安装
-            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("project")
+            // 签名只有一条来源(见 signingConfigs):钥匙在不在,决定这个包是签名还是裸包
+            signingConfigs.findByName("project")?.let { signingConfig = it }
         }
     }
 

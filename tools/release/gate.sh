@@ -59,10 +59,10 @@ step() { STEP=$((STEP + 1)); printf '\n\033[1m[%d/%d] %s\033[0m\n' "$STEP" "$TOT
 ok()   { printf '      \033[32m✓\033[0m %s\n' "$1"; }
 die()  { printf '\n\033[31m::error:: %s\033[0m\n' "$1" >&2; exit 1; }
 
-TOTAL=8
+TOTAL=9
 [ "$QUICK" = 1 ] && TOTAL=3
 # 测试版跳过「版本号漂移」「版本号 ↔ tag 对齐」两步 —— 见 check_beta_notes。
-[ "$BETA" = 1 ] && TOTAL=6
+[ "$BETA" = 1 ] && TOTAL=7
 
 # CI 固定的工具版本,三处流水线一致。改这里要同步改三个 yml。
 CI_CMAKE=3.22.1
@@ -334,6 +334,44 @@ check_public_r8() {
 }
 
 # ---------------------------------------------------------------------------
+# 5c. 签名核对:这几个包是不是**同一把钥匙**签的
+#
+# 「CI 是绿的」从来不含签名这件事 —— 因为签名的钥匙和口令就写死在
+# `app/build.gradle.kts` 里,想不签名都难。2026-10-26 仓库转公开,钥匙挪到
+# local.properties / SIGNING_*,于是「两处都没配」第一次变成一个**走得通**的状态:
+# gradle 成功、包产出、sha256 算好、站点更新 —— 只是那个包装不上。
+#
+# ⇒ 判据落在产物上,而且验的不只是「有没有签」:证书 SHA-256 必须是发布用的那把。
+# 一条判据同时抓两种错:未签名,以及换了一把钥匙(后者等于老用户不能原地升级,
+# 而它在任何构建日志里都不显眼)。指纹本身是公开信息(装了包的人 keytool 就有),
+# 所以它可以写进版本库 —— 需要保密的是私钥,不是「这把公钥的摘要」。
+# ---------------------------------------------------------------------------
+check_signing() {
+  step "签名核对(验产物)"
+  local want=26bb762cac05ff1edd02fafc2a3cc5892242c87c06c904ceb9474761d2218dcd
+  local bin
+  bin=$(command -v apksigner 2>/dev/null || ls "${ANDROID_HOME:-}"/build-tools/*/apksigner 2>/dev/null | tail -1)
+  [ -n "$bin" ] || die "找不到 apksigner(ANDROID_HOME=${ANDROID_HOME:-未设置})"
+  local v apk got bad=0
+  for v in release debug beta dev; do
+    apk="app/build/outputs/apk/$v/app-$v.apk"
+    [ -s "$apk" ] || { printf '      \033[31m✗\033[0m %s: 没有 %s\n' "$v" "$apk"; bad=1; continue; }
+    got=$("$bin" verify --print-certs "$apk" 2>/dev/null \
+          | awk '/certificate SHA-256 digest:/{print tolower($NF); exit}')
+    if [ -z "$got" ]; then
+      printf '      \033[31m✗\033[0m %s: **未签名** —— 装上会报「软件包无效」\n' "$v"; bad=1
+    elif [ "$got" != "$want" ]; then
+      printf '      \033[31m✗\033[0m %s: 证书是 %s\n' "$v" "$got"
+      printf '          不是发布用的那把(%s)⇒ 老用户无法原地升级\n' "$want"; bad=1
+    else
+      ok "$v: $got"
+    fi
+  done
+  [ "$bad" = 0 ] || die "签名不对,别发。钥匙来源二选一:local.properties 的 signing.*(本机)或 SIGNING_*(CI 的 secrets)。
+     两处都没有 ⇒ 编出来的是裸包:装不上,而构建日志每一步都是绿的。"
+}
+
+# ---------------------------------------------------------------------------
 # 6. JNI 闸门:R8 有没有削掉入口名
 #
 # R8 只看得到显式引用,而 JNI 的方法名是 native 侧按**字符串**解析的
@@ -432,11 +470,12 @@ fi
 run_tests
 assemble
 check_public_r8
+check_signing
 check_jni
 [ "$RELEASE" = 1 ] && check_e2e_cited
 
 printf '\n\033[32m闸门通过\033[0m\n'
 if [ "$RELEASE" != 1 ]; then
-  printf '提醒:这**不等于**产物侧全查了。产物侧要的是 E2E(跑 debug 包)\n'
-  printf '      与签名核对,见 docs/branching.md「四道闸门,各有各的覆盖面」。\n'
+  printf '提醒:这**不等于**产物侧全查了。签名与 R8 已验过产物,剩下的盲区是 E2E\n'
+  printf '      (它跑 debug 包,验的是代码不是产物),见 docs/branching.md「四道闸门,各有各的覆盖面」。\n'
 fi

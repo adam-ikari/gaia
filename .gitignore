@@ -16,6 +16,12 @@ build/
 # Local config
 local.properties
 
+# 签名钥匙。口令在 local.properties 里,钥匙本身同样不许进版本库 ——
+# 仓库是公开的,而换钥匙意味着老用户不能原地升级,丢了就是不可逆。
+hwkbd.keystore
+*.jks
+*.keystore
+
 # Python venv
 .venv/
 
