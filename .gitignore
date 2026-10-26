@@ -2,6 +2,13 @@
 .gradle/
 build/
 
+# 离线语音模型的构建期缓存(78MB 的 tar.bz2,由 :app:fetchVoiceModel 下载)
+#
+# 不进 git:它是一次性下载的原料,产物 zip 由构建重新生成;而且这台机器
+# 传 8MB 以上就会被 HTTP 408 掐断,把 78MB 提交进历史等于整个仓库推不上去。
+# `./gradlew clean` 不清这里 —— 只有第一次构建需要网络。
+.cache/
+
 # IDE
 .idea/
 *.iml
