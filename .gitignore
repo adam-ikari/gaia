@@ -81,3 +81,8 @@ app/build/outputs/mapping/
 
 # 本地调试日志(gradle / submodule / 构建脚本留下的)
 *.log
+
+# 调试抓取。这份是 2026-09-29 `dumpsys window windows` 的现场,里面有测试机的
+# IMEI/序列号形态的 15 位数字 —— 仓库公开后它就是可检索的设备标识。留在磁盘上,
+# 不进版本库(它当初是被 `git add -A` 顺手带进来的)。
+.win.txt
