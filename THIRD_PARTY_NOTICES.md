@@ -1,7 +1,7 @@
 # 第三方许可与署名（THIRD PARTY NOTICES）
 
 本文件是盖亚输入法（Gaia IME，工程名 `hwkbd_ime`）对**第三方组件与数据**的署名与许可说明。
-本软件自身是专有软件、保留所有权利，其条款见同目录的 [LICENSE](LICENSE)；本文件只覆盖外部组件，
+本软件自身以 GPL-3.0-only 提供，其条款见同目录的 [LICENSE](LICENSE)；本文件只覆盖外部组件，
 不构成对它们的再许可。
 
 进到 APK 里的第三方东西只有下列这些。构建工具（AGP / lint / Gradle 插件）只在构建期使用，

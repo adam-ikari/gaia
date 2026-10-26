@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-26T07:26:06.955Z._
+_Auto-generated. Last updated 2026-10-26T08:16:19.056Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [chinese-ime-lm-survey](pages/chinese-ime-lm-survey.md) — category: reference | tags: [survey, license, eval] | - **它是什么**:`metasequoiaime/chinese-ime-lm`(Rust,仓库 GPL-3.0,2025-11 建,869 stars),面向中文输入法的语言模型工程,配套输入法是 MSIME。
@@ -13,10 +13,11 @@ _Auto-generated. Last updated 2026-10-26T07:26:06.955Z._
 - [ime-strategy-registry](pages/ime-strategy-registry.md) — category: decision | tags: [策略, 注册表, L4, 扩展性] | # 策略注册表与 L4 上下文键位
 - [l6-virtual-keyboard](pages/l6-virtual-keyboard.md) — category: decision | tags: [ime, l6, ui, keymap] | ok
 - [librime-android-build](pages/librime-android-build.md) — category: project | tags: [librime, android, ndk, cmake, jni, rime] | ## 结论先行
+- [open-source-licensing](pages/open-source-licensing.md) — category: decision | tags: [license, open-source, gpl, distribution] | 盖亚输入法(Gaia)以 **GPL-3.0-only** 提供(`Copyright (c) 2026 adam-ikari`),源码仓
 - [paging-feel](pages/paging-feel.md) — category: decision | tags: [gesture, animation, paging] | ---
 - [pending-todos](pages/pending-todos.md) — category: project | tags: [todo, backlog] | ok
 - [pinyin-dict-strategy](pages/pinyin-dict-strategy.md) — category: decision | tags: [pinyin, dict] | 自带"中等词库"，并提供导入通道扩容（用户已确认该路线）。
-- [project-licensing](pages/project-licensing.md) — category: decision | tags: [license, proprietary, distribution] | 盖亚输入法(Gaia)是**闭源专有软件**:专有许可证保留所有权利;源码仓库 `adam-ikari/hwkbd_ime` 为
+- [project-licensing](pages/project-licensing.md) — category: decision | status: archived | tags: [license, proprietary, distribution] | 盖亚输入法(Gaia)以 **GPL-3.0-only** 提供(`Copyright (c) 2026 adam-ikari`),源码仓
 - [reference-cocoime](pages/reference-cocoime.md) — category: reference | tags: [ime, reference, cocoime] | 「可可拼音输入法」（COCOZQ，`com.cocozq.inputmethod.pinyin`）是本项目的模仿对象：基于早期 Android `LatinIME`，服务黑莓 Priv/KEYone/KEY2、Unihertz Titan 系列、Titan 2、Minimal P
 - [release-flow](pages/release-flow.md) — category: project | tags: [release, ci, tooling] | ## 测试版(beta)不是版本发布:闸门要有专门模式
 - [rime-candidate-consumption](pages/rime-candidate-consumption.md) — category: decision | tags: [rime, pinyin, 选词, 消费, 选字] | ## 单位是**含撇 raw 的直接下标**,由 `GetCurrentStartPosition()` 给 —— 第三次定案(2026-10-18)

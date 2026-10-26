@@ -82,7 +82,7 @@
     -->
     <string name="pref_category_licenses">许可</string>
     <string name="pref_licenses">开源许可</string>
-    <string name="licenses_body">本软件使用了下列开源组件。它们的著作权归各自作者所有，并按所列许可证提供。\n\nAndroidX（core-ktx / appcompat / preference / dynamicanimation）\nApache License 2.0\n\nKotlin 标准库、kotlinx-coroutines\nApache License 2.0（含 Kotlin 例外条款）\n\nRime 输入引擎（librime）\nBSD-3-Clause，Copyright (c) 2014 RIME Developers\n· 随包编译进 librime_jni.so 的第三方组件：\n  yaml-cpp（MIT）· leveldb（BSD-3-Clause）·\n  marisa-trie（BSD-2-Clause OR LGPL-2.1）· OpenCC（Apache License 2.0）\n\n内置词库数据\n· 拼音方案与词条来自 Rime 项目的 data/minimal（luna_pinyin）\n  BSD-3-Clause，Copyright (c) 2014 RIME Developers\n\n语音识别\n· sherpa-onnx（k2-fsa）与内置中文模型 Paraformer-zh-small\n  Apache License 2.0\n\n上述许可要求保留版权与声明，故此处署名。完整许可证全文见项目仓库的 THIRD_PARTY_NOTICES。</string>
+    <string name="licenses_body">本软件使用了下列开源组件。它们的著作权归各自作者所有，并按所列许可证提供。\n\nAndroidX（core-ktx / appcompat / preference / dynamicanimation）\nApache License 2.0\n\nKotlin 标准库、kotlinx-coroutines\nApache License 2.0（含 Kotlin 例外条款）\n\nRime 输入引擎（librime）\nBSD-3-Clause，Copyright (c) 2014 RIME Developers\n· 随包编译进 librime_jni.so 的第三方组件：\n  yaml-cpp（MIT）· leveldb（BSD-3-Clause）·\n  marisa-trie（BSD-2-Clause OR LGPL-2.1）· OpenCC（Apache License 2.0）\n\n内置词库数据\n· 拼音方案与词条来自 Rime 项目的 data/minimal（luna_pinyin）\n  BSD-3-Clause，Copyright (c) 2014 RIME Developers\n\n语音识别\n· sherpa-onnx（k2-fsa）与内置中文模型 Paraformer-zh-small\n  Apache License 2.0\n\n上述许可要求保留版权与声明，故此处署名。完整许可证全文见项目仓库的 THIRD_PARTY_NOTICES。\n\n本软件自身以 GPL-3.0-only 提供，Copyright (c) 2026 adam-ikari。完整条款见仓库根目录的 LICENSE；源码可在 https://github.com/adam-ikari/hwkbd_ime 取得。</string>
 
     <!-- 探测页 -->
     <string name="probe_hint">点击这里获得焦点，然后按任意物理键（含 Sym / Fn / 方向键），下方会实时显示键值</string>

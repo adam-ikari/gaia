@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-26T14:32:38"
+updated: "2026-10-26T16:16:08"
 ---
 
 <!-- compiled_truth -->
@@ -331,4 +331,28 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: decision
   summary: "站点同步一节重写:三步链在 gaia runner 上跑(gate.sh --beta 进链),sync-apk-to-site.sh 与 publish-site job 已删,判据仍是脚本退出码;线上验收是逐字节轮询,窗口约 20 分钟;包不进 git(单文件 100.00MB 上限),由 deploy.yml 按 manifest 取。顺带修掉 compiled_truth 开头一个孤立的 ok 与丢了 ## 的标题"
   source: "2026-10-26 站点侧掉头(包不进 git)+ 修掉 truth 开头一个孤立 ok"
+  affects: [release-flow]
+
+- time: 2026-10-26T16:16:08
+  kind: decision
+  summary: "签名钥匙与口令挪出被跟踪文件:build.gradle.kts 只留一条 signingConfigs,取值顺序 local.properties → SIGNING_*(两处同一路径,不再分 project/ci 两套);四个 buildType 的选取改成 findByName(\"project\")?.let,没钥匙时什么都不设(debug 退回 AGP 默认密钥,陌生人 clone 也能装)。钥匙本体挪到仓外一份,并加进 .gitignore。不换证书:线上那份是 26bb762c…18dcd,换了老用户不能原地升级"
+  source: "2026-10-26 仓库转公开的配套改造"
+  affects: [release-flow]
+
+- time: 2026-10-26T16:16:08
+  kind: evidence
+  summary: "挪出钥匙让「未签名」第一次成为一个走得通的状态:gradle 成功、包产出、sha256 算好、站点更新,只是装不上 —— 而全链路没有任何一步会红。实测:把 local.properties 移走后 signingReport 对 release/beta 报 Config: null。⇒ 闸门新增第 5c 步 check_signing(TOTAL 8→9,beta 6→7),拿 apksigner 读产物里的证书 SHA-256 与发布那把对账,一条判据同时抓「未签名」与「签错钥匙」。未签名分支用真包剥掉 META-INF 后模拟验证过"
+  source: "2026-10-26 实测"
+  affects: [release-flow]
+
+- time: 2026-10-26T16:16:08
+  kind: evidence
+  summary: "开源前必须死在清洗里的东西,查全是三条:① hwkbd.keystore 全历史只有一个 blob(e182bd90,2580B,从未被改) ⇒ 剔一次即彻底消失,且它已随 origin/master 在 GitHub 上可达;② 口令 REDACTED-SIGNING-PASSWORD 在 40 个 app/build.gradle.kts 历史版本里 + 1 个不在可达图的本地残留 —— 不是「一个 commit」,git log -S 只给 1 是因为各版本命中数没变;③ 其它凭据零命中(PAT/私钥/AK/JWT 全无;VoiceSettings 的命中是 SharedPreferences 键名,SignerTest 用 AKIDEXAMPLE 占位)。教训:统计「有多少个版本含某串」不能用 git log -S,要按 blob 去重后逐个 cat-file"
+  source: "2026-10-26 全历史清点(git cat-file --batch-all-objects --batch 扫 1788 个 blob)"
+  affects: [release-flow]
+
+- time: 2026-10-26T16:16:08
+  kind: evidence
+  summary: "两次假数据都来自 shell/zsh 差异而不是仓库:zsh 没有 mapfile ⇒ 「distinct blobs=0」;handle() 里拿 sha 去 startswith(\"blob\") 判类型 ⇒ 「blobs scanned: 0」。凡是「查出来是 0」的清点结果,先证伪工具再相信结论 —— 这次 0 与 HEAD 明确含该串直接矛盾,矛盾本身就是信号"
+  source: "2026-10-26 踩坑"
   affects: [release-flow]

@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-26T15:26:06"
+updated: "2026-10-26T16:16:19"
 ---
 
 <!-- compiled_truth -->
@@ -275,3 +275,9 @@ manifest 里写死 release + 资产名,正是为了让部署侧**没有可猜的
   summary: "站点侧唯一未验的物理假设实测通过:upload-pages-artifact 能承载 233MB。dist/media 里放 103,060,018 + 130,072,818 = 233,132,836 字节的 /dev/urandom 数据(不是 truncate —— 稀疏文件是 0 字节而 artifact 流式压缩上传,全零会被压没,那会验出假绿),抽头 8MB gzip 后 ≈100% 当场自证压不动。存下来的 Final size = 233,204,557 字节(差 71,721 是压缩容器),上传 6.4 秒,整个 job 16 秒 ⇒ runner 侧吞吐约 36MB/s,与本机那条 ~20-30 秒的窗口无关。没有 deploy-pages 那一步,线上一个字节未动 ⇒ 发布链不再有已知未知,只剩第一次真跑的工程风险"
   source: "2026-10-26 gaia run 40285493319(一次性探针 workflow,已从 main 删除、artifact 已删)"
   affects: [gaia/.github/workflows/deploy.yml, tools/release/publish-site.sh]
+
+- time: 2026-10-26T16:16:19
+  kind: decision
+  summary: "源码仓转 public 之后,发布链的执行者收回 hwkbd_ime 自己的 CI。理由是当初换机器的两个理由都消失了:私有仓 Actions 不免费(公开后免费)、408 送不出去大包(包已不进 git,manifest 那条链解决了)。连带作废:gaia 的 .github/workflows/publish-ime.yml 与 secret IME_SOURCE_PAT —— 那个只读 fine-grained PAT 存在的唯一理由是「公开 runner 要检出私有源码」,源码公开后它只是一个多余的凭据,也是每次交接都要在浏览器里手配一次的坑(它至今没被创建过)。gaia 保留 Pages 与 deploy.yml 的按 manifest 取包"
+  source: "2026-10-26 用户定案(执行待落地)"
+  affects: [site-repo-topology]

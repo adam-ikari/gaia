@@ -112,7 +112,11 @@
 
 ## 许可
 
-闭源专有软件，保留所有权利。完整条款见 [LICENSE](LICENSE)。第三方组件（AndroidX、Kotlin、jieba 词表、pinyin-pro）各自受其原始许可证约束，署名与许可证全文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，应用内 `设置 → 许可 → 开源许可` 是同一份的简版。
+本软件以 **GPL-3.0-only** 提供(`Copyright (c) 2026 adam-ikari`),完整条款见 [LICENSE](LICENSE)。
+第三方组件(AndroidX、Kotlin、librime 及其依赖、jieba 词表、pinyin-pro)各自受其原始许可证约束,
+署名与许可证全文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md),应用内 `设置 → 许可 → 开源许可` 是同一份的简版。
+
+再分发时须一并给出源码或获取方式,并保留全部版权声明与这份第三方署名。
 
 ## 真机调试
 
