@@ -1,9 +1,10 @@
 # 站点
 
-公开站点 <https://adam-ikari.github.io/gaia/> 的源码。构建产物推到公开仓
-`adam-ikari/gaia`，Pages 从那个仓的 `main` 分支发布 —— **公开仓里没有源码，只有产物。**
+本站的源码。Pages 从**本仓**发布（`.github/workflows/deploy-site.yml`）——
+2026-10-27 之前产物要推到一个叫 `gaia` 的公开仓，那层现在没了：源码、构建、部署
+在同一个仓、同一次 run 里。
 
-改站点在这里改，改完跑 `tools/release/publish-site.sh`。
+改站点在这里改，发布是 dispatch 那个 workflow（本地构建仍有用，见下）。
 
 ## 本地开发
 
@@ -23,7 +24,7 @@ npm run preview  # 预览构建结果
 ```
 docs/
   .vitepress/
-    config.mts            站点配置（base 必须是 /gaia/）
+    config.mts            站点配置（base 由 publish-site.sh 按当前仓名注入 SITE_BASE）
     download.ts           两条渠道（β / dev）的链接与文件名 —— 唯一来源
     theme/index.ts        扩展默认主题，注册全局组件
     theme/layouts/Home.vue 自定义首页布局（内容全部来自 index.md）
@@ -47,21 +48,30 @@ docs/
 
 ## 发布
 
+发布是 **dispatch 本仓的 workflow**，不是本机跑脚本：
+
 ```bash
-tools/release/publish-site.sh              # 取包 + 构建 + 推产物 + 验
-tools/release/publish-site.sh --dry-run    # 只构建，打印会推什么
-tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建（隐含 --dry-run，产物不推）
+gh workflow run deploy-site.yml -R "$GITHUB_REPOSITORY"   # 只重发站点（包不变）
+gh workflow run publish-ime.yml -f source_ref=master      # 出新包 + 重发站点
 ```
 
-**推上去的产物里没有 APK**。`dist/` 只有页面本身加一份 `_artifact-manifest.json`；
-那两个 100MB 级的包由公开仓的 `deploy.yml` 在部署时按 manifest 从 release 资产取回来、
-装进 Pages artifact。原因是 GitHub 对单个文件有 100.00MB 的服务端硬上限，而带离线
-语音模型的包(beta 103.06MB / dev 130.07MB)**推进不去 git，在任何机器上都推进不去**。
+本机可以做的只有**构建与自检**（判据同一条，只是交不了 Pages）：
 
-判据是**公开站点上那份与本次的包逐字节一致**，不是「push 成功了」。
-Pages 从 workflow 产物发布，`push` 成功与站点已更新是两件事；现在中间还多了一次部署
-(取包 ~220MB + 核对 + 交 Pages)，所以轮询窗口按 20 分钟放。CDN 还会缓存刚推的那一版。
-脚本轮询到字节对上为止，对不上就非零退出。
+```bash
+tools/release/publish-site.sh              # 取包 + 构建 + 自检，产物留在 dist/
+tools/release/publish-site.sh --verify     # 线上那份字节 == dist/ 里的字节
+tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建（没有 media/，这种产物不可部署）
+```
+
+为什么本机发不了：开发机到 GitHub 的上传**单个请求持续 ~20 秒就被 408 掐断**
+（实测 12MB 失败、2MB 通过），而两条渠道的包合计 ~233MB，git 也无法续传。
+搬到 runner 之后，包的走法是 release 资产 → runner → Pages artifact，**全程不进 git**：
+GitHub 对单个文件有 100.00MB 的服务端硬上限，带离线语音模型的包（β 103.06MB /
+dev 130.07MB）在任何机器上都推不进去。
+
+判据是**公开站点上那份与本次产物逐字节一致**，不是「run 绿了」。
+`upload-pages-artifact`、`deploy-pages`、线上生效是三件事，中间还有 CDN 缓存，
+所以 `--verify` 轮询到字节对上为止，对不上就非零退出。
 
 站点只发两条渠道：**测试版 β（主下载）** 与 **开发版 dev（可选）**。
 β 取不到就不发布（首页按钮会 404）；dev 取不到只让按钮不渲染，不阻断发布。

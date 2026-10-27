@@ -85,8 +85,15 @@ function bandPlugin(md: any) {
   })
 }
 
+// 项目站的 base 就是 `/<仓名>/`,而仓名会变(这个仓要改名成 gaia)。
+// 写死 '/gaia/' 的后果不是报错,是产出一堆指向 /gaia/assets/… 的引用而站点
+// 实际挂在别的路上 —— 页面能出、样式和 chunk 全 404。
+// 所以由 publish-site.sh 按**当前仓名**注入 SITE_BASE;这里的兜底只给
+// 本地手跑 `npm run build` 看效果用。
+const SITE_BASE = process.env.SITE_BASE || '/gaia/'
+
 export default defineConfig({
-  base: '/gaia/',
+  base: SITE_BASE,
   lang: 'zh-CN',
   markdown: {
     config(md) {

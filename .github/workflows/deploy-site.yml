@@ -1,0 +1,109 @@
+name: Deploy site
+
+# 站点构建 + Pages 部署 + **下回线上那份逐字节比**。
+#
+# ## 为什么部署需要一个 workflow,而不是「推上去 Pages 自己发」
+#
+# Pages 从分支发布时,构建失败只写在仓库的 Pages 设置页里,**不在任何一次 run 上** ——
+# 于是「推了但站点没更新」与「推了且站点更新了」在 git 历史里长得一模一样。
+# 这个 workflow 的价值不是那几步命令,是「这次推送到底有没有把站点更新掉」有一条
+# **可见的、每次都发生的记录**,以及产物自洽的判据有地方落。
+#
+# ## 2026-10-27:从公开仓 `gaia` 收回本仓
+#
+# 原来「构建产物提交进 gaia 的 `dist/`,gaia 的 `deploy.yml` 验完交给 Pages」。
+# 那个形状存在的原因是**跨仓**:站点产物要进一个公开的仓,而源码是私有的。
+# 现在源码仓自己公开了(见 brain 的 open-source-licensing),「产物仓」这层就纯属多余 ——
+# 产物不再进任何 git,由这次 run 直接把 `dist/` 交给 Pages。
+# 判据一条没删,只是从两个文件搬进 `publish-site.sh` 一处(缺/坏/脱节三条,
+# 都在那儿,理由也在那儿)。
+#
+# ## 为什么包在产物里,而不在 git 里
+#
+# GitHub 对单个文件有服务端硬上限 100.00MB(十进制):β ≈103MB、dev ≈130MB,`git push`
+# 会被 pre-receive 直接拒(`GH001`,实测与机器/带宽/协议无关)。
+# 而 Pages artifact 只限「已发布站点 ≤ 1GB」,不限单文件 —— 233MB 实测可上传
+# (2026-10-26 用一次性分支在 runner 上探过,结论记在那次 run)。
+# ⇒ 包走 release 资产(上限 2GB/个)→ runner → Pages,全程不进 git。
+#
+# ## 为什么这一步必须在 runner 上跑
+#
+# 开发机到 GitHub 的上传,**单个 HTTP 请求持续 ~20 秒就被 408 掐断**(2026-10-26 实测:
+# 12MB 的 `git push` 在 20.5 秒失败、2MB 通过;`gh release upload` 3MB 通过、10MB 超时)。
+# 224MB 不是一个能切小的请求,git 也无法续传。所以执行者是 runner,不是本机。
+#
+# ## 谁能触发它
+#
+# `workflow_dispatch`(改了文案想单独发站点)+ `workflow_call`(被 `publish-ime.yml`
+# 当作最后一步调用,那条是「出了新包,站点要跟上」)。
+# **不要**加 `pull_request_target` / `issue_comment` / `repository_dispatch` / `push`:
+# 这个仓公开后任何人都能造触发事件,而这里要拿凭据动 release 与 Pages。
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 两条渠道的 release tag 与 Pages 都是**共享的单一名字**。两个 run 并行 ⇒ 后部署的那个
+# 把前一个的产物覆盖成半成品,而站点显示的是「这一版可下」。所以排队,不打断。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    # 30 分钟不够:`--verify` 那条轮询的等待阶梯本身就是 ~20 分钟(12 次 × 递增 15s),
+    # 加上取包与部署。超时的表现是「构建被杀掉」而不是「判据没过」,那比失败更难看清。
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `publish-site.sh` 要用 aapt2 从 APK 的 manifest 读 versionName —— 那是装完之后
+      # 在设置页看到的同一个字符串,而不是从 tag 或资产名拼出来的第二个来源。
+      # runner 镜像预装了 cmdline-tools 但**不保证有 36.0.0**(`publish-site.sh` 里
+      # AAPT2 找的那个版本),所以显式装一次。不用 `setup-android`:它内部先跑一次
+      # sdkmanager,许可没接受时它自己就 exit 1(见 release.yml 里那三段弯路)。
+      - name: 准备 aapt2
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'build-tools;36.0.0'
+          echo "aapt2: $ANDROID_HOME/build-tools/36.0.0/aapt2"
+
+      # ---- 构建 + 产物自洽 ----
+      #
+      # 判据(缺 / 坏 / 页面校验值与字节脱节 / 版本号没渲染)全在脚本里。
+      # 这里不重述,免得改一处漏一处 —— 那笔学费已经付过两次(见 brain 的 release-flow)。
+      - name: 构建站点产物
+        run: tools/release/publish-site.sh
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/docs/.vitepress/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+      # ---- 最后一道判据:线上那份字节 == 刚上传的那份 ----
+      #
+      # `deploy-pages` 成功 ≠ CDN 已经是新版。所以这一步把站点上的
+      # `/media/gaia-beta.apk`、`/media/gaia-dev.apk`、首页**下回来逐字节比**。
+      # 这不是多余的确认:2026-10-06 用户从站点下到的包装不上,而当时流水线是全绿的;
+      # 也是「绿了的 run」与「站点真的更新了」之间唯一的那道桥。
+      - name: 验公开站点(逐字节)
+        run: tools/release/publish-site.sh --verify

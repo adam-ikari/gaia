@@ -19,7 +19,7 @@
 # | 是发布吗 | 是(某个 `v*` 的测试通道) | **不是** |
 # | versionName | `0.7.11-beta.<hash>` | `0.7.11-dev.<hash>` |
 # | 过 R8 | **是** | **是** |
-# | gaia 侧取法 | 最新 **prerelease** | 固定 tag `dev-latest` |
+# | 站点取法 | 最新 **prerelease** | 固定 tag `dev-latest` |
 #
 # ## dev 也过 R8(2026-10-06 用户定:「任何版本只要公开就需要混淆」)
 #
@@ -32,7 +32,7 @@
 #
 # ## 用法
 #
-#     tools/release/publish-dev.sh              # 编 + 发到 gaia 的 dev-latest
+#     tools/release/publish-dev.sh              # 编 + 发到本仓的 dev-latest
 #     tools/release/publish-dev.sh --dry-run    # 只编不发,打印会发什么
 
 set -uo pipefail
@@ -40,13 +40,20 @@ set -uo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd) || exit 1
 cd "$REPO_ROOT" || exit 1
 
-SITE_REPO="${SITE_REPO:-adam-ikari/gaia}"
-DEV_TAG="dev-latest"          # 与 gaia 的 deploy.yml 里那个 tag 字面量必须一致
+DEV_TAG="dev-latest"          # 站点侧按这个字面量取包(见 publish-site.sh 的 take_channel)
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
 die() { printf '\033[31m::error:: %s\033[0m\n' "$1" >&2; exit 1; }
 step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+# 目标仓 = **本仓自己**(2026-10-27 monorepo:站点、release 资产、源码同仓)。
+# 原来写死 `adam-ikari/gaia`,那是「产物仓」时代的常量;现在包发回本仓,
+# 而本仓的名字还会变(改名成 gaia 那一步),所以不写死:
+#   · CI 里用 GITHUB_REPOSITORY(runner 给的就是当前仓,改名后自动跟着);
+#   · 本机用 `gh repo view` 顺着 origin 解析,同样跟 remote 走。
+REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
+[ -n "$REPO" ] || die "解析不出目标仓:CI 里没有 GITHUB_REPOSITORY,本机 gh repo view 也失败(origin 指向 GitHub 吗?)"
 
 # ---- 工作区必须干净,否则 hash 不代表字节 ------------------------------------
 #
@@ -83,7 +90,7 @@ VER=$("${ANDROID_HOME:-$HOME/android-sdk}/build-tools/36.0.0/aapt2" dump badging
 
 step "这次要发的东西"
 printf '    %s\n    %s bytes\n    versionName  %s\n    sha256        %s\n' "$APK" "$SIZE" "$VER" "$SHA"
-echo "    → $SITE_REPO @ $DEV_TAG,资产名 app-dev-${ok_hash}.apk"
+echo "    → $REPO @ $DEV_TAG,资产名 app-dev-${ok_hash}.apk"
 
 if [ "$DRY" = 1 ]; then
   echo; echo "    (--dry-run,到此为止)"
@@ -95,7 +102,7 @@ fi
 # **先建空的 release,再逐个上传**。把资产挂在 `gh release create` 命令行上时,
 # 那个 22MB 的 debug 包走 S3 直传经常 `HTTP 408`,而 create 是**全有或全无**的
 # —— 一个资产失败,整个 release 都不会被建出来(2026-10-05 在 hwkbd_ime 上实测)。
-step "发到 $SITE_REPO @ $DEV_TAG"
+step "发到 $REPO @ $DEV_TAG"
 ASSET="app-dev-${ok_hash}.apk"
 
 # ## 资产名必须来自**本地文件名**,不能靠 `gh release upload` 的 `#`
@@ -105,7 +112,7 @@ ASSET="app-dev-${ok_hash}.apk"
 #
 # 2026-10-06 实测踩到了:`app-dev.apk#app-dev-4c50b4d.apk` 存下来是
 #   name=`app-dev.apk`  label=`app-dev-4c50b4d.apk`
-# 而 gaia 的 deploy.yml 是**按资产名**取 hash 的(`startswith("app-dev-")` 后剥前缀),
+# 而站点部署是**按资产名**取 hash 的(`startswith("app-dev-")` 后剥前缀),
 # 于是它看到 `app-dev.apk` → 剥出 `apk` → 去掉 `.apk` → **空** →
 # 走「解析不出身份就跳过」那条路 ⇒ **站点静悄悄没有 dev 渠道**。
 #
@@ -114,10 +121,10 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp "$APK" "$STAGE/$ASSET"
 [ -s "$STAGE/$ASSET" ] || die "暂存 $ASSET 失败"
-if gh release view "$DEV_TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
+if gh release view "$DEV_TAG" -R "$REPO" >/dev/null 2>&1; then
   echo "    release 已存在,覆盖资产"
 else
-  gh release create "$DEV_TAG" -R "$SITE_REPO" --title "dev(滚动)" --prerelease \
+  gh release create "$DEV_TAG" -R "$REPO" --title "dev(滚动)" --prerelease \
     --notes "master HEAD 的开发版构建,**滚动** —— 每次发版都被下一次覆盖。
 这个包不做任何保证:不过混淆、没跑端到端测试。资产名带 git hash。
 
@@ -135,15 +142,15 @@ fi
 #
 # ⇒ 放在 if/else 之外(每次都跑),**并回读确认** ——
 #   「命令返回了」不等于「生效了」,这是今天第三次在这件事上栽。
-rid=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq '.id' 2>/dev/null || true)
+rid=$(gh api "repos/$REPO/releases/tags/$DEV_TAG" --jq '.id' 2>/dev/null || true)
 if [ -n "$rid" ]; then
-  gh api -X PATCH "repos/$SITE_REPO/releases/$rid" -f prerelease=true >/dev/null 2>&1 || true
+  gh api -X PATCH "repos/$REPO/releases/$rid" -f prerelease=true >/dev/null 2>&1 || true
   # 回读要**重试**:这个网络下 `unexpected EOF` 是常态(今天几十次),
   # 一次读到空就断言失败,那是**网络的问题被报成了标记的问题** ——
   # 而这种误报会让人去查一个根本不存在的配置错误。
   is_pre=""
   for a in 1 2 3 4 5; do
-    is_pre=$(gh api "repos/$SITE_REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || true)
+    is_pre=$(gh api "repos/$REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || true)
     [ -n "$is_pre" ] && break
     sleep $((a * 3))
   done
@@ -163,7 +170,7 @@ fi
 # 其实已经存好了(`unexpected EOF`,而 release 已建成)。所以「命令返回了」不等于
 # 「东西在」,「命令失败了」也不等于「东西不在」⇒ 判据落在**远端清单**上。
 for a in 1 2 3 4 5; do
-  if gh release upload "$DEV_TAG" "$STAGE/$ASSET" -R "$SITE_REPO" --clobber >/dev/null 2>&1; then
+  if gh release upload "$DEV_TAG" "$STAGE/$ASSET" -R "$REPO" --clobber >/dev/null 2>&1; then
     break
   fi
   echo "    第 $a 次上传失败(12MB 走 S3 直传容易 HTTP 408),重试"
@@ -183,7 +190,7 @@ done
 remote_asset_size() {
   local out a
   for a in 1 2 3 4 5; do
-    if out=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq \
+    if out=$(gh api "repos/$REPO/releases/tags/$DEV_TAG" --jq \
               ".assets[] | select(.name==\"$ASSET\") | .size" 2>/dev/null); then
       printf '%s\n' "$out" | head -1; return 0      # 查询成功(结果**可能就是空**)
     fi
@@ -194,7 +201,7 @@ remote_asset_size() {
 
 if ! WANT=$(remote_asset_size); then
   die "连续 5 次取不到 $DEV_TAG 的资产清单 —— 这**不代表上传失败**,别说站点没有 dev 渠道。
-     自己核对一次:gh api repos/$SITE_REPO/releases/tags/$DEV_TAG --jq '.assets[].name'"
+     自己核对一次:gh api repos/$REPO/releases/tags/$DEV_TAG --jq '.assets[].name'"
 elif [ -z "$WANT" ]; then
   die "远端清单里确实没有 $ASSET(查询成功、结果里没有)—— 上传没成,站点这次不会有 dev 渠道"
 elif [ "$WANT" != "$SIZE" ]; then
@@ -208,7 +215,7 @@ echo "    ✓ $ASSET ($WANT 字节,与本地一致)"
 # 「远端确实存着什么」)。两者相加就是:**资产会一份份堆起来**。
 #
 # 2026-10-06 实测:发过几次之后 release 里有三份 `app-dev-*.apk`。
-# gaia 的 deploy.yml 用 `[...] | last` 挑 —— 那是**碰巧**挑对(依赖 API 返回顺序),
+# 站点侧用 `[...] | last` 挑(`publish-site.sh` 的 take_channel)—— 那是**碰巧**挑对(依赖 API 返回顺序),
 # 而一个 release 里有 N 份「最新版」自相矛盾:最新的**定义**应该唯一。
 #
 # ## 「查不到」不等于「没什么可删」—— 同一个形状的第三个实例
@@ -221,7 +228,7 @@ echo "    ✓ $ASSET ($WANT 字节,与本地一致)"
 dev_assets() {
   local out a
   for a in 1 2 3 4 5; do
-    if out=$(gh api "repos/$SITE_REPO/releases/tags/$DEV_TAG" --jq \
+    if out=$(gh api "repos/$REPO/releases/tags/$DEV_TAG" --jq \
               '.assets[].name | select(startswith("app-dev-"))' 2>/dev/null); then
       printf '%s\n' "$out"; return 0            # 成功(可能就是空)
     fi
@@ -244,7 +251,7 @@ for old in $list; do
   #   「渠道缺失」是非致命的(它可能真还没上线);
   #   「渠道有歧义」不是 —— 站点会挑错那份字节,而且没有任何地方会响。
   for a in 1 2 3 4 5; do
-    if err=$(gh release delete-asset "$DEV_TAG" "$old" -R "$SITE_REPO" --yes 2>&1); then
+    if err=$(gh release delete-asset "$DEV_TAG" "$old" -R "$REPO" --yes 2>&1); then
       echo "    删掉旧的 $old"
       break
     fi
@@ -272,8 +279,9 @@ echo "    $DEV_TAG 上恰好一份 dev 资产"
 #
 # ## 这里原来写的是「触发 CI 部署,站点会更新」—— **那句是假的**(2026-10-11 实测)
 #
-# `gaia` 的 `deploy.yml` 只 checkout 站点仓里**已提交的产物**再构建,它**不从
-# release 资产取包**。把 `app-dev-<hash>.apk` 放进 `dist/media/gaia-dev.apk`
+# `gaia` 的 `deploy.yml`(现已收回本仓 `.github/workflows/deploy-site.yml`)只
+# checkout 站点仓里**已提交的产物**再构建,它**不从 release 资产取包**。把
+# `app-dev-<hash>.apk` 放进 `dist/media/gaia-dev.apk`
 # 的是 `tools/release/publish-site.sh`(`take_channel` 那一步)。
 #
 # 实测过:发 `b9b34d8` 时本脚本触发的那个 run **completed success(20s)**,
@@ -284,7 +292,10 @@ echo "    $DEV_TAG 上恰好一份 dev 资产"
 # **绿了的** run 然后收工。判据「线上字节 == 本地字节」只在 publish-site.sh 里,
 # 所以这一步只能报**下一步是什么**,不能报**已完成**。
 step "下一步(必做,否则站点上没有这次的文件)"
-printf '    资产已在 %s @ %s(远端清单核对过),但**站点还没拿到它**。\n' "$SITE_REPO" "$DEV_TAG"
-printf '    接着跑:tools/release/publish-site.sh   # 构建站点 + 推产物 + 逐字节验线上\n'
-printf '    验的是:https://adam-ikari.github.io/gaia/media/gaia-dev.apk == %s 字节\n' "$SIZE"
+# 站点地址由**仓名**推,不写死:Pages 的项目站 URL 就是 `账号.github.io/仓名`,
+# 而这个仓正要改名成 `gaia`。写死的那一处不会报错,只会指向别人的地址。
+SITE_URL="https://${REPO%/*}.github.io/${REPO##*/}"
+printf '    资产已在 %s @ %s(远端清单核对过),但**站点还没拿到它**。\n' "$REPO" "$DEV_TAG"
+printf '    接着跑:tools/release/publish-site.sh   # 构建站点 + 触发部署 + 逐字节验线上\n'
+printf '    验的是:%s/media/gaia-dev.apk == %s 字节\n' "$SITE_URL" "$SIZE"
 printf '           下下来 sha256 应当是 %s\n' "$SHA"

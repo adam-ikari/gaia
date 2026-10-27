@@ -95,29 +95,29 @@ tools/release/gate.sh --beta    # 单测 / 构建 / R8 / JNI 照跑,版本两步
 
 ```bash
 tools/release/gate.sh --beta          # 产物侧闸门(单测/构建/R8/JNI)—— 本地跑
-# 下面三步在**公开仓 gaia 的 runner** 上跑,不在开发机上:
-#   gh workflow run publish-ime.yml -R adam-ikari/gaia -f source_ref=master
-#   它按序执行 publish-beta.sh → publish-dev.sh → publish-site.sh
-tools/release/publish-beta.sh         # 编 + 发到公开仓 gaia 的 beta-<hash> prerelease
-tools/release/publish-site.sh         # 构建站点 + 推产物 + 验线上字节
+# 下面三步在**本仓的 runner** 上跑,不在开发机上:
+#   gh workflow run publish-ime.yml -f source_ref=master
+#   它按序执行 publish-beta.sh → publish-dev.sh → publish-site.sh,再以 job 调 deploy-site.yml
+tools/release/publish-beta.sh         # 编 + 发到本仓的 beta-<hash> prerelease
+tools/release/publish-site.sh         # 构建站点 + 组装产物(交给 deploy-site.yml 上传 Pages)
 ```
 
 **为什么那三步换机器**(2026-10-26。这一条的理由当天纠正过一次,记在这里是因为
 错过的那版本听起来同样有道理):一次发版要塞进 GitHub 的是 β 103,060,018 +
 dev 130,072,818 字节,再加站点产物。
 
-- 先记的理由是「开发机的单个 HTTP 请求持续 ~20 秒就被 408 掐断」(实测 12MB 的
-  `git push` 在 20.5 秒整失败、2MB 通过)。那条**是真的,但它不是这次的原因** ——
-  它只说明这台机器传得慢,不说明为什么必须换形状。
-- 真正封死的是 GitHub 对**单文件 100.00MB** 的 push 硬上限(pre-receive hook 报
+- 开发机的单个 HTTP 请求持续 ~20 秒就被 408 掐断(实测 12MB 的 `git push` 在 20.5 秒整
+  失败、2MB 通过;`gh release upload` 3MB 通过、10MB 在 ~101 秒超时)。**这条才是
+  「谁来编」的理由**:发版要往 GitHub 送的是 200MB 级的 release 资产,这台机器送不出去。
+- 另一条封死的是 GitHub 对**单文件 100.00MB** 的 push 硬上限(pre-receive hook 报
   `GH001`),与机器、与网络都无关:本地拿一个 110MB 的**稀疏文件**(pack 里≈0 字节,
-  几乎不需要上传)推上去,4.1 秒被拒。
-- 所以换的其实是「谁来编」。runner 在 GitHub 自己的网络上取 release 资产、传
-  artifact,既不过那道 ~30 秒的窗口,也不受 push 上限的约束 —— 因为包**根本不进 git**
-  (见下面「站点侧的形状」)。
+  几乎不需要上传)推上去,4.1 秒被拒。所以包**根本不进 git**(见下面「站点侧的形状」)
+  —— 这条是数据形状问题,换机器解决不了它。
+- 于是换的是「谁来编、谁来传」。runner 在 GitHub 自己的网络上把包传进**本仓的 release
+  资产**、把产物交给 Pages,既不过那道 ~30 秒的窗口,也不受 push 上限的约束。
 
-执行位置变了,判据没变 —— workflow 只是调同一批脚本,逻辑只有一份(详见 gaia 的
-`.github/workflows/publish-ime.yml` 与 brain 的 `site-repo-topology`)。
+执行位置变了,判据没变 —— workflow 只是调同一批脚本,逻辑只有一份(详见本仓的
+`.github/workflows/publish-ime.yml`)。
 前提:**要发的那个 commit 必须先推到 `origin/master`**,runner 检出的是远端,不是这个工作区。
 
 beta 的 release 是**每次构建一个** `beta-<hash>`(prerelease),
@@ -141,21 +141,21 @@ git tag -a v0.5.2 -m "v0.5.2" && git push origin v0.5.2
 各自走 `publish-beta.sh` / `publish-dev.sh`,再用 `publish-site.sh` 推产物。
 判据是**公开站点上那份与本地产物逐字节一致**。
 
-站点源码在本仓库 `web/`,构建脚本是这里的 `publish-site.sh`(2026-10-26 起由 gaia 的
-runner 执行),产物推进公开仓 `adam-ikari/gaia`,Pages 从那个仓的 `main` 分支发布。
-**公开仓里没有应用源码** —— 例外是两条构建产物的 workflow(2026-10-26 起),它们不含应用源码。
+站点源码在本仓库 `web/`,构建脚本是这里的 `publish-site.sh`,Pages 由本仓的
+`.github/workflows/deploy-site.yml` 部署(2026-10-27 起收回本仓;之前产物要推到一个
+叫 `gaia` 的独立公开仓,那层没了)。
 
-### 站点侧的形状(2026-10-26 起)
+### 站点侧的形状
 
-`main` 的 `dist/` 里**只有页面 + 一份 `_artifact-manifest.json`**,合计几百 KB。两个 APK
-不在 git 里,由 gaia 的 `deploy.yml` 在部署前按 manifest 从**本仓的 release 资产**取回来,
-放进 `dist/media/` 再交给 `upload-pages-artifact`(Pages 走 artifact 路线不限单文件大小)。
+`publish-site.sh` 的构建输出 `web/docs/.vitepress/dist/` 里**只有页面 + 一份
+`_artifact-manifest.json`**(几百 KB)加上 runner 现取的两个 APK。两个包**不在 git 里**,
+由 workflow 按 manifest 从**本仓的 release 资产**取回来,放进 `dist/media/` 再交给
+`upload-pages-artifact`(Pages 走 artifact 路线不限单文件大小)。
 
 manifest 长这样(`publish-site.sh` 构建前生成,页面注入的那些数字来自同一份数据):
 
 ```json
-{"schema": 1, "site_repo": "adam-ikari/gaia", "source_repo": "adam-ikari/hwkbd_ime",
- "source_commit": "<40 位 SHA>",
+{"schema": 2, "repo": "<owner>/<仓名>", "source_commit": "<40 位 SHA>",
  "channels": {"beta": {"release": "beta-<hash>", "asset": "app-beta-<hash>.apk",
                        "target": "media/gaia-beta.apk", "version": "<hash>",
                        "size": <字节>, "sha256": "<64 位>"}}}
@@ -196,23 +196,23 @@ manifest 长这样(`publish-site.sh` 构建前生成,页面注入的那些数字
 ### 第 6 步:验(2026-10-05 写,2026-10-08 换了脚本)
 
 原先是「打印一句提醒人去查」——**提醒不算验证**,所以它被漏过。
-`publish-site.sh` 自己做完,加上 gaia 的 `deploy.yml` 那半场:
+`publish-site.sh` 自己做完,加上 `deploy-site.yml` 那半场:
 
 | 验什么 | 在哪验 | 判据 |
 | --- | --- | --- |
-| 公开站点上的 `media/gaia-beta.apk` 是这次的包 | publish-site | 与本地产物**逐字节**一致(轮询到对为止) |
-| 公开站点的首页是这次的产物 | publish-site | 与本地产物的 `index.html` 逐字节一致 |
+| 公开站点上的 `media/gaia-beta.apk` 是这次的包 | publish-site `--verify` | 与产物里那份**逐字节**一致(轮询到对为止) |
+| 公开站点的首页是这次的产物 | publish-site `--verify` | 与产物的 `index.html` 逐字节一致 |
 | 页面上给用户的 sha256 对得上 | 两边 | 产物里的静态资源里搜得到那份包字节的 sha256;部署侧再对一次 |
 | manifest 在产物里、且没人动过它 | publish-site | 与构建前写的那份 `cmp` 一致 |
-| 产物推得上去 | publish-site | `dist/` 里没有 >90MB 的文件 |
-| 站点没有指向 404 的下载链接 | deploy.yml | manifest 列了哪个渠道,那个渠道的包就必须取到并放进 `dist/` |
-| 部署出去的字节 == 构建时核对过的字节 | deploy.yml | 先比 `size`(截断)再比 `sha256`(被换过) |
+| 产物部署得上去 | publish-site | `dist/` 合计 < 900MB(Pages 上限是已发布站点 ≤ 1GB,与 git 的 100MB 单文件上限是两回事) |
+| 站点没有指向 404 的下载链接 | deploy-site.yml | manifest 列了哪个渠道,那个渠道的包就必须取到并放进 `dist/` |
+| 部署出去的字节 == 构建时核对过的字节 | deploy-site.yml | 先比 `size`(截断)再比 `sha256`(被换过) |
 
-关键区分:**release 资产、git 里的产物、部署时组装的 artifact、公开站点上是四个东西**。
-上传成功就能过 `releases/latest/download/…` 那道 200;git 里那份只证明「推上去了」;
-Pages 只在 `deploy-pages` 跑完之后才刷新 —— 所以「200」和「push 成功」都验不到线上那份。
-2026-10-26 之前这三样只有三个(包本身就在 git 的产物里),现在中间多了一跳,
-而那一跳是**部署时**发生的:所以判据里必须有「按 manifest 取回来的字节对不对」。
+关键区分:**release 资产、部署时组装的 artifact、公开站点上是三个东西**(2026-10-27 前
+还有第四个「git 里那份产物」,那层随 monorepo 一起删掉了)。
+上传成功就能过 `releases/latest/download/…` 那道 200;artifact 里那份只证明「交给 Pages 了」;
+Pages 只在 `deploy-pages` 跑完之后才刷新 —— 所以「200」和「run 绿了」都验不到线上那份。
+中间这一跳发生在**部署时**:所以判据里必须有「按 manifest 取回来的字节对不对」。
 
 **比字节而不是比 `versionCode`**:字节相同 ⇒ 版本号必然相同(它就在 APK 里);
 只比版本号会漏掉「同一版本号配不同字节」—— 安卓会拒装升级,

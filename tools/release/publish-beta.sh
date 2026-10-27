@@ -23,7 +23,7 @@
 #
 # ## 站点的取法:按**内容**挑,不按命名约定挑
 #
-# 站点(deploy.yml)找的是「prerelease 且资产里有 `app-beta-*`」那个 release ——
+# 站点部署(deploy-site.yml)找的是「prerelease 且资产里有 `app-beta-*`」那个 release ——
 # 不是「最新 prerelease」,因为 dev 也是 prerelease。
 # 身份从**资产名**的 hash 尾巴读(`app-beta-c614c26.apk` → `c614c26`),
 # 不是从 tag 推导 —— 资产名是「远端确实存着什么」的权威。
@@ -48,7 +48,7 @@
 # · **查询失败与「没有这东西」要分开**:前者重试,后者才是真的没有。
 #
 # 用法:
-#     tools/release/publish-beta.sh              # 编 + 发到 gaia
+#     tools/release/publish-beta.sh              # 编 + 发到本仓的 release
 #     tools/release/publish-beta.sh --dry-run    # 只编不发,打印会发什么
 #     tools/release/publish-beta.sh --skip-build # 用已有的 beta 包(不重编)
 
@@ -57,7 +57,6 @@ set -uo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd) || exit 1
 cd "$REPO_ROOT" || exit 1
 
-SITE_REPO="${SITE_REPO:-adam-ikari/gaia}"
 DRY=0
 SKIP_BUILD=0
 for a in "$@"; do
@@ -74,6 +73,15 @@ step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()  { printf '    \033[32m✓ %s\033[0m\n' "$1"; }
 
 command -v gh >/dev/null || die "需要 gh"
+
+# 目标仓 = **本仓自己**(2026-10-27 monorepo:站点、release 资产、源码同仓)。
+# 原来写死 `adam-ikari/gaia`,那是「产物仓」时代的常量;现在包发回本仓,
+# 而本仓的名字还会变(改名成 gaia 那一步),所以不写死:
+#   · CI 里用 GITHUB_REPOSITORY(runner 给的就是当前仓,改名后自动跟着);
+#   · 本机用 `gh repo view` 顺着 origin 解析,同样跟 remote 走。
+# 写死一个名字的话,改名之后这条链会在「看不见的地方」发到旧仓。
+REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
+[ -n "$REPO" ] || die "解析不出目标仓:CI 里没有 GITHUB_REPOSITORY,本机 gh repo view 也失败(origin 指向 GitHub 吗?)"
 
 # ---- 工作区必须干净 ---------------------------------------------------------
 #
@@ -122,7 +130,7 @@ PKG=$("${ANDROID_HOME:-$HOME/android-sdk}/build-tools/36.0.0/aapt2" dump badging
 step "这次要发的东西"
 printf '    %s\n    %s bytes\n    applicationId  %s\n    versionName  %s\n    sha256        %s\n' \
   "$APK" "$SIZE" "$PKG" "$VER" "$SHA"
-echo "    → $SITE_REPO @ beta-$ok_hash,资产名 app-beta-$ok_hash.apk"
+echo "    → $REPO @ beta-$ok_hash,资产名 app-beta-$ok_hash.apk"
 
 if [ "$DRY" = 1 ]; then
   echo; echo "    (--dry-run,到此为止)"
@@ -141,11 +149,11 @@ trap 'rm -rf "$STAGE"' EXIT
 cp "$APK" "$STAGE/$ASSET"
 [ -s "$STAGE/$ASSET" ] || die "暂存 $ASSET 失败"
 
-step "发到 $SITE_REPO @ $TAG"
-if gh release view "$TAG" -R "$SITE_REPO" >/dev/null 2>&1; then
+step "发到 $REPO @ $TAG"
+if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
   echo "    release 已存在,覆盖资产"
 else
-  gh release create "$TAG" -R "$SITE_REPO" --title "测试版 $ok_hash" --prerelease \
+  gh release create "$TAG" -R "$REPO" --title "测试版 $ok_hash" --prerelease \
     --notes "master HEAD 的**测试版**构建(\`$VER\`)。
 
 beta 是与正式版并存的独立应用(\`$PKG\`),身份是 **git hash**,不是版本号:
@@ -157,14 +165,14 @@ beta 是与正式版并存的独立应用(\`$PKG\`),身份是 **git hash**,不�
 fi
 
 # prerelease 标记必须**每次都跑**并**回读确认**(见文件头:2026-10-06 的事故)。
-rid=$(gh api "repos/$SITE_REPO/releases/tags/$TAG" --jq '.id' 2>/dev/null || true)
+rid=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id' 2>/dev/null || true)
 if [ -n "$rid" ]; then
-  gh api -X PATCH "repos/$SITE_REPO/releases/$rid" -f prerelease=true >/dev/null 2>&1 || true
+  gh api -X PATCH "repos/$REPO/releases/$rid" -f prerelease=true >/dev/null 2>&1 || true
   # 回读要**重试**:这个网络下 `unexpected EOF` 是常态,一次读到空就断言失败,
   # 那是**网络的问题被报成了标记的问题**。
   is_pre=""
   for a in 1 2 3 4 5; do
-    is_pre=$(gh api "repos/$SITE_REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || true)
+    is_pre=$(gh api "repos/$REPO/releases/$rid" --jq '.prerelease' 2>/dev/null || true)
     [ -n "$is_pre" ] && break
     sleep $((a * 3))
   done
@@ -177,7 +185,7 @@ if [ -n "$rid" ]; then
 fi
 
 for a in 1 2 3 4 5; do
-  if gh release upload "$TAG" "$STAGE/$ASSET" -R "$SITE_REPO" --clobber >/dev/null 2>&1; then
+  if gh release upload "$TAG" "$STAGE/$ASSET" -R "$REPO" --clobber >/dev/null 2>&1; then
     break
   fi
   echo "    第 $a 次上传失败(大包走 S3 直传容易 HTTP 408),重试"
@@ -188,7 +196,7 @@ done
 remote_asset_size() {
   local out a
   for a in 1 2 3 4 5; do
-    if out=$(gh api "repos/$SITE_REPO/releases/tags/$TAG" --jq \
+    if out=$(gh api "repos/$REPO/releases/tags/$TAG" --jq \
               ".assets[] | select(.name==\"$ASSET\") | .size" 2>/dev/null); then
       printf '%s\n' "$out" | head -1; return 0      # 查询成功(结果**可能就是空**)
     fi
@@ -199,7 +207,7 @@ remote_asset_size() {
 
 if ! WANT=$(remote_asset_size); then
   die "连续 5 次取不到 $TAG 的资产清单 —— 这**不代表上传失败**,别说站点没有测试版渠道。
-     自己核对一次:gh api repos/$SITE_REPO/releases/tags/$TAG --jq '.assets[].name'"
+     自己核对一次:gh api repos/$REPO/releases/tags/$TAG --jq '.assets[].name'"
 elif [ -z "$WANT" ]; then
   die "$TAG 的资产清单里没有 $ASSET —— 上传没成功,站点这次不会有测试版渠道"
 elif [ "$WANT" != "$SIZE" ]; then

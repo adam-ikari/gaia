@@ -1,55 +1,59 @@
 #!/usr/bin/env bash
 #
-# 构建站点并把产物推到公开仓 `adam-ikari/gaia`,Pages 从那个仓的 `main` 分支发布。
-#
-# ## 为什么这个脚本存在(monorepo 化,2026-10-08)
-#
-# 站点源码原本在公开仓 gaia 里,构建与部署由它的 `deploy.yml` 做。发一版要动两个地方:
-# 应用仓打 tag → CI 出包 → `sync-apk-to-site.sh` 把包传到 gaia → 推 gaia 触发 Pages。
-#
-# 那条链上「站点是否与代码同步」**没有任何验证**:`release.yml` 里等价的
-# `publish-site` job 要 `WEB_RELEASE_TOKEN`,而那个 secret 从来没配 ——
-# job 一直 skipped、**退出码 0**、流水线全绿,而站点上的包停在旧版本。
-# v0.4.2 / 0.4.3 / 0.4.4 / v0.4.8 各漏过一次(见 `docs/versioning.md` 第五步)。
-#
-# 结构上的成因是:能改站点的人不该看见应用源码,能改应用源码的人看不见站点。
-# ⇒ 源码与构建收进本仓库一处(源码 `web/`,构建在这里),产物推公开仓,
-# **判据从「我记得推了吗」变成「这个脚本的退出码」**。
+# 构建站点产物(页面 + 两条渠道的 APK),交给**本仓**的 GitHub Pages。
+# 由 `.github/workflows/deploy-site.yml` 调用:这个脚本只管「构建 + 自检 + 验线上」,
+# `upload-pages-artifact` / `deploy-pages` 两步在 workflow 里。
 #
 # ## 判据是什么:公开站点上的字节 == 本地构建产物里的字节
 #
-# 不是「push 成功了」(push 成功与 Pages 是否重新发布是两件事),
+# 不是「workflow 绿了」(部署 Pages 与上传产物是两个动作),
 # 不是「curl 得到 200」(200 只验存在,不验完整 —— 见下面 fetch 的注释),
-# 而是**下站点那份回来逐字节比**。这是 `sync-apk-to-site.sh` 第六步那条规则,
-# 搬到这里继续成立。
+# 而是**下站点那份回来逐字节比**。这条从 `sync-apk-to-site.sh` 时代搬过来,一直成立。
 #
-# ## 产物里只有页面,包由部署 workflow 按 manifest 取(2026-10-26 改,方向被迫掉头)
+# 2026-10-06 实测过这个网络下下载**会静默截断**:装不上的包只给一句「软件包无效」。
+# 所以最后这一步不是可选的确认,是整条链唯一能分清「包坏了」与「我网坏了」的判据。
 #
-# 2026-10-08 那条「宁可仓库大,也要产物进 git」已经**执行不了了**:离线语音模型进了
-# APK 之后 beta 是 103,060,018 B、dev 是 130,072,818 B,而 GitHub 对**单个文件**有
-# 服务端硬上限 100.00MB(十进制),`git push` 直接 `GH001` 拒。实测用一个 110MB 的
-# 稀疏文件(pack 约 0 字节、网络瞬间完成)—— 远端 4.1 秒后拒收,所以这跟上哪台机器、
-# 走 HTTPS 还是 SSH、带宽多少都无关。换 runner 也换不掉。
+# ## 2026-10-27:产物不再进任何 git 仓
 #
-# 掉头之后原来那个理由**照样成立**,只是判据换了地方:
-#   · 线上那一份仍可追溯到某个 commit —— manifest 里写着 `source_commit`、
-#     资产名、权威字节数与 sha256,而它就提交在产物仓里;
-#   · 「谁构建的、成功没有」不再是无人认领的口头约定 —— `deploy.yml` 按 manifest
-#     取包、核对大小与 sha256,任何一步不对就让那次 run 红,而 run 红 = 不部署,
-#     Pages 仍停在上一次(不是「部署了半套」);
-#   · 这个脚本最后那条**下回线上那份逐字节比**的判据不变,只是它现在一头判完了
-#     整条新链(资产取得到 / manifest 没指错 / Pages 真的更新了)。
+# 原来的形状是「源码在本仓 `web/`,构建在这里,产物推到公开仓 gaia 的 `dist/`」,
+# 那是 2026-10-08 的 monorepo 第一段 —— 它解决的是「站点是否与代码同步**没有任何验证**」
+# (`release.yml` 里等价的 publish-site job 要一个从来没配过的 secret,于是永远 skipped
+# 且退出码 0,流水线全绿而站点停在旧版本,v0.4.2/0.4.3/0.4.4/0.4.8 各漏过一次)。
 #
-# 仓库不再每版 +100~230MB —— 那是这次掉头的副产品,不是动机。
+# 现在公开仓要删掉,产物改由 workflow 直接上传 Pages。这**不是妥协,是删掉一层**:
+#   · 「线上那份可追溯到哪个 commit」这件事原来靠往 git 里提交产物来保证,
+#     现在由「哪个 run 部署的」保证 —— 而 run 本来就绑在 commit 上,且它带完整日志;
+#   · 提交产物那个动作原本还要防「推上去但 Pages 没更新」(push 成功与 Pages 发布是两件事),
+#     现在这两件事在同一次 run 里,不再有中间状态;
+#   · 那个仓存在的另一半理由(部署侧要有个地方验产物自洽 + 拿本仓 token 部署 Pages)
+#     整个搬进 deploy-site.yml,判据一条不丢。
+#
+# ## 包为什么从 release 资产取,而不是直接用刚编出来的那份
+#
+# GitHub 对**单个文件**有服务端硬上限 100.00MB(十进制):离线语音模型进 APK 后
+# beta 是 103,060,018 B、dev 是 130,072,818 B,`git push` 会被 pre-receive 直接拒
+# (`GH001`)。实测用一个 110MB 稀疏文件,远端 4.1 秒后拒收 —— 与机器、带宽、HTTPS/SSH
+# 都无关,换 runner 也换不掉。**Pages artifact 没有这个单文件上限**,233MB 实测可上传
+# (2026-10-26 在 gaia 上用一次性分支探过,结论记在那次 run 里)。
+#
+# 所以包的**权威存放地**是 release 资产(上限 2GB/个),站点上的 `/media/*.apk`
+# 是部署时按「远端实际存着多少字节」取回来的那份。这样站点显示的 sha256 对应的是
+# **用户真正会拿到的字节**,而不是「我们以为编出来的字节」。
+#
+# ## 为什么这一步必须在 runner 上跑
+#
+# 开发机到 GitHub 的上传,**单个 HTTP 请求持续 ~20 秒就被 408 掐断**(2026-10-26 实测:
+# 12MB 的 `git push` 在 20.5 秒失败、2MB 通过;`gh release upload` 3MB 通过、10MB 超时)。
+# β(≈99MB)+ dev(≈124MB)不是一个能切小的请求,git 也无法续传。
+# ⇒ 构建与部署都在 CI;这个脚本在本地只剩「改文案后看一眼产物长什么样」有用。
 #
 # 用法:
-#   tools/release/publish-site.sh              # 构建 + 推 + 验
-#   tools/release/publish-site.sh --dry-run    # 只构建,不推(打印会推什么)
-#   tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建(**隐含 --dry-run**:
-#                                              #   包信息与 manifest 都来自远端,没有它们这产物不可发布)
+#   tools/release/publish-site.sh              # 取包 + 构建 + 自检(产物留在 dist/,等 workflow 上传)
+#   tools/release/publish-site.sh --verify     # 只验:线上那份字节 == dist/ 里的字节
+#   tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建(**不产 media/,这种产物不可发布**)
 #
 # 环境变量:
-#   SITE_REPO   公开仓(默认 adam-ikari/gaia)
+#   GITHUB_REPOSITORY   CI 里的当前仓;本机则由 `gh repo view` 顺 origin 解析
 #
 # 站点只发**两条渠道**:测试版 β(主下载)与开发版 dev。2026-10-23 起不再有
 # 正式版主渠道 —— 这个项目从来没有正式版,原来的主渠道只是一份挂着「已撤回」
@@ -60,13 +64,12 @@ set -uo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd) || exit 1
 cd "$REPO_ROOT" || exit 1
 
-SITE_REPO="${SITE_REPO:-adam-ikari/gaia}"
 WEB=web
-DRY=0
 SKIP_FETCH=0
+VERIFY_ONLY=0
 for a in "$@"; do
   case "$a" in
-    --dry-run)    DRY=1 ;;
+    --verify)     VERIFY_ONLY=1 ;;
     --skip-fetch) SKIP_FETCH=1 ;;
     -h|--help)    sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "::error::不认识的参数 $a" >&2; exit 1 ;;
@@ -80,6 +83,125 @@ ok()   { printf '    \033[32m✓\033[0m %s\n' "$1"; }
 command -v gh >/dev/null || die "需要 gh"
 command -v npm >/dev/null || die "需要 npm"
 
+# ---- 目标仓、站点地址、base:三件事都由**当前仓名**推出来 --------------------
+#
+# 原来这三处各写着一个字面量 `gaia`。这个仓要改名,而字面量在改名之后不会报错:
+#   · 目标仓写死 ⇒ 包发进一个已经不存在的仓(或别人的仓),站点取到旧字节;
+#   · 站点地址写死 ⇒ 最后那条「下回线上那份逐字节比」的判据在**验另一个站**;
+#   · VitePress 的 base 写死 ⇒ 页面能出、样式与 chunk 全 404。
+# ⇒ 只留一个来源:CI 里的 `GITHUB_REPOSITORY`,本机则由 `gh repo view` 顺 origin 解析。
+#   两者都跟着 remote 走,改名后自动就是新名字。
+REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
+[ -n "$REPO" ] || die "解析不出目标仓:CI 里没有 GITHUB_REPOSITORY,本机 gh repo view 也失败(origin 指向 GitHub 吗?)"
+REPO_NAME="${REPO##*/}"
+# 项目站的 URL 与 base 都是 `/<仓名>/` —— 同一个事实的两面,所以从同一个变量派生。
+SITE_URL="https://${REPO%/*}.github.io/${REPO_NAME}"
+SITE_BASE="/${REPO_NAME}/"
+export SITE_BASE
+
+# 产物目录。CI 里构建步与 `--verify` 步之间靠它传递(同一个 job 的 workspace)。
+BUILD_DIR="$REPO_ROOT/$WEB/docs/.vitepress/dist"
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+# ============================================================================
+# 判据:公开站点上的字节 == 产物里的字节
+# ============================================================================
+#
+# 验的**不是「页面 200」**:200 只验存在,不验完整。
+# 2026-10-06 实测这个网络下下载会静默截断(有一次连文件都没落下来,页面本身却正常),
+# 用户拿到残缺的 APK,安装器只给一句「软件包无效」。
+# ⇒ 必须下回来逐字节比。这是唯一能把「装不上」归因清楚的判据。
+#
+# 「workflow 绿了」也不等于「站点更新了」:`deploy-pages` 成功与 Pages 的 CDN 生效之间
+# 还有一段。所以下面轮询到字节对上为止,并说清去哪儿看那次 run。
+verify_one() {
+  local path=$1 label=$2 ref=$3 attempt got_size
+  local want_sha want_size got_sha
+  want_sha=$(sha256sum "$ref" | cut -d' ' -f1)
+  want_size=$(stat -c%s "$ref")
+  for attempt in $(seq 1 12); do
+    rm -f "$WORK/dl-verify"
+    if curl -sL --max-time 300 -o "$WORK/dl-verify" "$SITE_URL/$path" 2>/dev/null \
+       && [ -s "$WORK/dl-verify" ]; then
+      got_sha=$(sha256sum "$WORK/dl-verify" | cut -d' ' -f1)
+      if [ "$got_sha" = "$want_sha" ]; then
+        ok "$label: $path 与本次产物逐字节一致($want_size 字节,第 $attempt 次)"
+        return 0
+      fi
+      got_size=$(stat -c%s "$WORK/dl-verify")
+      echo "    第 $attempt 次:$label 站点上那份($got_size 字节)与本次产物($want_size 字节)不同 —— 部署还没生效,重试"
+    else
+      echo "    第 $attempt 次:下载 $label 失败,重试"
+    fi
+    sleep $((attempt * 15))
+  done
+  echo "::error::$label 在 20 分钟窗口内没等到 —— 先看本仓的部署 run:"
+  echo "        gh run list -R $REPO --workflow deploy-site.yml --limit 3"
+  echo "        取包失败/大小或 sha256 对不上都会让那次 run 红,而红的时候 Pages 仍是上一版。"
+  return 1
+}
+
+verify_live() {
+  # 期望字节来自**产物**:`dist/media/*.apk` 就是 workflow 刚上传给 Pages 的那份,
+  # 拿它当参照,判的才是「上传的那串字节有没有原样回来」。
+  # 这里不再回读 release 资产 —— 那是构建时(`take_channel`)另一条判据的事。
+  if [ ! -s "$BUILD_DIR/media/gaia-beta.apk" ]; then
+    echo "    产物里没有测试版的包($BUILD_DIR/media/gaia-beta.apk)—— 这种产物本来就没上传过,验无可验"
+    return 1
+  fi
+  verify_one "media/gaia-beta.apk" "测试版" "$BUILD_DIR/media/gaia-beta.apk" \
+    || die "测试版 APK 在站点上与本次产物不一致 —— 这次更新没生效,别当成成功"
+  if [ -s "$BUILD_DIR/media/gaia-dev.apk" ]; then
+    verify_one "media/gaia-dev.apk" "开发版" "$BUILD_DIR/media/gaia-dev.apk" \
+      || die "开发版 APK 与本次产物不一致"
+  fi
+
+  # 页面本身也要看一眼:产物目录对不等于**页面引用的路径**对。
+  # 「dist 里有 gaia-beta.apk」与「页面按钮指向 /media/gaia-beta.apk」是两个独立事实,
+  # 而后者错了的症状是 404 页(VitePress 把 .apk 当网页路由接管,2026-10-02 真机报障)。
+  local HTML_SHA got attempt
+  HTML_SHA=$(sha256sum "$BUILD_DIR/index.html" | cut -d' ' -f1)
+  for attempt in 1 2 3 4 5 6 7 8; do
+    rm -f "$WORK/dl-index"
+    if curl -sL --max-time 120 -o "$WORK/dl-index" "$SITE_URL/" 2>/dev/null \
+       && [ -s "$WORK/dl-index" ]; then
+      got=$(sha256sum "$WORK/dl-index" | cut -d' ' -f1)
+      if [ "$got" = "$HTML_SHA" ]; then
+        ok "首页与本地产物一致"
+        break
+      fi
+      if [ "$attempt" = 8 ]; then
+        die "首页在站点上与本地产物不一致 —— 部署没生效"
+      fi
+      echo "    第 $attempt 次:首页还不是本次产物,重试"
+    elif [ "$attempt" = 8 ]; then
+      die "首页取不到"
+    fi
+    sleep $((attempt * 10))
+  done
+
+  echo
+  printf '\033[32m✓ 站点已更新\033[0m %s/\n' "$SITE_URL"
+}
+
+# `--verify`:部署那两步(upload-pages-artifact / deploy-pages)在 workflow 里,
+# 这一步是紧跟在其后的判据。分开是因为「上传并部署」与「线上生效」之间要等。
+#
+# ## `|| die` 不是格式问题,是这个脚本最重要的一行
+#
+# 本机实测(2026-10-27):`verify_live` 在「产物里根本没有 media/」那条路上是
+# `echo` + `return 1`,而这里原来写的是裸 `verify_live` ⇒ 函数说了「验无可验」,
+# 脚本却 `exit 0`。**报错被吞掉,后果是看起来成功了** —— 这条链上每一处事故都是这个形状
+# (`publish-site` job 缺 secret 时 skipped 且退出码 0;`cp` 失败后照样判「无变化」)。
+# 所以:凡是拿退出码当判据的地方,都要显式收回来。
+if [ "$VERIFY_ONLY" = 1 ]; then
+  step "验公开站点($SITE_URL)"
+  verify_live || die "线上那份与本次产物不一致 —— 这次更新没生效,别当成成功"
+  exit 0
+fi
+
 # 版本号从 APK 的 manifest 读 —— 那是装完之后在设置页看到的同一个字符串
 # (`0.7.11-beta.a2f69d8`),而不是从 tag 或资产名拼出来的。
 # 与「身份从资产名读」不冲突:身份仍是 hash,版本号是给人看的。
@@ -91,9 +213,6 @@ apk_version_name() {
   "$AAPT2" dump badging "$1" 2>/dev/null \
     | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1
 }
-
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
 
 # ============================================================================
 # 第一步:取两条渠道的 APK
@@ -189,7 +308,7 @@ take_channel() {
   asset=""
   q_ok=0
   for attempt in 1 2 3 4 5; do
-    if out=$(gh release view "$ref" -R "$SITE_REPO" --json assets -q \
+    if out=$(gh release view "$ref" -R "$REPO" --json assets -q \
         "[.assets[] | select(.name | startswith(\"$prefix\"))] | last | .name // \"\"" 2>/dev/null); then
       asset=$out
       q_ok=1
@@ -231,7 +350,7 @@ take_channel() {
 
   if [ -z "$asset" ]; then
     if [ "$fatal" = yes ]; then
-      echo "::error::$label: $SITE_REPO@$ref 上没有 $prefix* 资产 —— 发布流程断了" >&2
+      echo "::error::$label: $REPO@$ref 上没有 $prefix* 资产 —— 发布流程断了" >&2
       return 1
     fi
     echo "::warning::$label: $ref 里没有 $prefix* 资产,这个渠道本次不上线"
@@ -269,7 +388,7 @@ take_channel() {
   # ⇒ 重试 5 次仍拿不到,按 fatal 分流,与「取不到完整文件」同等对待。
   want=0
   for attempt in 1 2 3 4 5; do
-    q=$(gh api "repos/$SITE_REPO/releases/tags/$ref" --jq \
+    q=$(gh api "repos/$REPO/releases/tags/$ref" --jq \
       ".assets[] | select(.name==\"$asset\") | .size" 2>/dev/null | head -1)
     case "$q" in
       ''|*[!0-9]*) sleep $((attempt * 3)) ;;
@@ -288,7 +407,7 @@ take_channel() {
   for attempt in 1 2 3 4 5; do
     # **先删**:上一次失败留下的半截文件就在这儿,不清会被当成这次的结果。
     rm -f "$dest"
-    if gh release download "$ref" -R "$SITE_REPO" -p "$asset" --dir "$WORK/dl" >/dev/null 2>&1; then
+    if gh release download "$ref" -R "$REPO" -p "$asset" --dir "$WORK/dl" >/dev/null 2>&1; then
       got=$(stat -c%s "$WORK/dl/$asset" 2>/dev/null || echo 0)
       # 大小对不上就是**截断**,哪怕 gh 回 0。
       if [ "$want" -gt 0 ] && [ "$got" = "$want" ]; then
@@ -317,7 +436,7 @@ take_channel() {
   printf -v "${var}_SHA256" '%s' "$sha"
   printf -v "${var}_SIZE"   '%s' "$bytes"
   printf -v "${var}_HAS"    '%s' 1
-  # manifest 要按这两个值去远端取包(公开仓的 deploy.yml 干的),所以**远端坐标**
+  # manifest 要按这两个值去远端取包(deploy-site.yml 干的),所以**远端坐标**
   # 也得记下来:ref 是「资产实际躺在哪个 release 里」(beta 是按内容挑出来的那个,
   # 不是滚动 tag),asset 是资产全名。少记一个,部署侧就只能靠命名约定猜 ——
   # 而「按命名约定挑渠道」正是这条链上被教训过的那件事。
@@ -327,43 +446,40 @@ take_channel() {
   return 0
 }
 
-# 包落在 `$WORK/pkg`,**不在** `web/docs/public/` 里了(2026-10-26)。
+# 两条渠道的包先落在 `$WORK/pkg`(临时),构建完再复制进产物的 `media/`。
 #
-# ## 为什么
+# ## 为什么不放在 `web/docs/public/` 里让 VitePress 复制
 #
-# GitHub 对**单个文件**有服务端硬上限 100.00MB(十进制)。离线语音模型进了 APK 之后
-# beta 是 103,060,018 B = 103.06MB、dev 是 130,072,818 B = 130.07MB,**两个都超**;
-# `git push` 会被 pre-receive hook 拒(`GH001: ... exceeds GitHub's file size limit`)。
-# 实测方式:一个 110MB 的稀疏文件(pack 约 0 字节,网络瞬间完成),远端 4.1 秒后拒 ——
-# 这证明它跟带宽、跟哪台机器、跟 HTTPS 还是 SSH 都没关系。
+# 那个目录是**版本库的一部分**。而 GitHub 对单个文件有服务端硬上限 100.00MB(十进制):
+# 离线语音模型进 APK 之后 beta 是 103,060,018 B、dev 是 130,072,818 B,两个都超,
+# `git push` 会被 pre-receive 直接拒(`GH001`)。实测一个 110MB 稀疏文件 4.1 秒被拒 ——
+# 与带宽、机器、HTTPS/SSH 都无关,换 runner 也换不掉。
 #
-# ⇒ 站点上那两个包**不能再由 git 承载**。改由公开仓的 `deploy.yml` 按本次产出的
-# manifest 从 release 资产取包、直接组装 Pages artifact(Pages 只限「已发布站点 ≤ 1GB」,
-# 不限单文件)。release 资产侧的上限是 2GB/个,装得下。
-# ⇒ 构建期也不再需要包待在 `public/` 里被 VitePress 复制进产物。
+# **Pages artifact 没有这个单文件上限**(只限已发布站点 ≤ 1GB),实测 233MB 可以走
+# (2026-10-26 用一次性分支在 runner 上探过)。所以包由这个脚本在构建后复制进产物,
+# 再由 workflow 整个目录交给 Pages —— 字节只经过「release → runner → Pages」这条内存路径,
+# 全程不进 git。
 PKG_DIR="$WORK/pkg"
 mkdir -p "$PKG_DIR"
 
 if [ "$SKIP_FETCH" = 1 ]; then
   step "不联系远端(--skip-fetch):HTML 冒烟构建"
-  # 这个模式**结构上不能发布**:页面上显示的 sha256、版本号、以及给 deploy.yml 用的
-  # manifest,全部来自远端那份包的字节。不取包就没有它们 ——
+  # 这个模式**结构上不能发布**:页面上显示的 sha256、版本号、以及 manifest,
+  # 全部来自远端那份包的字节。不取包就没有它们 ——
   # 而「旧包贴新标签」在这条链上真出过事故(2026-10-11:两个 versionName 等长的包
   # 字节数也相等,盘上那份旧包通过了大小检查,上线的是旧内容配新校验值,全链无一处报错)。
   # 所以这里不做「复用盘上已有的包」这种省钱的事:那需要一个可信的本地→远端身份判据,
   # 而 GitHub 的资产 API 不给校验值。
-  # ⇒ 直接强制 dry-run,而不是「提醒一句」。
-  if [ "$DRY" != 1 ]; then
-    echo "    --skip-fetch 隐含 --dry-run:没有远端包就没有 manifest,产物不可发布"
-    DRY=1
-  fi
-  ok "跳过取包(产物不会推上线)"
+  # ⇒ 产物里没有 media/ 与 manifest,workflow 那个「验产物里有包」的步骤会把它拦下来;
+  #    这个模式只用于**本地看效果**,不能部署。
+  ok "跳过取包(这种产物不可部署:没有 media/,也没有校验值)"
 else
-  step "取两条渠道的 APK(来自 $SITE_REPO 的 release)"
+  step "取两条渠道的 APK(来自 $REPO 的 release)"
   mkdir -p "$WORK/dl"
 
-  # 旧结构下包就躺在 public/media 里;现在那里出现任何 APK 都是会被复制进产物的
-  # 泄漏(而产物里根本不该有 APK)。整个目录删掉,而不是「删 gaia.apk 那一个」。
+  # `public/media` 是旧结构留下的目录。产物里的包只应来自 `$PKG_DIR` 这一条路,
+  # 那里出现任何 APK 都会被 VitePress 复制进 dist 并静悄悄上线,所以整个目录删掉,
+  # 而不是「删 gaia.apk 那一个」。
   rm -rf "$WEB/docs/public/media"
 
   # ---- 测试版:挑一个**真的含有 app-beta-* 资产**的 prerelease ----
@@ -380,7 +496,7 @@ else
   BETA_TAG=""
   q_ok=0
   for attempt in 1 2 3 4 5; do
-    if BETA_TAG=$(gh api "repos/$SITE_REPO/releases" --paginate --jq \
+    if BETA_TAG=$(gh api "repos/$REPO/releases" --paginate --jq \
       '[.[] | select(.prerelease == true)
           | {tag: .tag_name,
              hasBeta: ([.assets[].name | select(startswith("app-beta-"))] | length > 0)}]
@@ -390,9 +506,9 @@ else
     fi
     sleep $((attempt * 3))
   done
-  [ "$q_ok" = 1 ] || die "连续 5 次取不到 $SITE_REPO 的 release 清单 —— 这**不代表没有 beta**,
-     先自己核对一次:gh release list -R $SITE_REPO"
-  [ -n "$BETA_TAG" ] || die "$SITE_REPO 上还没有含 app-beta-* 的 release ——
+  [ "$q_ok" = 1 ] || die "连续 5 次取不到 $REPO 的 release 清单 —— 这**不代表没有 beta**,
+     先自己核对一次:gh release list -R $REPO"
+  [ -n "$BETA_TAG" ] || die "$REPO 上还没有含 app-beta-* 的 release ——
      测试版是站点的主下载,取不到它,首页按钮就是 404,不许发布"
   echo "    测试版: $BETA_TAG"
   take_channel "测试版" "$BETA_TAG" "app-beta" "$PKG_DIR/gaia-beta.apk" "BETA" yes || exit 1
@@ -448,29 +564,31 @@ fi
 step "构建站点"
 [ -d "$WEB/node_modules" ] || { cd "$WEB" && npm ci && cd "$REPO_ROOT"; }
 
-# **绝对路径**。第三步那个 subshell 会 `cd` 进产物仓的克隆,
-# 而这里的相对路径在那儿不成立 —— 2026-10-08 实测:
-# `cp: cannot stat 'web/docs/.vitepress/dist/.': No such file or directory`
+# 产物目录在文件开头就定了(`BUILD_DIR`),因为 `--verify` 模式也要用它。
 #
-# 更要紧的是那个 `cp` 失败之后脚本**继续往下走**:克隆里 `dist/` 已被
-# `rm -rf` 删空,于是 `git diff --cached --quiet` 判成「逐字节相同」⇒
-# 报「产物无变化,跳过 push」⇒ **exit 3(成功)**。
-# 而线上那份其实还是旧的 —— 一个**成功退出的假成功**。
+# ## 为什么必须是绝对路径
 #
-# 三处一起修:路径取绝对、复制失败必须致命、「无变化」只能在**确实复制过**
-# 的前提下判。
-BUILD_DIR="$REPO_ROOT/$WEB/docs/.vitepress/dist"
+# 2026-10-08 实测:相对路径在任何 `cd` 之后都不成立,而那次复制失败**脚本照样跑完** ——
+# `cp` 报错,产物是空的,后面的「逐字节相同」判定于是报「无变化,跳过」并以成功退出。
+# 一个**成功退出的假成功**。所以路径取绝对,复制失败一律致命。
 rm -rf "$BUILD_DIR"
 
-# ## manifest:产物与包之间的唯一契约
+# ## manifest:线上那份字节「是谁、来自哪个 commit」的公开答案
 #
-# 包不进 git 之后,「站点上那个 100MB 的文件从哪儿来」必须有个**写下来的答案**,
-# 否则它只能靠 deploy.yml 里的命名约定猜 —— 而按命名约定挑渠道正是这条链上吃过教训的地方。
-# 所以构建期产出一个 JSON,VitePress 把 `public/` 原样复制进 dist,它就随产物一起提交。
+# ## 为什么产物不进 git 之后还要留它
+#
+# 原来「线上可追溯到某个 commit」这件事是靠**产物提交进产物仓**成立的 —— 每个字节
+# 都能对到一个 commit。改成 workflow 直接上传 Pages 之后,那个载体没了:产物存在
+# Actions 的一次 run 里,而 run 日志人不会去翻。manifest 补的就是这个洞 ——
+# 它随站点一起发布,任何人 `/ _artifact-manifest.json` 就能看到页面上那个版本号
+# 对应哪个 release、哪个资产、多少字节、什么 sha256、哪个 commit。
+#
+# `--verify` 还会**回读线上那份 manifest** 比对 `source_commit`(见第三步),
+# 所以它不是一段自说自话的元数据,是那条链上可判的一环。
 #
 # 里面每件事都是**判据**,不是注释:
-#   · `release` / `asset` —— deploy.yml 去哪儿取哪一份;
-#   · `size` / `sha256`  —— 取回来的字节是不是页面写给用户看的那一份
+#   · `release` / `asset` —— 站点上那个包是从哪个 release 的哪个资产取来的;
+#   · `size` / `sha256`  —— 那份字节是不是页面写给用户看的那一份
 #     (GitHub 的资产**可以被替换**;没有这两个值,「部署成功」只说明拿到过某个包);
 #   · `target`           —— 它在站点上的路径(页面的链接是固定的 `/media/gaia-beta.apk`,
 #     版本进 `download` 属性而不是 URL,见 brain 的 site-repo-topology);
@@ -482,9 +600,8 @@ rm -f "$MANIFEST"
 if [ "${BETA_HAS:-}" = 1 ]; then
   SITE_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
   {
-    printf '{\n  "schema": 1,\n'
-    printf '  "site_repo": "%s",\n' "$SITE_REPO"
-    printf '  "source_repo": "adam-ikari/hwkbd_ime",\n'
+    printf '{\n  "schema": 2,\n'
+    printf '  "repo": "%s",\n' "$REPO"
     printf '  "source_commit": "%s",\n' "$SITE_COMMIT"
     printf '  "channels": {\n'
     printf '    "beta": {"release": "%s", "asset": "%s", "target": "media/gaia-beta.apk", "version": "%s", "size": %s, "sha256": "%s"}' \
@@ -526,52 +643,89 @@ export VITE_HAS_DEV="${DEV_HAS:-}"
   || { tail -40 "$WORK/build.log" >&2; die "构建挂了(完整日志 $WORK/build.log)"; }
 ok "构建完成"
 
-# ---- 产物里**不该再有 APK**,该有的是 manifest ----
+# ---- 产物自洽:页面上写给用户看的数字,必须对应产物里的那串字节 ----
 #
-# 旧判据是「产物里没有 media/gaia-beta.apk 就 die」,防的是主下载按钮 404。包不再随
-# 产物走之后,同一件事换了归属:404 由 `deploy.yml` 那头防(它按 manifest 取包,
-# 取不到就红,不部署),这头要防的是两件**新**失效:
+# 「缺」与「坏」是两件事,致命性不同。这三条判据原来在 gaia 的 `deploy.yml` 里,
+# 产物不再进那个仓之后,它们跟着构建一起回到这里 —— 判据一条没少,只是换了地方。
 #
-#   · manifest 没进产物 ⇒ 部署侧只能靠命名约定猜去哪儿取包,而「按命名约定挑渠道」
-#     在这条链上已经错过一次(dev 也是 prerelease);
-#   · 产物里混进了 >100.00MB 的文件 ⇒ 下一次 `git push` 被 pre-receive 拒(GH001),
-#     而症状("推不上去")离原因(某个步骤又把包复制回了 dist)隔着一整条链。
+# ## 缺可选渠道不 fatal,坏一律 fatal
+# dev 没上线只是「那个按钮不渲染」,不该让测试版也更新不了(站点停在上一版)。
+# 而「存在但截断」是**明知故犯地发一份坏字节**:用户点下去只会得到「软件包无效」,
+# 正是 2026-10-06 那次报障的症状。不对称不是按渠道重要性分的,是按「这字节要不要发出去」分的。
+#
+# ## 完整性为什么必须用 `unzip -t` + 中央目录里的条目
+# 截断的 APK 有个特点:`unzip -l` 照样能列出前面一部分条目,所以「清单里有
+# AndroidManifest.xml」这一条**单独会漏掉它**。实测 3MB/6.6MB 的截断包里关键条目数
+# 是 **0**(zip 的中央目录在文件末尾,截断后整个没了)⇒ 关键条目那条抓得住,
+# 退出码也要看:`unzip -t` 对截断包回 **9**,完好的回 0。
+#
+# ## 清单必须**先落文件再 grep**,不能 `unzip -l | grep -q`
+# `grep -q` 找到第一个匹配就退出 ⇒ 上游 `unzip` 收到 SIGPIPE(141),而本脚本开着
+# `pipefail` ⇒ 整条管道退出码变成 141,于是「清单里有 AndroidManifest.xml」被判成
+# 「没有」。2026-10-08 拿真实产物实测过这个假失败。**闸门对正确的东西报失败**是
+# 最坏的一类 bug:人只会绕过它或关掉它,于是真正该拦的截断包也跟着过去。
+# ⇒ 一次落盘,再 grep 文件:退出码归 grep,不牵连 unzip。
+check_apk_sane() {
+  local f=$1 name
+  name=$(basename "$f")
+  unzip -tqq "$f" >/dev/null 2>&1 \
+    || { echo "::error::$name 不是完整的 APK(unzip 校验失败)—— 用户会看到「软件包无效」" >&2; return 1; }
+  unzip -l "$f" > "$WORK/apk-list.txt" 2>/dev/null
+  grep -q 'AndroidManifest\.xml' "$WORK/apk-list.txt" \
+    || { echo "::error::$name 里没有 AndroidManifest.xml —— 它不是个能装的 APK" >&2; return 1; }
+  grep -qE 'classes[0-9]*\.dex' "$WORK/apk-list.txt" \
+    || { echo "::error::$name 里没有 dex —— 它不是个能装的 APK" >&2; return 1; }
+  rm -f "$WORK/apk-list.txt"
+  ok "$name 是完整的 APK($(stat -c%s "$f") 字节)"
+}
+
 if [ "${BETA_HAS:-}" != 1 ]; then
-  echo "    (--skip-fetch 的冒烟构建:跳过产物自洽检查,这种产物不推)"
+  echo "    (--skip-fetch 的冒烟构建:跳过产物自洽检查,这种产物不可部署)"
 else
   [ -s "$BUILD_DIR/_artifact-manifest.json" ] \
-    || die "产物里没有 _artifact-manifest.json —— 部署侧无从知道去哪儿取哪个包"
+    || die "产物里没有 _artifact-manifest.json —— 线上那份字节无从追溯"
   cmp -s "$MANIFEST" "$BUILD_DIR/_artifact-manifest.json" \
     || die "产物里的 manifest 与构建前写的那份不一致 —— 构建步骤动了它?"
   ok "产物里有 manifest,且与构建前逐字节一致"
 
-  # 留 10MB 余量:判的是「有没有包漏进产物」,不是精确边界。
-  if find "$BUILD_DIR" -type f -size +90M 2>/dev/null | grep -q .; then
-    die "产物里出现了 >90MB 的文件 —— dist 不该再承载 APK(GitHub 单文件上限 100.00MB)"
-  fi
-
-  # 页面上写的校验值,必须就是这份包字节的校验值。
-  # 这一步不是自证:比较的对象是**已构建出来的静态资源**(用户浏览器会拿到的东西),
-  # 而包字节是刚下载并核对过大小的那份。中间任何环节注入错(改字段时漏了渠道、
-  # 拼成 `gaia-ime-beta-.apk` 那类),这里就会断。
-  #
-  # 注意搜的是 `*.html` 与 `*.js` 而**不是**只看 index.html,也不是「整个 dist 里搜一遍」:
-  # 校验值是客户端渲染的,它在 `assets/chunks/theme.*.js` 里而不在首页 HTML 里
-  # (2026-10-26 实测,按 index.html 判会误报「数字没渲染出来」);
-  # 而整个 dist 里搜会连 manifest 自己也算进去 —— 那是我们从同一个变量写出来的文件,
-  # 搜它等于让判据自证。
+  # 包**构建之后**才塞进产物,所以 VitePress 不会「顺手」把它们当页面资源处理,
+  # 而 `.apk` 出现在 `public/` 里会被那条 rm -rf 删掉 —— 只有一条路能让包上线。
+  mkdir -p "$BUILD_DIR/media"
   for pair in "gaia-beta.apk:BETA" "gaia-dev.apk:DEV"; do
     f="${pair%%:*}"; var="${pair##*:}"
     [ -s "$PKG_DIR/$f" ] || continue
+    cp "$PKG_DIR/$f" "$BUILD_DIR/media/$f" \
+      || die "把 $f 复制进产物失败 —— 站点上那个按钮会 404"
+    [ -s "$BUILD_DIR/media/$f" ] || die "$f 复制后在产物里不存在(命令回 0 不等于文件在)"
+    check_apk_sane "$BUILD_DIR/media/$f" || die "$f 不完整 —— 不部署"
+
+    # 页面上写的校验值,必须就是这份包字节的校验值。
+    # 这一步不是自证:比较的对象是**已构建出来的静态资源**(用户浏览器会拿到的东西),
+    # 而包字节是刚下载并核对过大小的那份。中间任何环节注入错(改字段时漏了渠道、
+    # 拼成 `gaia-ime-beta-.apk` 那类),这里就会断。
+    #
+    # 注意搜的是 `*.html` 与 `*.js` 而**不是**只看 index.html,也不是「整个 dist 里搜一遍」:
+    # 校验值是客户端渲染的,它在 `assets/chunks/theme.*.js` 里而不在首页 HTML 里
+    # (2026-10-26 实测,按 index.html 判会误报「数字没渲染出来」);
+    # 而整个 dist 里搜会连 manifest 自己也算进去 —— 那是我们从同一个变量写出来的文件,
+    # 搜它等于让判据自证。
     eval "want=\${${var}_SHA256:-}"
-    got=$(sha256sum "$PKG_DIR/$f" | cut -d' ' -f1)
+    got=$(sha256sum "$BUILD_DIR/media/$f" | cut -d' ' -f1)
     [ -n "$want" ] && [ "$want" = "$got" ] \
       || die "$f:注入页面的 sha256 与包字节对不上"
-    hit=$(find "$BUILD_DIR" \( -name '*.html' -o -name '*.js' \) -exec grep -lF -- "$want" {} + | head -1)
+    hit=$(find "$BUILD_DIR" \( -name '*.html' -o -name '*.js' \) ! -path "$BUILD_DIR/media/*" \
+            -exec grep -lF -- "$want" {} + | head -1)
     [ -n "$hit" ] \
       || die "静态资源里没有 $f 的校验值 ${want:0:12}… —— 数字没渲染出来,用户无从核对"
   done
-  ok "页面的校验值与包字节一致;产物里没有 APK"
+  ok "页面的校验值与产物里的包字节一致"
+
+  # Pages 的上限是**已发布站点 ≤ 1GB**(与 git 那个 100MB 单文件上限是两回事)。
+  # 两条渠道现在都在产物里,合计 ~233MB,离上限还远 —— 但「远」不是判据,留一条实测的线:
+  total=$(du -sk "$BUILD_DIR" | cut -f1)
+  [ "$total" -lt 900000 ] \
+    || die "产物合计 ${total}KB,超过 Pages 的 1GB 上限余量 —— 部署会失败,先查是谁把包塞大了"
+  ok "产物合计 $((total / 1024))MB(Pages 上限 1GB)"
 fi
 
 # ---- 页面上必须出现版本号 ----
@@ -585,158 +739,12 @@ if [ -n "${BETA_VERSION_NAME:-}" ]; then
 fi
 
 # ============================================================================
-# 第三步:推产物
+# 第三步:交给 workflow
 # ============================================================================
-step "推产物到 $SITE_REPO"
-
-if [ "$DRY" = 1 ]; then
-  echo "    (--dry-run,不推)"
-  echo "    会推到 $SITE_REPO 的 dist/:"
-  ( cd "$BUILD_DIR" && find . -type f | sort | sed 's|^\./|      dist/|' )
-  exit 0
-fi
-
-# 产物进 git 的 `dist/` 子目录(不是仓根)。三个理由:
-#   1. 仓根要留给 `.github/`(部署 workflow)与 `README.md`(这个仓是什么),
-#      它们不是站点的一部分,混进产物就会被 Pages 一并发出去。
-#   2. workflow 的 `upload-pages-artifact: path: dist` 与之一致。
-#   3. 产物仓根如果就是站点,`git clone` 下来的人会以为那是可编辑的站点源码 ——
-#      而它其实一个字节都不能改(改了就没有对应的构建了)。
-#
-# 2026-10-26 起 `dist/` 里只有页面本身(HTML/CSS/JS/小图)加一份 manifest,合计几百 KB;
-# 那两个 100MB 级的 APK 由 `deploy.yml` 在部署时按 manifest 从 release 资产取,
-# 不再进 git(单文件 100.00MB 的服务端硬上限,见上面 PKG_DIR 那段)。
-#
-# **用 clone 而不是 worktree**:产物仓只有一个分支、只放产物,没有并行编辑,
-# worktree 的并发假设用不上。也不在原地改 —— 那个仓跟本仓库的 git 历史无关,
-# 混用 index 只会让人看不懂状态。
-SITE_WORK="$WORK/site"
-gh repo clone "$SITE_REPO" "$SITE_WORK" -- --depth=1 >/dev/null 2>&1 \
-  || die "克隆 $SITE_REPO 失败"
-(
-  cd "$SITE_WORK" || exit 1
-  # **只重写 dist/,不动仓根。**
-  #
-  # 旧结构(源码在仓根、Pages 从仓根发布)已在 monorepo 化那一次清掉了。
-  # 这一版刻意**不再**清仓根:仓根现在有属于它的东西(`README.md` 说明这个仓
-  # 是什么、`.github/workflows/deploy.yml` 是部署流水线)。
-  # 「顺手把仓根也清一遍」正是那种将来会误删东西的写法 ——
-  # 清空逻辑应该跟着它清理的那次迁移走一次,不该永久留在脚本里。
-  rm -rf dist
-  mkdir -p dist
-  # **复制失败必须致命。** `set -e` 在 subshell 里是继承的,
-  # 但这一步曾经失败而脚本继续跑完并 exit 0(见上面 BUILD_DIR 那段注释),
-  # 所以不靠继承、显式判。
-  cp -a "$BUILD_DIR"/. dist/ || { echo "::error::复制产物失败" >&2; exit 4; }
-  # 复制之后再确认产物真的在那儿 —— 「命令回 0」不等于「文件在」。
-  [ -s dist/index.html ] || { echo "::error::dist/index.html 复制后不存在" >&2; exit 4; }
-  [ -s dist/_artifact-manifest.json ] \
-    || { echo "::error::dist/_artifact-manifest.json 复制后不存在 —— 部署侧取不到包,站点按钮会 404" >&2; exit 4; }
-  git add -A
-  if git diff --cached --quiet; then
-    echo "    产物与远端**逐字节相同** —— 这次没有任何要更新的东西"
-    exit 3
-  fi
-  git -c user.name="$(git -C "$REPO_ROOT" config user.name || echo adam)" \
-      -c user.email="$(git -C "$REPO_ROOT" config user.email || echo adam@users.noreply.github.com)" \
-      commit -q -m "产物:$(git -C "$REPO_ROOT" rev-parse --short HEAD)
-
-站点源码与构建在私有仓 adam-ikari/hwkbd_ime 的 web/,由
-tools/release/publish-site.sh 生成。本仓只放产物。"
-  git push -q origin HEAD:main
-) || rc=$?
-rc=${rc:-0}
-case "$rc" in
-  3) echo "    (产物无变化,跳过 push)" ;;
-  4) die "复制产物失败 —— 公开站点上的仍是上一次的产物,而本地构建是新的" ;;
-  0) ;;
-  *) die "推产物失败 —— 公开站点上的仍是上一次的产物,而本地构建是新的" ;;
-esac
-
-# ============================================================================
-# 第四步:验 —— 公开站点上的字节 == 本地产物里的字节
-# ============================================================================
-step "验公开站点"
-#
-# Pages 从分支发布,**push 成功与站点已更新是两件事**:要先等 Pages 重新构建,
-# 而它构建失败时只在仓库的 Pages 设置里留一行字,推的人看不到。
-#
-# CDN 还会缓存 ⇒ 刚推完立刻 curl 拿到的是**上一版**。所以下面轮询到字节对上为止。
-#
-# 验的**不是「页面 200」**:200 只验存在,不验完整。
-# 2026-10-06 实测这个网络下下载会静默截断(有一次连文件都没落下来,页面本身却正常),
-# 用户拿到残缺的 APK,安装器只给一句「软件包无效」。
-# ⇒ 必须下回来逐字节比。这是唯一能把「装不上」归因清楚的判据。
-#
-# ## 2026-10-26:这条轮询现在验的是整条新链
-#
-# 包不再进 git 之后,站点上那个 `/media/gaia-beta.apk` 是 `deploy.yml` 按 manifest
-# 从 release 资产取回来、装进 Pages artifact 的。所以「线上这份 == 本地这份包」
-# 一句话同时判了三件事:资产取得到、manifest 没指错地方、Pages 真的更新了。
-#
-# 代价是**要等的变长了**:推完 main 之后,先要跑一次部署 workflow(取 ~220MB、
-# 校验、交 Pages),再等 Pages 自己构建。原来的 8 次 × 递增 10s(累计约 6 分钟)
-# 是在「产物已在 git 里」的前提下定的,那个前提没了 ⇒ 窗口按 20 分钟放,
-# 并在超时话里说清去哪儿看(公开仓的 Actions run),而不是让人猜是不是没推上去。
-SITE_URL="https://adam-ikari.github.io/gaia"
-verify_one() {
-  local path=$1 label=$2 ref=$3 attempt
-  local want_sha want_size got_sha
-  want_sha=$(sha256sum "$ref" | cut -d' ' -f1)
-  want_size=$(stat -c%s "$ref")
-  for attempt in $(seq 1 12); do
-    rm -f "$WORK/dl-verify"
-    if curl -sL --max-time 300 -o "$WORK/dl-verify" "$SITE_URL/$path" 2>/dev/null \
-       && [ -s "$WORK/dl-verify" ]; then
-      got_sha=$(sha256sum "$WORK/dl-verify" | cut -d' ' -f1)
-      if [ "$got_sha" = "$want_sha" ]; then
-        ok "$label: $path 与本次包逐字节一致($want_size 字节,第 $attempt 次)"
-        return 0
-      fi
-      got_size=$(stat -c%s "$WORK/dl-verify")
-      echo "    第 $attempt 次:$label 站点上那份($got_size 字节)与本次包($want_size 字节)不同 —— 部署还没生效,重试"
-    else
-      echo "    第 $attempt 次:下载 $label 失败,重试"
-    fi
-    sleep $((attempt * 15))
-  done
-  echo "::error::$label 在 20 分钟窗口内没等到 —— 先看公开仓的部署 run:"
-  echo "        gh run list -R $SITE_REPO --limit 3"
-  echo "        取包失败/大小或 sha256 对不上都会让那次 run 红,而红的时候 Pages 仍是上一版。"
-  return 1
-}
-
-verify_one "media/gaia-beta.apk" "测试版" "$PKG_DIR/gaia-beta.apk" \
-  || die "测试版 APK 在站点上与本次包不一致 —— 这次更新没生效,别当成成功"
-if [ -s "$PKG_DIR/gaia-dev.apk" ]; then
-  verify_one "media/gaia-dev.apk" "开发版" "$PKG_DIR/gaia-dev.apk" \
-    || die "开发版 APK 与本次包不一致"
-fi
-
-# 页面本身也要看一眼:产物目录对不等于**页面引用的路径**对。
-# 「dist 里有 gaia-beta.apk」与「页面按钮指向 /media/gaia-beta.apk」是两个独立事实,
-# 而后者错了的症状是 404 页(VitePress 把 .apk 当网页路由接管,2026-10-02 真机报障)。
-HTML_SHA=$(sha256sum "$BUILD_DIR/index.html" | cut -d' ' -f1)
-for attempt in 1 2 3 4 5 6 7 8; do
-  rm -f "$WORK/dl-index"
-  if curl -sL --max-time 120 -o "$WORK/dl-index" "$SITE_URL/" 2>/dev/null \
-     && [ -s "$WORK/dl-index" ]; then
-    got=$(sha256sum "$WORK/dl-index" | cut -d' ' -f1)
-    if [ "$got" = "$HTML_SHA" ]; then
-      ok "首页与本地产物一致"
-      break
-    fi
-    if [ "$attempt" = 8 ]; then
-      die "首页在站点上与本地产物不一致 —— 部署没生效"
-    fi
-    echo "    第 $attempt 次:首页还不是本次产物,重试"
-  elif [ "$attempt" = 8 ]; then
-    die "首页取不到"
-  fi
-  sleep $((attempt * 10))
-done
-
+step "产物已就绪,等 workflow 交给 Pages"
+echo "    站点:$SITE_URL/"
+echo "    目录:$BUILD_DIR"
+( cd "$BUILD_DIR" && find . -type f | sort | sed 's|^\./|      |' )
 echo
-printf '\033[32m✓ 站点已更新\033[0m %s\n' "$SITE_URL/"
-echo "  测试版 $BETA_TAG"
-[ -n "${DEV_VERSION:-}" ] && echo "  开发版 dev-$DEV_VERSION" || echo "  开发版 本次未上线"
+echo "    下一步(workflow 里):upload-pages-artifact → deploy-pages → publish-site.sh --verify"
+echo "    判据没做完 —— 线上那份字节要等部署后才能逐字节比,那一步是 --verify。"

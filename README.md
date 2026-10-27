@@ -96,16 +96,20 @@
 - **Release**(`.github/workflows/release.yml`):推送 `v*` tag → 测试 + 构建 release/debug APK → 创建 GitHub Release
   - 可选签名:仓库 Secrets 配置 `SIGNING_KEYSTORE_BASE64`(jks 的 base64)、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`,release 包自动签名;未配置则出未签名包
 
-- **发布 β / dev / 站点**(2026-10-26 起)**不在本机跑**,在公开仓 `adam-ikari/gaia` 的
-  `.github/workflows/publish-ime.yml` 里(手动 `workflow_dispatch`):它检出本仓、按序调
-  `tools/release/publish-beta.sh` → `publish-dev.sh` → `publish-site.sh`。
-  换机器的理由是 GitHub 对**单文件 100.00MB 的 push 硬上限**(`GH001`,与网络无关):
-  β 与 dev 各自 103,060,018 / 130,072,818 字节,本来就进不了 git;公开仓的执行还免费、
-  不占私有仓的计费分钟。于是 `gaia` 的 `main` 里只放**页面 + 一份 manifest**,
-  两个包由部署侧的 `deploy.yml` 按 manifest 从本仓 release 资产取回、核对字节数与
-  sha256 之后交给 Pages 的 artifact(那条路线不限单文件大小)。
-  需要先在本仓配好一个只读本仓的 fine-grained PAT,存成 gaia 的 secret `IME_SOURCE_PAT`。
-  `gate.sh --beta` 仍在本地跑,且要发的那个 commit **必须先推到 `origin/master`**。
+- **发布 β / dev / 站点**(`.github/workflows/publish-ime.yml`,手动 `workflow_dispatch`)
+  按序调 `tools/release/gate.sh --beta` → `publish-beta.sh` → `publish-dev.sh`,
+  再调用 `.github/workflows/deploy-site.yml` 构建站点并交给 Pages。站点也可以单独发
+  (`deploy-site.yml` 自己能 dispatch,用于只改文案的时候)。
+  - **为什么在 runner 上跑,不在本机**:开发机到 GitHub 的上传,单个请求持续约 20 秒
+    就被 408 掐断(实测 12MB 失败、2MB 通过)。β 与 dev 各 103,060,018 / 130,072,818
+    字节,不是一个能切小的请求,git 也无法续传。
+  - **为什么产物不进 git**:GitHub 对单个文件有 100.00MB 的服务端硬上限(`GH001`,
+    与机器、带宽、协议都无关)。包的走法是 release 资产 → runner → Pages artifact。
+  - 2026-10-27 之前这条链的执行者在公开仓 `adam-ikari/gaia`,靠一枚只读本仓的 PAT 跨仓
+    取源码;那个仓现在并进了本仓(源码、站点、产物、构建同一处),跨仓凭据随之删除。
+  - 签名:配 `SIGNING_KEYSTORE_BASE64` + `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_ALIAS`
+    / `SIGNING_KEY_PASSWORD` 四个 Secrets。少配任何一个,`gate.sh` 第 5c 步读产物证书
+    指纹时直接判红 —— 未签名的包发不出去,而不是悄悄发出去。
   背景与判据见 `docs/versioning.md`。
 
 安装:`adb install app-debug.apk` 或下载 Release 包手动安装,然后系统设置里启用并选择本输入法。首次打开任意输入框会后台加载词库(约 1-2 秒)。

@@ -1,0 +1,222 @@
+name: Publish β / dev / site
+
+# 一发到底:编 β 与 dev → 传 release 资产 → 构建站点 → 部署 Pages → 逐字节验线上。
+#
+# ## 2026-10-27:这个 job 从公开仓 `gaia` 收回本仓
+#
+# 原来它在 gaia 里,靠一个 fine-grained PAT(`IME_SOURCE_PAT`)去检读本仓的私有源码。
+# 那枚凭据现在整个不需要了 —— 源码与产物在同一个仓,`GITHUB_TOKEN` 就够了。
+# **跨仓凭据是这趟迁移里最该删的东西**:它的存在理由(私有源码 + 公开 runner)已经没了,
+# 留着就是一张能读源码的长期票,而且它的权限范围只能靠人记得去核对。
+#
+# 执行位置为什么必须在 runner:开发机到 GitHub 的上传**单个 HTTP 请求持续 ~20 秒就被
+# 408 掐断**(实测 12MB 的 push 在 20.5 秒失败、2MB 通过;`gh release upload` 3MB 通过、
+# 10MB 超时)。β(≈103MB)+ dev(≈130MB)不是一个能切小的请求,git 也无法续传。
+#
+# ## 谁能触发它
+#
+# 只有 `workflow_dispatch`。**不要**加 `pull_request_target` / `issue_comment` /
+# `repository_dispatch` / `push`:这个仓公开后任何人都能造出触发事件,而这个 job 手里
+# 有签名口令和写 release 的权限。`workflow_dispatch` 需要本仓 write 权限 ⇒ 发起方只有你。
+#
+# ## 签名钥匙不在仓里(2026-10-27 改)
+#
+# 原来 `hwkbd.keystore` 与它的口令提交在源码里,私有时无所谓。仓要公开之后那就是
+# **公开的密码** ⇒ 钥匙出仓,改由这几个 secret 提供:
+#
+# | secret | 内容 |
+# | --- | --- |
+# | `SIGNING_KEYSTORE_BASE64` | `base64 -w0 hwkbd.keystore` 的结果 |
+# | `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_PASSWORD` | 两个口令 |
+# | `SIGNING_KEY_ALIAS` | 别名 |
+#
+# 少配任何一个 ⇒ 包变未签名 ⇒ `gate.sh` 第 5c 步(拿 `apksigner` 读产物里的证书指纹)
+# 直接判红。这一条是**刻意的**:「忘了配 secret」的表现必须是流水线失败,
+# 不能是一份能发出去的未签名 APK。
+#
+# **换钥匙的代价是老用户不能原地升级**(Android 按签名判同包),所以钥匙只有一份,
+# 存在 `~/.gaia-signing/hwkbd.keystore`。它进了公开历史就收不回来。
+#
+# ## 判据在脚本里,不在这里
+#
+# 三步全调本仓既有脚本:`gate.sh --beta` → `publish-beta.sh` → `publish-dev.sh` →
+# `deploy-site.yml`。工作区必须干净、versionName 必须等于 HEAD 短 hash(带 `.dirty`
+# 直接拒发)、`applicationId` 必须是 `.beta` / `.dev`、上传后回读远端资产清单核对字节数
+# —— 那些都写在脚本里。**逻辑只有一份,搬走的只是执行它的那台机器。**
+# 而闸门进链这件事不能靠人记得:执行位置搬到 runner 后,「点一下 dispatch 就能发」
+# 意味着没有人再挡一道,所以它必须是流水线的一步。
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: '要发布的分支或 commit'
+        required: true
+        default: master
+        type: string
+
+# `pages: write` / `id-token: write` 是给最后那个 `deploy-site.yml` 的:
+# 被调用的 reusable workflow 拿的是**调用方 job** 的权限。
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# 两条渠道的 release tag(`beta-*` / `dev-latest`)、Pages 都是共享的单一名字。
+# 两个 run 并行 ⇒ 后一个把前一个的资产清单覆盖成半成品,而站点显示的是「这一版可下」。
+# 所以排队,不打断(打断会让中间那次白跑,日志上留下 cancelled + success,像 flaky)。
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    # librime 要用 NDK 交叉编译;闸门一次编四个变体(release/debug/beta/dev),
+    # 两个渠道再各发一次,加上 npm ci 与语音模型下载。90 分钟太紧 —— 超时的表现是
+    # 「构建被杀掉」而不是「闸门没过」,那比失败更难看清。
+    timeout-minutes: 120
+
+    steps:
+      # dispatch 输入是手填的。先过一道白名单字符集,再让**服务端**把它解析成一个完整
+      # commit,理由不是防注入(它不会被当 shell 执行),是**可追溯**:
+      # 发出去的包要能确定对应哪一个 commit,日志里记全 SHA,而不是「master 当时大概指哪儿」
+      # —— `publish-*.sh` 就是按 HEAD 短 hash 命名版本的。解析失败在这里就退出,
+      # 不用等 40 分钟后才知道是分支名打错了。
+      - name: 解析 source_ref → 完整 commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SRC_REF: ${{ inputs.source_ref }}
+        run: |
+          set -eu
+          case "$SRC_REF" in
+            ''|*[!A-Za-z0-9._/-]*)
+              echo "source_ref 只能是分支名/标签/commit(字母数字与 . _ / -): '$SRC_REF'"
+              exit 1;;
+          esac
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SRC_REF" --jq .sha)
+          [ -n "$sha" ] || { echo "解析到空 sha"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "source_ref $SRC_REF → $sha"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+          submodules: recursive
+
+      - name: 发布的是哪个 commit
+        run: |
+          echo "HEAD  = $(git rev-parse HEAD)"
+          echo "short = $(git rev-parse --short HEAD)"
+          echo "未提交改动 = $(git status --porcelain | wc -l) 处(必须是 0,否则 publish-*.sh 会拒)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # **NDK 版本必须与 `app/build.gradle.kts` 的 ndkVersion 完全一致**:不同 NDK 编出的
+      # .so 有差异(运行库版本、C++ 标准库细节),「本地能跑线上崩」从 Kotlin 侧看不出来。
+      # 不用 `setup-android` —— runner 镜像本来就预装 cmdline-tools,只是不在 PATH,
+      # 而那个 action 内部先跑一次 sdkmanager,许可没接受时它自己就 exit 1。
+      - name: Accept licenses, install NDK and CMake
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1' 'build-tools;36.0.0'
+          echo "ndk    : $(ls "$ANDROID_HOME/ndk")"
+          echo "cmake  : $(ls "$ANDROID_HOME/cmake")"
+          echo "boost  : 不需要(librime fork 已替成 std::regex / 自带 shim)"
+
+      - name: Decode signing keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          set -eu
+          [ -n "$SIGNING_KEYSTORE_BASE64" ] || {
+            echo "::error::没配 SIGNING_KEYSTORE_BASE64 —— 编出来的包是未签名的,发不出去。"
+            echo "::error::配好这个 secret 再来(见本文件顶部那张表)。"
+            exit 1; }
+          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/hwkbd.keystore"
+          echo "keystore: $(stat -c%s "$RUNNER_TEMP/hwkbd.keystore") 字节"
+
+      # 离线语音模型(78MB)不在版本库里,由 `:app:fetchVoiceModel` 构建期取。
+      # 这一步在 CI 上必然真的下载一次 —— 那正是模型出仓库换来的东西。
+      - name: 取离线语音模型
+        run: ./gradlew --no-daemon :app:fetchVoiceModel
+
+      # 签名四件套 + 钥匙路径,一次导出给后面所有步(`build.gradle.kts` 读的就是这些
+      # 环境变量)。放在这里而不是每步重复:漏一步的症状是「那个 variant 没签名」,
+      # 离原因很远。
+      - name: 导出签名配置
+        env:
+          SIGNING_KEYSTORE: ${{ runner.temp }}/hwkbd.keystore
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          set -eu
+          {
+            printf 'SIGNING_KEYSTORE=%q\n'   "$SIGNING_KEYSTORE"
+            printf 'SIGNING_STORE_PASSWORD=%q\n' "$SIGNING_STORE_PASSWORD"
+            printf 'SIGNING_KEY_ALIAS=%q\n'  "$SIGNING_KEY_ALIAS"
+            printf 'SIGNING_KEY_PASSWORD=%q\n' "$SIGNING_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          [ -n "$SIGNING_STORE_PASSWORD" ] || { echo "::error::没配 SIGNING_STORE_PASSWORD"; exit 1; }
+          [ -n "$SIGNING_KEY_ALIAS" ]      || { echo "::error::没配 SIGNING_KEY_ALIAS"; exit 1; }
+
+      # ---- 闸门在链里,不在人的习惯里 ----
+      #
+      # 不用 `--release` 模式:beta 的身份是 git hash,不占 versionCode、不打 `v*` tag,
+      # 版本号那两步与「本 commit 必须引用 E2E 证据」那条对测试版不成立
+      # (E2E 要真机,runner 上没有)。跳过了哪两步由脚本自己打出来。
+      - name: 产物侧闸门(单测 / 构建 / R8 / 签名 / JNI)
+        run: tools/release/gate.sh --beta
+
+      # 顺序固定:先有 β 与 dev 的 release 资产,站点才取到包、才算得出要显示的
+      # 版本号与 sha256。反过来说 β 取不到就直接失败 —— 它是站点的主下载,缺它
+      # 首页按钮就是 404;dev 缺失只是那个按钮不渲染。
+      - name: 编 β 并发到 release
+        run: tools/release/publish-beta.sh
+
+      - name: 编 dev 并发到 release
+        run: tools/release/publish-dev.sh
+
+      - name: 失败时贴出构建日志尾巴
+        if: failure()
+        run: |
+          for f in /tmp/gate-test.log /tmp/gate-build.log \
+                   /tmp/publish-beta.log /tmp/publish-dev.log; do
+            [ -s "$f" ] && { echo "===== $f"; tail -60 "$f"; }
+          done
+
+  # 站点这一步是**另一个 job**,不是本 job 里的一个 step:reusable workflow 只能挂在
+  # `jobs.<id>.uses` 上(step 里写 `uses:` 是 action 的语法,不是 workflow 的)。
+  # 代价是这个 job 要用新 runner 重新 checkout 一次 —— 换来的是 `deploy-pages` 那两步
+  # (以及它们需要的 `id-token`)只写在一个地方。改两处 yml 而漏一处的代价这里付过了:
+  # `publish-site` job 曾经因为缺一个从来没配过的 secret 而永远 skipped 且退出码 0,
+  # 流水线全绿,站点停在旧版本,四个版本各漏一次(见 brain 的 release-flow)。
+  site:
+    needs: publish
+    # 与 `deploy-site.yml` 直接 dispatch 时同一个组:共享的那件资源是 Pages,
+    # 不是「谁触发的」。两个 run 并行 ⇒ 后部署的那个把前一个盖成半成品。
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-site.yml
+    secrets: inherit

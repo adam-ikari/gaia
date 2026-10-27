@@ -22,7 +22,7 @@ node_modules/
 #
 # **APK 不进本仓库的 git**:它每次发版变一次,6.9–28MB,进历史只是让每次
 # diff 都拖着一堆二进制。取包在 publish-site.sh 里做(落到下面这个目录),
-# 构建完只把**产物**推进公开仓。
+# 构建完只把**产物**交给 workflow 上传 Pages,不进 git。
 web/docs/public/media/
 web/docs/.vitepress/dist/
 web/docs/.vitepress/cache/
