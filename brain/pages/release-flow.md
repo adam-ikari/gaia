@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-27T08:59:19"
+updated: "2026-10-27T10:37:00"
 ---
 
 <!-- compiled_truth -->
@@ -375,3 +375,9 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-27 monorepo 落地:发布链三步的执行者从公开仓 gaia 的 runner 收回本仓(gh workflow run publish-ime.yml,不带 -R)"
   affects: [release-flow]
+
+- time: 2026-10-27T10:37:00
+  kind: evidence
+  summary: "本机构建站点时两条判据翻车,都不是代码问题,是同一个 dist/ 被两个进程写:① 一份完整构建报「产物里没有 _artifact-manifest.json」(退出码 1),同时跑的 --skip-fetch 把 dist/ 清掉了 —— 判据读固定路径,后一个进程换掉了前一个的产物,于是它报的是对方的错;② 之前那次「base 不对」也是并行所致,同一个原因。CI 里这条由 deploy-site.yml 的 concurrency: pages 挡着(排队不打断),本机没有那道闸 ⇒ 一次只跑一个,已在 web/README.md 写明。顺带确认两件事:GITHUB_REPOSITORY=adam-ikari/gaia 模拟换名后的仓,完整构建 11 条判据全过且产物前缀是 /gaia/(#24 未跑就先别动代码,base 由仓名派生这件事已经验过);dev 渠道 5 次下载失败是「本仓没有 dev-latest 这个 release」(gh release view dev-latest → release not found),命中「缺渠道不 fatal」那条分支,属 #23 未落地而不是 bug"
+  source: "2026-10-27 本机并行跑两份 publish-site.sh 实测"
+  affects: [release-flow, site-repo-topology]

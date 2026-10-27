@@ -51,9 +51,12 @@ docs/
 发布是 **dispatch 本仓的 workflow**，不是本机跑脚本：
 
 ```bash
-gh workflow run deploy-site.yml -R "$GITHUB_REPOSITORY"   # 只重发站点（包不变）
-gh workflow run publish-ime.yml -f source_ref=master      # 出新包 + 重发站点
+gh workflow run deploy-site.yml                        # 只重发站点（包不变）
+gh workflow run publish-ime.yml -f source_ref=master    # 出新包 + 重发站点
 ```
+
+`gh` 在本仓目录里自己解析仓名，**不要**加 `-R "$GITHUB_REPOSITORY"`：那是 runner 上才有的
+变量，本机它是空的，`-R ""` 只会让命令报错。
 
 本机可以做的只有**构建与自检**（判据同一条，只是交不了 Pages）：
 
@@ -62,6 +65,12 @@ tools/release/publish-site.sh              # 取包 + 构建 + 自检，产物�
 tools/release/publish-site.sh --verify     # 线上那份字节 == dist/ 里的字节
 tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建（没有 media/，这种产物不可部署）
 ```
+
+**这些一次只能跑一个**：产物目录是固定的 `dist/`，而好几条判据读的就是那儿。两个进程并行
+⇒ 后一个把前一个的产物换掉，前一个报的是**对方的**错。2026-10-27 实测踩过：一份完整的
+构建报「产物里没有 `_artifact-manifest.json`」，实际是同时跑的 `--skip-fetch` 把 `dist/`
+清了 —— 代码与 CI 都没问题，是人同时开了两个 shell。CI 里这条由 `deploy-site.yml` 的
+`concurrency: pages` 挡着（排队、不打断），本机没有那道闸。
 
 ### 站点挂在哪个地址，一次构建只认一个
 
