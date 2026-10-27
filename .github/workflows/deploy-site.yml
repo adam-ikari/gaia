@@ -38,6 +38,18 @@ name: Deploy site
 # 当作最后一步调用,那条是「出了新包,站点要跟上」)。
 # **不要**加 `pull_request_target` / `issue_comment` / `repository_dispatch` / `push`:
 # 这个仓公开后任何人都能造触发事件,而这里要拿凭据动 release 与 Pages。
+#
+# ## 站点的地址有两个来源,一次 run 只认一个
+#
+# 仓库变量 `PAGES_DOMAIN` 有值 ⇒ 产物按 `base=/` 构建、`--verify` 去那个域比字节;
+# 没值 ⇒ `https://<owner>.github.io/<仓名>/` + `base=/<仓名>/`。
+# 这个开关不是提前铺路:项目页配了自定义域之后,站点在**域根**服务而 `/仓名/` 反而 404,
+# 同时 `github.io/<仓名>/` 变成 301 指过去(2026-10-27 在两个真实样本上测的)。
+# base 是构建期常量,一份产物不可能同时服务两边 ⇒ 变量决定「这份产物是给哪个地址的」,
+# 并且构建步与验证步**必须读到同一个值**,否则就成了「按 A 渲染、去 B 验字节」那种
+# 看着绿其实没验的判据。
+# 域本身不在这里生效:GitHub 明说「仓库里的 CNAME 文件不会自动加/删自定义域」,
+# 要在仓库设置或 API 里配 —— 这个 workflow 只负责按配好的那个地址产出与核对。
 
 on:
   workflow_dispatch:
@@ -90,6 +102,8 @@ jobs:
       # 判据(缺 / 坏 / 页面校验值与字节脱节 / 版本号没渲染)全在脚本里。
       # 这里不重述,免得改一处漏一处 —— 那笔学费已经付过两次(见 brain 的 release-flow)。
       - name: 构建站点产物
+        env:
+          SITE_DOMAIN: ${{ vars.PAGES_DOMAIN }}
         run: tools/release/publish-site.sh
 
       - uses: actions/upload-pages-artifact@v5
@@ -106,4 +120,6 @@ jobs:
       # 这不是多余的确认:2026-10-06 用户从站点下到的包装不上,而当时流水线是全绿的;
       # 也是「绿了的 run」与「站点真的更新了」之间唯一的那道桥。
       - name: 验公开站点(逐字节)
+        env:
+          SITE_DOMAIN: ${{ vars.PAGES_DOMAIN }}
         run: tools/release/publish-site.sh --verify

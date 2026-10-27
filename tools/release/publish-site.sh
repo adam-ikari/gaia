@@ -54,6 +54,9 @@
 #
 # 环境变量:
 #   GITHUB_REPOSITORY   CI 里的当前仓;本机则由 `gh repo view` 顺 origin 解析
+#   SITE_DOMAIN         配了 Pages 自定义域时填(纯域名,不带 scheme)。设了它,
+#                       产物按 `base=/` 构建、最后按这个域验字节;**不填就走仓名**
+#                       (`/<仓名>/`)。CI 里由 deploy-site.yml 从仓库变量 PAGES_DOMAIN 传入。
 #
 # 站点只发**两条渠道**:测试版 β(主下载)与开发版 dev。2026-10-23 起不再有
 # 正式版主渠道 —— 这个项目从来没有正式版,原来的主渠道只是一份挂着「已撤回」
@@ -94,9 +97,26 @@ command -v npm >/dev/null || die "需要 npm"
 REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
 [ -n "$REPO" ] || die "解析不出目标仓:CI 里没有 GITHUB_REPOSITORY,本机 gh repo view 也失败(origin 指向 GitHub 吗?)"
 REPO_NAME="${REPO##*/}"
+
 # 项目站的 URL 与 base 都是 `/<仓名>/` —— 同一个事实的两面,所以从同一个变量派生。
-SITE_URL="https://${REPO%/*}.github.io/${REPO_NAME}"
-SITE_BASE="/${REPO_NAME}/"
+#
+# 但**配了自定义域的项目站是在域根服务,不带仓名路径**(2026-10-27 在两个真实样本上
+# 测过:`saizuo.is-a.dev/` 是 200 而 `/Portfolio-Saizuo/` 是 404;另一个同理)。
+# 同一趟还测到:`<user>.github.io/<仓名>/` 从此变成 **301** 指向那个域 —— 不是 404。
+# ⇒ 域和仓名**只能选一个当 base 的来源**,两个都给等于产出一份在某一边资产全 404 的产物。
+# 域走 `SITE_DOMAIN`(CI 里读仓库变量 `PAGES_DOMAIN`),没设就还是仓名那条路。
+# 域本身不在这个脚本里生效:GitHub 明说「仓库里的 CNAME 文件不会自动加/删自定义域,
+# 必须在仓库设置或 API 里配」,所以这里只改**产物按哪个 base 构建**与**最后去哪儿验字节**。
+SITE_DOMAIN="${SITE_DOMAIN:-}"
+if [ -n "$SITE_DOMAIN" ]; then
+  [[ "$SITE_DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] \
+    || die "SITE_DOMAIN=$SITE_DOMAIN 不是一个合法域名(小写、至少两段、不能以点或连字符开头结尾)"
+  SITE_URL="https://$SITE_DOMAIN"
+  SITE_BASE="/"
+else
+  SITE_URL="https://${REPO%/*}.github.io/${REPO_NAME}"
+  SITE_BASE="/${REPO_NAME}/"
+fi
 export SITE_BASE
 
 # 产物目录。CI 里构建步与 `--verify` 步之间靠它传递(同一个 job 的 workspace)。
@@ -642,6 +662,22 @@ export VITE_HAS_DEV="${DEV_HAS:-}"
 ( cd "$WEB" && npm run build ) > "$WORK/build.log" 2>&1 \
   || { tail -40 "$WORK/build.log" >&2; die "构建挂了(完整日志 $WORK/build.log)"; }
 ok "构建完成"
+
+# ---- 产物里的 base 必须就是本次要服务的那个前缀 ----
+#
+# base 有两个来源:`config.mts` 里那份兜底值(给本地直接 `npm run build` 用),和这里
+# 按仓名/域名派生后注入的 `SITE_BASE`。**少传一次,两边就分叉**:页面照样能出、构建
+# 照样全绿,而样式与 chunk 的请求全落在另一个前缀上 ⇒ 404。所以交出去之前看产物本身:
+# 资源前缀必须等于这一趟要服务的那个。它同时也是「构建步与验证步读到同一个地址」
+# 的唯一确认 —— `--verify` 去比字节的那个站,得是产物真正指向的那个站。
+base_prefix="${SITE_BASE%/}/assets/"
+# 匹配串带**左引号**(`"/assets/`),不是随手写的:资源路径都出现在 `href="/…"` /
+# `src="/…"` 里,而 `/assets/` 是 `/hwkbd_ime/assets/` 的子串 —— 不加引号,根 base 的
+# 断言会被一份**前缀错的**产物判过(2026-10-27 拿 dist/ 实测:`/assets/` 在
+# base=/hwkbd_ime/ 的 index.html 里同样命中)。闸门漏放比误报更糟:没人会去查它。
+grep -qF -- "\"$base_prefix" "$BUILD_DIR/index.html" \
+  || die "产物的资源前缀不是 $base_prefix —— SITE_BASE($SITE_BASE)没进到构建里(config.mts 用了兜底值?),这份产物发出去就是满屏 404"
+ok "产物按 $base_prefix 产出(base $SITE_BASE)"
 
 # ---- 产物自洽:页面上写给用户看的数字,必须对应产物里的那串字节 ----
 #
