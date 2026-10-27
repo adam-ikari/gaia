@@ -105,6 +105,10 @@
     字节,不是一个能切小的请求,git 也无法续传。
   - **为什么产物不进 git**:GitHub 对单个文件有 100.00MB 的服务端硬上限(`GH001`,
     与机器、带宽、协议都无关)。包的走法是 release 资产 → runner → Pages artifact。
+  - **站点挂在哪个地址**:默认 `https://<owner>.github.io/<仓名>/`;仓库变量
+    `PAGES_DOMAIN` 一设,产物就改按那个域的根产出(`base=/`)、`--verify` 也去那个域比字节。
+    两者只能选一个 —— 项目页配了自定义域之后站点在域根服务,而 `github.io/<仓名>/`
+    变成 301 指过去。取舍与实测见 `docs/versioning.md` 的「站点挂在哪个地址」。
   - 2026-10-27 之前这条链的执行者在公开仓 `adam-ikari/gaia`,靠一枚只读本仓的 PAT 跨仓
     取源码;那个仓现在并进了本仓(源码、站点、产物、构建同一处),跨仓凭据随之删除。
   - 签名:配 `SIGNING_KEYSTORE_BASE64` + `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_ALIAS`

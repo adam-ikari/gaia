@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-27T08:58:31"
+updated: "2026-10-27T10:28:01"
 ---
 
 <!-- compiled_truth -->
@@ -269,4 +269,10 @@ Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-
   kind: reversal
   summary: "作废「产物推到公开仓 adam-ikari/gaia 的 dist/、Pages 从那个仓发布」以及本页面标题里的「产物在公开仓」。2026-10-27 定 monorepo:网站仓删除,本仓改名为 gaia 保住 https://adam-ikari.github.io/gaia/(project site 改名不留 redirect,旧地址直接 404,所以只能保名字)。产物改由本仓 deploy-site.yml 直接 upload-pages-artifact,不进任何 git;跨仓 secret IME_SOURCE_PAT 与 gaia 的 publish-ime.yml/deploy.yml 一并拆掉。构建仍必须在 runner:开发机 gh release upload 10MB 就在 ~101 秒超时"
   source: "2026-10-27 用户「删除网站仓库 本仓库使用monorepo模式」+ 选择「先落地再删」「仓库换名」"
+  affects: [site-repo-topology, release-flow]
+
+- time: 2026-10-27T10:28:01
+  kind: evidence
+  summary: "站点地址有了第二个来源,一次构建只认一个:仓库变量 PAGES_DOMAIN(经 deploy-site.yml 以 SITE_DOMAIN 传给构建步与 --verify 步)。没配=仓名地址+base=/<仓名>/;配了=域根+base=/。实测依据(2026-10-27,本机 DNS 在 sinkhole,curl 结果不可信 ⇒ 走 DoH 解析 + --resolve 打 Pages 边缘 185.199.108.153):① 项目页配自定义域后站点在**域根**服务,/<仓名>/ 是 404(样本 saizuo.is-a.dev↔Saizuo/Portfolio-Saizuo、win11.notaperson535.is-a.dev↔notAperson535/Win11-HTML);② 同一趟 <owner>.github.io/<仓名>/ 变成 **301** 指向该域,不是 404 ⇒ 挂域与换仓名是同一件事的两个选项,别都做;③ GitHub 明说仓库里的 CNAME 文件不会自动加删自定义域,只能设置/API ⇒ 脚本不产 CNAME 文件,只改 base 与验证地址;④ 免费子域服务 is-a.bot/is-a.dev 的 TXT 域验证是推荐非强制(he.is-a.bot 无 TXT 仍 200),但刚合并还没在 GitHub 侧配域的域名 TLS 直接连不上(docconvert.is-a.bot)。新增产物自检:资源前缀必须等于本次 SITE_BASE,否则 die —— base 分叉的症状是页面出、构建绿、用户满屏 404"
+  source: "2026-10-27 用户「申请 is-a.bot 域名」→ 定为站点地址、PR 由用户自提;实测走 DoH+--resolve 绕本机 DNS sinkhole"
   affects: [site-repo-topology, release-flow]

@@ -11,7 +11,7 @@
 ```bash
 cd web
 npm install
-npm run dev      # http://localhost:5173/gaia/
+npm run dev      # http://localhost:5173/gaia/ —— 那是 config.mts 的兜底 base,不是产物用的
 npm run build    # 产出 web/docs/.vitepress/dist
 npm run preview  # 预览构建结果
 ```
@@ -62,6 +62,18 @@ tools/release/publish-site.sh              # 取包 + 构建 + 自检，产物�
 tools/release/publish-site.sh --verify     # 线上那份字节 == dist/ 里的字节
 tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建（没有 media/，这种产物不可部署）
 ```
+
+### 站点挂在哪个地址，一次构建只认一个
+
+`base` 决定资源与下载链接挂在哪个前缀下，它由 `publish-site.sh` 注入：仓库变量
+`PAGES_DOMAIN` 没配 ⇒ `/<仓名>/`；配了 ⇒ 按那个域的根（`base=/`），`--verify` 也跟着去
+那个域比字节。为什么必须有开关：项目页配了自定义域之后站点在**域根**服务（`/仓名/` 反而
+404），而 `github.io/<仓名>/` 变成 301 指过去 —— 一份产物只能服务一边。
+
+域本身在这里不生效：GitHub 明说「仓库里的 CNAME 文件不会自动加/删自定义域」，要在仓库
+设置或 API 里配。构建之后脚本会拿产物里的资源前缀对一遍（`base_prefix` 那条），因为
+`config.mts` 里还留着一个兜底 base —— 两边分叉的时候页面照样出、构建照样绿，而用户那边
+满屏 404。
 
 为什么本机发不了：开发机到 GitHub 的上传**单个请求持续 ~20 秒就被 408 掐断**
 （实测 12MB 失败、2MB 通过），而两条渠道的包合计 ~233MB，git 也无法续传。
