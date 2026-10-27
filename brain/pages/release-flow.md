@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-26T16:16:08"
+updated: "2026-10-27T08:59:19"
 ---
 
 <!-- compiled_truth -->
@@ -130,28 +130,41 @@ APK 打完就删 NDK/CMake/`~/.gradle/caches`,并在 AVD 步骤前打 `df -h`。
 
 **教训:action 的输出前面一堆 INFO 时,先去尾部找 FATAL/ERROR,别顺着读。**
 
-## 站点同步:执行者在公开仓的 runner,判据还是脚本的退出码
+## 站点同步:执行者在本仓的 runner,判据还是脚本的退出码
 
-发版链三步(`publish-beta.sh` → `publish-dev.sh` → `publish-site.sh`)2026-10-26 起在
-公开仓 gaia 的 runner 上跑:
+发版链三步(`publish-beta.sh` → `publish-dev.sh` → `publish-site.sh`)由本仓的
+`.github/workflows/publish-ime.yml` 触发,**站点部署是它的下游 job**(`site:` 以 `uses:`
+调 `deploy-site.yml` —— reusable workflow 只能当 job 调,当 step 写不合法):
 
 ```bash
-gh workflow run publish-ime.yml -R adam-ikari/gaia -f source_ref=master
+gh workflow run publish-ime.yml -f source_ref=master     # 2026-10-27 起不带 -R
 ```
+
+2026-10-26 到 2026-10-27 之间这条链在**公开仓 gaia 的 runner** 上跑,理由已消失(私有仓
+Actions 按分钟计费 ⇒ 转 public 后免费;跨仓只读 PAT 存在的唯一理由是「公开 runner 要检出
+私有源码」)。**留下的理由是网络**:开发机 `gh release upload` 10MB 就在 ~101 秒超时,
+一次发版要送 200MB 级资产。执行位置变了三次,判据一次没变 —— 逻辑只在脚本里有一份。
 
 前提:**要发的那个 commit 先推到 `origin/master`** —— runner 检出的是远端,不是这个工作区。
 `gate.sh --beta` 也在链里:执行位置一换,「发之前有人先跑一次闸门」就从结构变成了习惯,
-所以它进链而不是靠人记得。
+所以它进链而不是靠人记得。签名钥匙不在树里,以 `SIGNING_KEYSTORE_BASE64` 等 4 个 secret
+注入;`gate.sh` 的 `check_signing` 把「没签」判红 ⇒ 少配 secret 的症状是流水线失败,
+不是发出一个装不上的包。
 
 `sync-apk-to-site.sh` 与 `release.yml` 里那个 `publish-site` job 已在 2026-10-23 随正式版
 渠道一起删除。那个 job 的形状值得记住:它需要 `WEB_RELEASE_TOKEN`,**没配就一直
 skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 / v0.4.3 就是这么只存在于
 私有仓的)。**判据是脚本的退出码,不是 CI 的状态。**
 
-线上那份怎么算对:`publish-site.sh` 最后一步把公开站点的 `/media/gaia-beta.apk`、
-`/media/gaia-dev.apk` 与首页 HTML 同本地产物**逐字节**比,轮询到对为止(窗口约 20 分钟 ——
-2026-10-26 起部署侧多了一次「按 manifest 取回 ~220MB 再交 Pages」)。包本身**不进 git**:
-两个包都超过 GitHub 单文件 100.00MB 的 push 硬上限。细节与判据见 [[site-repo-topology]]。
+线上那份怎么算对:`publish-site.sh --verify` 把公开站点的 `/media/gaia-beta.apk`、
+`/media/gaia-dev.apk` 与首页 HTML 同产物**逐字节**比,轮询到对为止(窗口约 20 分钟 ——
+部署要先取回 ~220MB 再交 Pages)。包本身**不进 git**:两个包都超过 GitHub 单文件
+100.00MB 的 push 硬上限。这条 `--verify` 自己踩过「打印了失败但退出 0」——
+判据被吞掉的失败与没跑判据等价。细节与判据见 [[site-repo-topology]]。
+
+**「下一步是什么」不能写成「已完成」**(2026-10-11 实测的假话):`publish-dev.sh` 那时打印
+「已发,站点会在 CI 跑完后更新」,而它触发的那个 run completed success、线上仍是上一版字节。
+发完 dev 之后站点**不会自己更新** —— 这一步只报下一步,判据只在 `publish-site.sh` 里。
 
 验收不看文件名,也不只看大小:sha256 一律从**下载回来的字节**算(资产 API 只给 name/size),
 再从 APK 里读 manifest 版本号 + 确认 `lib/arm64-v8a/librime_jni.so` 在包里。
@@ -355,4 +368,10 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: evidence
   summary: "两次假数据都来自 shell/zsh 差异而不是仓库:zsh 没有 mapfile ⇒ 「distinct blobs=0」;handle() 里拿 sha 去 startswith(\"blob\") 判类型 ⇒ 「blobs scanned: 0」。凡是「查出来是 0」的清点结果,先证伪工具再相信结论 —— 这次 0 与 HEAD 明确含该串直接矛盾,矛盾本身就是信号"
   source: "2026-10-26 踩坑"
+  affects: [release-flow]
+
+- time: 2026-10-27T08:59:19
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-27 monorepo 落地:发布链三步的执行者从公开仓 gaia 的 runner 收回本仓(gh workflow run publish-ime.yml,不带 -R)"
   affects: [release-flow]

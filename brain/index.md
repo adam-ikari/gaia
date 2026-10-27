@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-26T08:16:19.056Z._
+_Auto-generated. Last updated 2026-10-27T00:59:49.163Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [chinese-ime-lm-survey](pages/chinese-ime-lm-survey.md) — category: reference | tags: [survey, license, eval] | - **它是什么**:`metasequoiaime/chinese-ime-lm`(Rust,仓库 GPL-3.0,2025-11 建,869 stars),面向中文输入法的语言模型工程,配套输入法是 MSIME。
@@ -27,7 +27,7 @@ _Auto-generated. Last updated 2026-10-26T08:16:19.056Z._
 - [site-copy](pages/site-copy.md) — category: decision | tags: [按 adamblog 的写作规则去 AI 味, 并对 Titan 2 量身定做的口径:copy, voice, titan2] | 站点文案的规则**不在本仓库**，在 `adamblog` 项目里。
 - [site-e2e-video](pages/site-e2e-video.md) — category: project | tags: [ci, testing, video] | 站点的演示视频由 **CI 端到端测试顺便录出来**,不手工录。
 - [site-mobile](pages/site-mobile.md) — category: decision | tags: [视口被撑开是首要故障, 3D 投影的尺寸必须实测:mobile, responsive, css, 3d, viewport] | # 移动端版式:先量视口,再看图
-- [site-repo-topology](pages/site-repo-topology.md) — category: decision | tags: [site, monorepo, release, deploy] | 站点源码与构建在本仓库 `web/`,构建脚本是 `tools/release/publish-site.sh`。
+- [site-repo-topology](pages/site-repo-topology.md) — category: decision | tags: [site, monorepo, release, deploy] | 站点与应用在**同一个仓**(2026-10-27:网站仓 `adam-ikari/gaia` 删除,本仓改名为 `gaia`)。
 - [site-style](pages/site-style.md) — category: decision | tags: [Apple 风格:design, theme] | 站点视觉按 **Apple 官网那种语言**做,不是"深色科技风"。
 - [site-voice](pages/site-voice.md) — category: decision | tags: [naming, voice, content] | 站点的**产品名只有一个写法：盖亚输入法**。
 - [spring-damping-direction](pages/spring-damping-direction.md) — category: decision | tags: [animation, physics, spring, damping] | ## 一、ζ 从 0.72→0.9→0.95→1.0 四轮「全白费」的真正原因(2026-10-09 推翻)

@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [license, open-source, gpl, distribution]
 created: "2026-10-26T16:15:46"
-updated: "2026-10-26T16:15:46"
+updated: "2026-10-27T08:59:49"
 ---
 
 <!-- compiled_truth -->
@@ -58,4 +58,10 @@ updated: "2026-10-26T16:15:46"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-10-26 用户定案:仓库转公开,许可证 GPL-3.0-only"
+  affects: [open-source-licensing]
+
+- time: 2026-10-27T08:59:49
+  kind: reversal
+  summary: "同上:站点仓那条随 monorepo 作废。站点源码与应用同仓同许可(GPL-3.0-only),产物不进 git 因而不构成额外的许可传达义务;THIRD_PARTY_NOTICES.md 与站内「开源许可」页仍是手工两处,加依赖不会自动更新"
+  source: "2026-10-27 monorepo 落地"
   affects: [open-source-licensing]

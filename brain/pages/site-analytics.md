@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [Cloudflare Workers 自建 Umami:analytics, umami, cloudflare]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-23T12:04:22"
+updated: "2026-10-27T08:59:49"
 ---
 
 <!-- compiled_truth -->
@@ -90,3 +90,9 @@ Umami 的访问量是辅助指标,同理由用户自己看后台。
   summary: "站点只发 β/dev 后,下载入口改为站点自有 /media/ 路径,不再链 releases/latest"
   source: "2026-10-23 站点渠道收缩"
   affects: [site-analytics]
+
+- time: 2026-10-27T08:59:49
+  kind: reversal
+  summary: "作废「包挂在公开的站点仓库 gaia 的产物里,应用仓库私有所以访客拿不到 hwkbd_ime 的下载链接」。2026-10-27 起只有一个仓:包在本仓的 release 资产,页面上的 /media/*.apk 由 Pages 服务(部署时按 manifest 从本仓取包)。转 public 之后本仓的 release 链接本身也匿名可下了 —— 「必须另开一个公开仓放包」这个前提消失,这正是产物仓能删掉的原因"
+  source: "2026-10-27 monorepo 落地"
+  affects: [site-analytics, site-repo-topology]

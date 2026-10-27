@@ -5,7 +5,7 @@ category: decision
 status: archived
 tags: [license, proprietary, distribution]
 created: "2026-09-30T09:56:55"
-updated: "2026-10-26T16:15:46"
+updated: "2026-10-27T08:59:49"
 ---
 
 <!-- compiled_truth -->
@@ -87,3 +87,9 @@ updated: "2026-10-26T16:15:46"
   summary: "2026-10-26 仓库转公开:GPL-3.0-only 推翻「闭源专有 + 私有仓」。触发条件是签名钥匙与口令写死在被跟踪文件里,公开后即成公开密码。新页见 [[open-source-licensing]]"
   source: brain archive-page
   affects: [project-licensing]
+
+- time: 2026-10-27T08:59:49
+  kind: reversal
+  summary: "作废「站点仓 adam-ikari/gaia 仍只放构建产物;应用与站点是两个独立许可域」。2026-10-27 monorepo:站点源码在同一个仓的 web/ 下,随根 LICENSE 一起是 GPL-3.0-only —— 许可域合并成一个,不是「把 GPL 套到站点产物上」(产物 dist/ 根本不进 git,不进任何分发)。第三方素材照旧各署各的:Inter 字体 SIL OFL、rime 词库与 jieba/pinyin-pro 那份清单见 THIRD_PARTY_NOTICES.md,与代码许可互不覆盖"
+  source: "2026-10-27 用户「删除网站仓库 本仓库使用monorepo模式」"
+  affects: [project-licensing, open-source-licensing, site-repo-topology]

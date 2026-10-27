@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [按 adamblog 的写作规则去 AI 味, 并对 Titan 2 量身定做的口径:copy, voice, titan2]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-10T17:43:27"
+updated: "2026-10-27T08:12:06"
 ---
 
 <!-- compiled_truth -->
@@ -110,3 +110,9 @@ updated: "2026-10-10T17:43:27"
   summary: "补上被 shell 吃掉的那半句:过期的公式是 zoneOf(x) = x / xMax * 5"
   source: "2026-10-10 改动(上一条 entry 的 summary 被 zsh glob 截断)"
   affects: [fly-zone-basis]
+
+- time: 2026-10-27T08:12:06
+  kind: decision
+  summary: "不强调。仓库转 GPL-3.0-only + public 之后,站点文案照旧不谈许可、不谈「开源/可审计」这类卖点,首页按钮区尤其不写。判据不变:站上说出来的必须是对用户有用且可兑现的东西,「许可证是 GPL」两条都不占 —— 它是给再分发者的法律事实,那个落点在仓库的 LICENSE 与应用内许可页,不在下载按钮旁边"
+  source: "2026-10-27 用户定案(回答「站点文案要不要提开源」)"
+  affects: [site-copy]

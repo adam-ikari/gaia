@@ -5,185 +5,162 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-26T16:16:19"
+updated: "2026-10-27T08:58:31"
 ---
 
 <!-- compiled_truth -->
-站点源码与构建在本仓库 `web/`,构建脚本是 `tools/release/publish-site.sh`。它把**页面
-产物**推到公开仓 `adam-ikari/gaia` 的 `dist/`,Pages 从那个仓发布。**公开仓里没有应用
-源码** —— 只有产物,加两条构建产物的 workflow(2026-10-26 起)。
+站点与应用在**同一个仓**(2026-10-27:网站仓 `adam-ikari/gaia` 删除,本仓改名为 `gaia`)。
+站点源码在 `web/`,构建脚本 `tools/release/publish-site.sh`,Pages 由本仓的
+`.github/workflows/deploy-site.yml` 部署。**产物不进任何 git** —— 脚本只出
+`web/docs/.vitepress/dist/`(在 runner 工作区里),workflow 把它交给
+`upload-pages-artifact` → `deploy-pages`。
 
-站点从 2026-10-23 起只发两条渠道:**测试版 β(主下载)** 与 **开发版 dev(可选)**。
-正式版渠道(旧的 `/media/gaia.apk`)已移除;`release.yml` 的 `publish-site` job
-与 `sync-apk-to-site.sh` 一并删除 —— 它们只服务正式版进站点,留着就是一条会失败的死链路。
+URL 靠**仓名**保住:`https://adam-ikari.github.io/gaia/` 是从仓名推出来的,而
+project site 改名**不留 redirect**(`github.io/<旧名>` 直接 404)。所以顺序是:老 gaia
+改名腾出名字 → 本仓改名成 gaia → 以 `base=/gaia/` 重新部署并逐字节验 → 才删老仓与本地克隆。
+中间有几分钟旧地址 404 的窗口。仓名派生出的三个值(`REPO` / `SITE_URL` / `SITE_BASE`)
+一律从 `GITHUB_REPOSITORY` 或 `gh repo view` 解,**不写死** —— 写死的那三处字面量在改名
+这一趟会静悄悄指向别的地方。
+
+## 链路(全在本仓的 runner 上)
 
 ```
-hwkbd_ime/web/                        站点源码(VitePress: md / config / 组件 / 样式)
-hwkbd_ime/tools/release/publish-site.sh   取包核对 + 写 manifest + 构建 + 推产物 + 验线上字节
-gaia/dist/                            页面产物 + _artifact-manifest.json,**没有 APK**(进不了 git)
-gaia/.github/workflows/deploy.yml     按 manifest 从本仓 release 资产取包 → 验自洽 → 交 Pages
-gaia/.github/workflows/publish-ime.yml   在公开仓的 runner 上执行发布链(不构建站点本身)
+gh workflow run publish-ime.yml -f source_ref=<远端 ref>
+  gate.sh --beta → publish-beta.sh → publish-dev.sh      # 包进本仓的 release 资产
+  site: job 以 `uses:` 调 deploy-site.yml(复用 workflow 只能当 job,不能当 step)
+    publish-site.sh      # 写 manifest → 构建 → 按 manifest 取包核对 size+sha256
+    upload-pages-artifact → deploy-pages
+    publish-site.sh --verify   # 线上那份与产物逐字节一致,轮询到对为止
 ```
 
-## 站点侧的形状(2026-10-26):页面进 git,包不进 git
+判据全在脚本里,逻辑只有一份,搬动的只是执行它的那台机器。
+前提:**要发的那个 commit 必须先推到 `origin/master`** —— runner 检出的是远端,不是工作区。
 
-`dist/` 里只有页面本身(几百 KB)加一份 `_artifact-manifest.json`。两个 APK 由
-`deploy.yml` 在部署前按 manifest 从**本仓的 release 资产**取回来,核对字节数与 sha256
-之后放进 `dist/media/`,再交给 `upload-pages-artifact` —— Pages 的 artifact 路线不限单文件大小。
+## 站点侧的形状:`dist/` 只在 runner 工作区
+
+`dist/` 里是页面(几百 KB)加一份 `_artifact-manifest.json`,两个 APK 由 workflow 按
+manifest 从**本仓的 release 资产**取回来、核对字节数与 sha256 后放进 `dist/media/`,
+再交给 `upload-pages-artifact` —— Pages 的 artifact 路线不限单文件大小。
 
 manifest 由 `publish-site.sh` 在**构建前**生成(页面注入的数字来自同一份数据):
 
 ```json
-{"schema": 1, "site_repo": "adam-ikari/gaia", "source_repo": "adam-ikari/hwkbd_ime",
- "source_commit": "<40 位 SHA>",
+{"schema": 2, "repo": "<owner>/<仓名>", "source_commit": "<40 位 SHA>",
  "channels": {"beta": {"release": "beta-<hash>", "asset": "app-beta-<hash>.apk",
                        "target": "media/gaia-beta.apk", "version": "<hash>",
                        "size": <字节>, "sha256": "<64 位>"}}}
 ```
 
-部署侧把 manifest 当**不可信输入**:target 走固定白名单、sha256 走正则、size 走类型、
-release/asset 拒空白与 `/`,且只作为引号包住的参数传命令 —— 一个字节都不进 shell 文本。
+`schema` 1 的 `site_repo`/`source_repo` 两个字段随产物仓一起删掉 —— 只剩一个仓,
+「去哪儿取包」这件事不再需要两个坐标。部署侧把 manifest 当**不可信输入**:target 走固定
+白名单、sha256 走正则、size 走类型、release/asset 拒空白与 `/`,且只作为引号包住的参数
+传命令 —— 一个字节都不进 shell 文本。
 
-## 为什么反过来:GitHub 对单个文件有 100.00MB 的 push 硬上限
+「产物进 git」原本免费送的两样东西,由这条链补回来:**线上那份可追溯到某个 commit**
+(manifest 的 `source_commit`,部署日志第一行就打它)与**部署出去的字节 == 构建时被核对过
+的字节**(同一个 sha256 在构建侧与部署侧各比一次)。代价是中间多了一跳,而那一跳的失败面
+是新的:manifest 缺失/字段被换/资产被替换/Pages 部署被 skipped ⇒ 每一面都有判据。
 
-这一节推翻上面「产物进 git」那条。**不是设计偏好变了,是那条从来没被允许过**:
-β 103,060,018 字节、dev 130,072,818 字节,都超上限。实测拿一个 110MB 的**稀疏文件**
-(pack 里≈0 字节,几乎不需要上传)推上去,**4.1 秒**被 pre-receive hook 拒(`GH001`)
-⇒ 与机器、与网络、与网速全都无关。以前那份产物只有 7.8MB + 11.6MB,是「带离线语音模型的
-包」出现之前的事,所以这条路当时确实走得通。
+## 为什么包不进 git:GitHub 对单个文件有 100.00MB 的 push 硬上限
 
-换机器(`publish-ime.yml`)解决的是**私有仓 Actions 按分钟计费**和 runner 在自己网络上
-不必受本机那条 ~20-30 秒请求体窗口的约束;它**不解决**上限 —— 上限只能靠「包不进 git」绕开。
-两件事分开记,因为一开始把两者混成了一条(「224MB 上不了这台机器的网」),那个说法是错的。
+**不是设计偏好变了,是那条从来没被允许过**:β 103,060,018 字节、dev 130,072,818 字节,
+都超上限。实测拿一个 110MB 的**稀疏文件**(pack 里≈0 字节,几乎不需要上传)推上去,
+**4.1 秒**被 pre-receive hook 拒(`GH001`)⇒ 与机器、与网络、与网速全都无关。以前那份
+产物只有 7.8MB + 11.6MB,是「带离线语音模型的包」出现之前的事,所以这条路当时确实走得通。
 
-「产物进 git」原本免费送的两样东西,在新形状里由这条补回:
-**线上那份可追溯到某个 commit**(manifest 的 `source_commit`,部署日志第一行就打它;
-`dist/` 那个 commit 仍然在 git 里)与**部署出去的字节 == 构建时被核对过的字节**
-(同一个 sha256 在构建侧与部署侧各比一次)。代价是中间多了一跳(部署时才取包),
-而那一跳的失败面是新的:manifest 缺失/字段被换/资产被替换/Pages 部署被 skipped
-⇒ 每一面都有判据,见下面判据链。
+## 为什么构建在 runner 上:开发机送不出大包(与上一条分开记)
+
+`git push` 12MB 在 20.5 秒整失败、2MB 通过;`gh release upload` 3MB 通过、10MB 在 ~101 秒
+超时 —— 单个 HTTP 请求持续 ~20-30 秒就被 408 掐断。一次发版要往 GitHub 送 200MB 级资产,
+这台机器送不出去。2026-10-26 那趟把两者混成一条(「224MB 上不了这台机器的网」),那个说法
+是错的:**上限只能靠「包不进 git」绕开,窗口只能靠换机器绕开**。
+
+「私有仓 Actions 按分钟计费」曾是换到公开仓 gaia 的理由,源码转 public 之后它消失了 ——
+留在的只有网络窗口这一条。
 
 ## 为什么是 monorepo:「站点是否与代码同步」原来是个跨仓的人工约定
 
 原来站点源码在 gaia(公开),应用在这里(私有)。发一版要动两个地方:应用仓打 tag →
-CI 出包 → `sync-apk-to-site.sh` 传包到 gaia → 推 gaia 触发 Pages。
-那条链在 2026-10-23 随正式版渠道一起删除了,但它的教训仍然是这个仓的由来。
+CI 出包 → `sync-apk-to-site.sh` 传包到 gaia → 推 gaia 触发 Pages。那条链上「推 gaia」
+这一步**没有任何验证**,而且失败是静默的:`release.yml` 里等价的 `publish-site` job 要
+`WEB_RELEASE_TOKEN`,那个 secret 从来没配 ⇒ job 一直 **skipped 且退出码 0**、流水线全绿,
+而站点上的包停在旧版本。`v0.4.2`/`0.4.3`/`0.4.4`/`v0.4.8` 各漏过一次。
 
-那条链上「推 gaia」这一步**没有任何验证**,而且失败是静默的:
-`release.yml` 里等价的 `publish-site` job 要 `WEB_RELEASE_TOKEN`,
-那个 secret 从来没配 ⇒ job 一直 **skipped 且退出码 0**、流水线全绿,
-而站点上的包停在旧版本。`v0.4.2`/`0.4.3`/`0.4.4`/`v0.4.8` 各漏过一次
-(见 `docs/versioning.md` 发版链路第五步)。
+**结构上的成因**:能改站点的人不该看见应用源码,能改应用源码的人看不见站点。于是「站点是否
+与代码同步」变成人工约定,而不是一个能编译出来的状态。⇒ 源码、构建、部署收进同一个仓,
+判据从「我记得推了吗」变成**脚本的退出码**。2026-10-27 连产物仓也删掉:那一层的存在理由
+(私有源码 + 公开 runner)已经不在了,留着只是多一个可以静悄悄不同步的地方。
 
-**结构上的成因**:能改站点的人不该看见应用源码,能改应用源码的人看不见站点。
-于是「站点是否与代码同步」变成了一个人工约定,而不是一个能编译出来的状态。
-⇒ 源码与构建收进本仓库一处,判据从「我记得推了吗」变成**脚本的退出码**。
+## 三条不是风格问题的约束
 
-## 发布链的执行者在公开仓 gaia 的 runner(2026-10-26)
-
-⇒ `gaia/.github/workflows/publish-ime.yml`:在公开仓的**免费** runner 上检出私有源码,
-调**同一批** `tools/release/publish-*.sh`。判据全在脚本里,逻辑只有一份,
-搬走的只是执行它的那台机器。私有仓的 Actions 按分钟计费,这条链一分钟都不占。
-前提:**要发的那个 commit 必须先推到 `origin/master`** —— runner 检出的是远端,不是工作区。
-
-三条不是风格问题的约束:
-
-1. **只有 `workflow_dispatch`。** 公开仓里任何人都能造出一个触发事件,而这个 job 手里握着
-   能读私有源码的凭据。加 `pull_request_target` / `issue_comment` / `repository_dispatch` / `push`
-   的后果不是「跑到一半失败」,是外人可以发起一次把私有源码打进公开日志的操作。
-   dispatch 需要本仓 write ⇒ 发起方只有维护者本人。
-2. **凭据不对称。** 读私有源码 = secret `IME_SOURCE_PAT`(fine-grained,只授权 `hwkbd_ime` 一个仓、
-   Contents **read-only**,配 `persist-credentials: false`);写 release 资产与 `main` = 本 job 自带的
-   `GITHUB_TOKEN`。手填的 `source_ref` 先在服务端解析成**完整 commit** 再检出:既过一道字符白名单,
-   也让每次发布对应一个确定的 SHA,而不是「master 当时大概指哪儿」。
-3. **签名钥匙绝不进公开仓。** `hwkbd.keystore` 和它的口令本来就提交在私有源码仓里,所以这个 workflow
-   不需要任何签名 secret —— 但它往 `main` 上写的只可能是 manifest 与页面产物。钥匙一旦进了公开历史就收不回来,
-   而换钥匙的代价是老用户不能原地升级(Android 按签名判同包)。
-
-公开那份 workflow 会对外透露私有仓的名字、脚本路径与 NDK 版本。闭源项目的元数据少露一点更好
-(见 [[project-licensing]]),但换不掉:不写清这些,下一个改它的人会把免费分钟和凭据范围弄错。
-副作用:`deploy.yml` 监听 `push: [main]` ⇒ 推产物这一步顺带把 Pages 触发掉了,不用再手动 dispatch。
+1. **`publish-ime.yml` 只有 `workflow_dispatch`。** 这个 job 手里握着签名钥匙与发布凭据,
+   加 `pull_request_target` / `issue_comment` / `repository_dispatch` / `push` 的后果不是
+   「跑到一半失败」,是外人可以发起一次把包签好并发布出去的操作。
+2. **跨仓凭据已删。** secret `IME_SOURCE_PAT`(fine-grained 只读)存在的唯一理由是
+   「公开 runner 要检出私有源码」;源码与本仓同处一地之后它只是一个多余的凭据,也是每次
+   交接要在浏览器里手配一次的坑。手填的 `source_ref` 先在服务端解析成**完整 commit** 再
+   检出:既过一道字符白名单,也让每次发布对应一个确定的 SHA,而不是「master 当时大概指哪儿」。
+3. **签名钥匙永不进树。** `hwkbd.keystore` 与口令以 `SIGNING_KEYSTORE_BASE64` 加三个口令
+   secret 注入(仓 public ⇒ 历史一旦泄露收不回,而换钥匙的代价是老用户不能原地升级,
+   Android 按签名判同包)。`gate.sh` 的 `check_signing` 把「没签」直接判红,所以少配一个
+   secret 的症状是流水线失败,不是发出一个装不上的包。
 
 ## Pages 为什么保留 workflow,而不是纯从分支发布
 
-中间试过纯从分支发布(连 workflow 一起删),能工作,但有两个坏处:
-
-1. **构建失败只有推的人看得见,而且看的地方很远** —— 只写在 Pages 设置页里,
-   不在任何一次 workflow run 上 ⇒「推了但站点没更新」与「推了且更新了」
-   在 git 历史里长得一模一样。
-2. **没有地方放产物自洽的检查。**
-
-⇒ 保留 workflow。它**不跑 npm**(这个仓里没有源码可构建),它做三件事:
-按 manifest 取包、验产物自洽、把产物交给 Pages。取包用的还是**本仓 job 自带的
-`GITHUB_TOKEN`** —— 包就在本仓的 release 资产里,不需要任何 secret;读私有源码那份
-凭据只属于 `publish-ime.yml`。
+中间试过纯从分支发布(连 workflow 一起删),能工作,但有两个坏处:构建失败只有推的人看得见、
+而且只写在 Pages 设置页里,不在任何一次 run 上 ⇒「推了但站点没更新」与「推了且更新了」在
+历史里长得一模一样;以及没有地方放产物自洽的检查。⇒ 保留 workflow。现在它真的构建
+(`npm` 与源码都在本仓),外加按 manifest 取包、验自洽、交 Pages。取包用的是**本 job 自带的
+`GITHUB_TOKEN`** —— 包就在本仓的 release 资产里,不需要任何 secret。
+Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-token: write`。
 
 ## 判据链:指向不同的失效点
 
 | 时机 | 判据 | 抓的是 |
 | --- | --- | --- |
 | 构建前 | 下回来的包与远端**字节数**相等(重试到对) | 下载静默截断 |
+| 构建前 | 每个 APK 是完整 zip 且含 AndroidManifest + dex | 明知故犯地发一份装不上的包 |
 | 构建后 | 产物里有 manifest 且与构建前那份 `cmp` 一致 | 「去哪儿取包」这件事丢了 |
-| 构建后 | `dist/` 里没有 >90MB 的文件 | 推不上去(GH001),症状离原因隔一整条链 |
 | 构建后 | 静态资源里搜得到那份包字节的 sha256 | 数字没渲染出来,用户无从核对 |
+| 构建后 | `dist/` 合计 < 900MB | 超出 Pages 已发布站点 ≤ 1GB 的余量 |
 | 部署时 | manifest 字段合法 + 取到的字节 size/sha256 都对 | 资产被换过、截断、注入值与字节脱节 |
-| 部署时 | 每个 APK 是完整 zip 且含 manifest+dex | 明知故犯地发一份装不上的包 |
-| 推之后 | 公开站点上那份与本地产物**逐字节**一致(轮询) | 「推了但站点没更新」「run 绿而 Pages 被 skipped」 |
+| 推之后 | 公开站点上那份与产物**逐字节**一致(轮询) | 「run 绿了而 Pages 被 skipped」「CDN 没刷新」 |
 
-**最后一道覆盖前面全部**:它判的是线上那份,所以取包失败、部署被跳过、CDN 没刷新
-都会在这里变成非零退出码。前六道只是让它少花 20 分钟才明白。
-
-**比字节不比 `versionCode`**:字节相同 ⇒ 版本号必然相同(它就在 APK 里);
-只比版本号会漏掉「同一版本号配不同字节」—— 安卓会拒装升级。
+**最后一道覆盖前面全部**:它判的是线上那份,所以取包失败、部署被跳过、CDN 没刷新都会在这里
+变成非零退出码。这条 `--verify` 自己踩过一次「报了错但退出 0」—— 判据被吞掉的失败与没跑判据
+等价,现在写成 `verify_live || die`。**比字节不比 `versionCode`**:字节相同 ⇒ 版本号必然相同
+(它就在 APK 里);只比版本号会漏掉「同一版本号配不同字节」—— 安卓会拒装升级。
 
 ## 「缺」与「坏」必须分开
 
 - **缺测试版** = 主下载断开 ⇒ **fatal**:首页按钮直接指向 `/media/gaia-beta.apk`。
-- **缺开发版** = 这个渠道还没上线 ⇒ **不 fatal**。
-  照抄测试版的检查给它的话,「这次没有 dev 包」会让整个流程失败 ⇒
-  **测试版也更新不了、站点停在上一次**。一个可选功能能弄挂生产,最坏的形状。
-- **坏**(存在但截断)⇒ **fatal,所有已上线的 APK 一视同仁**。
-  这里的不对称不是按渠道重要性分的,是按「这字节要不要发出去」分的:
-  明知有坏字节要发布却放它上线,用户点下载只会得到「软件包无效」
-  ——正是 2026-10-06 那次报障的症状。而「缺」时页面上根本没有那个按钮
-  (dev 的可用性由构建期 flag 决定),不存在「点到一个坏包」这种可能。
+- **缺开发版** = 这个渠道还没上线 ⇒ **不 fatal**。照抄测试版的检查给它,「这次没有 dev 包」
+  会让整个流程失败 ⇒ **测试版也更新不了、站点停在上一次**。一个可选功能能弄挂生产,最坏的形状。
+- **坏**(存在但截断)⇒ **fatal,所有已上线的 APK 一视同仁**。不对称不是按渠道重要性分的,
+  是按「这字节要不要发出去」分的:明知有坏字节却放它上线,用户点下载只会得到「软件包无效」
+  —— 2026-10-06 那次报障的症状。而「缺」时页面上根本没有那个按钮(dev 的可用性由构建期 flag 决定)。
 
-包改由部署侧取之后,「缺」的定义要收紧一次:**「manifest 里列了却没取到」不是「缺」,
-是「坏」那一类** —— 按钮已经随构建渲染进页面了,少放包就是留一个点开 404 的按钮。
-所以 `deploy.yml` 对 manifest 列出的每一渠道都算 fatal,包括 dev。
+包改由部署侧取之后,「缺」的定义收紧过一次:**「manifest 里列了却没取到」不是「缺」,是「坏」
+那一类** —— 按钮已经随构建渲染进页面了,少放包就是留一个点开 404 的按钮。所以部署侧对 manifest
+列出的每一渠道都算 fatal,包括 dev。
 
 ## 两条渠道身份规则(别混)
 
-β/dev 的身份都是 **release 资产名里的 hash**(`app-beta-a2f69d8.apk` → `a2f69d8`),
-不是从 tag 推导。资产名是「远端确实存着什么」,是这件事的权威。
-
-两条渠道的 **release 引用一律显式传**,不留「默认取 latest」:
-dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
-在 `v*` 里找 `app-dev-*` 找不到 ⇒ **dev 渠道静悄悄没上线**,而部署 success。
-`dev-latest` 必须标 prerelease,否则会 hijack GitHub 的 latest;
-站点不再消费 latest,但 latest 指向开发版仍是错误的发布状态(2026-10-06 实测过)。
-manifest 里写死 release + 资产名,正是为了让部署侧**没有可猜的余地**。
+β/dev 的身份都是 **release 资产名里的 hash**(`app-beta-a2f69d8.apk` → `a2f69d8`),不是从 tag
+推导。资产名是「远端确实存着什么」,是这件事的权威。两条渠道的 **release 引用一律显式传**,
+不留「默认取 latest」:dev 的资产在 `dev-latest` 里而它是 prerelease ⇒ latest 指向 `v*` ⇒
+在 `v*` 里找 `app-dev-*` 找不到 ⇒ **dev 渠道静悄悄没上线**,而部署 success。`dev-latest` 必须
+标 prerelease,否则会 hijack GitHub 的 latest。manifest 里写死 release + 资产名,正是为了让
+部署侧**没有可猜的余地**。
 
 ## 站点源码里的不可省约束
 
 - **下载链接的 `download` 属性不能省**,URL 固定 `/media/gaia-beta.apk`、版本进文件名。
-  少了 `download`,VitePress 的 router 会把 `.apk` 当网页接管 ⇒ 渲染 404 页
-  (真机报障,而直接访问同一 URL 却能下)。URL 固定是为了发版不用改 md ——
-  漏改的后果是 404 或永远下不到新版。
-- **包必须由 Pages 自己发**,不能链 GitHub 的 release 下载地址:
-  那条链要跳两次(github.com → release-assets),在 Titan 2 的浏览器上
-  直接落到 Chrome 的「网页可能暂时无法连接」错误页(真机复现,同机 curl 是 200)。
-- **产物渠道白名单**:`dist/media/` 里只允许 `gaia-beta.apk` 与 `gaia-dev.apk`。
-  别的 APK(包括旧的 `gaia.apk`)会让 deploy.yml 直接失败 ——
-  防止「页面上删了按钮,文件却仍然能下载」。取包前会先把 `dist/media/*.apk` 清空:
-  渠道下线而旧字节仍挂在同一个 URL 上,正是这条白名单想抓、光靠白名单抓不到的那种错。
-
-## 这个仓里还有哪些别处
-
-- 文案规则不在这里,在 `adamblog` 的写作 skill(见 [[site-copy]])。
-- 页面上凡是描述交互的地方,**先读代码再写**(见 [[site-copy]] 里那次纠正)。
-- 命名与不写什么的清单见 [[site-voice]]。
-- 版式与视口的实测判据见 [[site-mobile]];视觉语言见 [[site-style]]。
+  少了 `download`,VitePress 的 router 会把 `.apk` 当网页接管 ⇒ 渲染 404 页(真机报障,而
+  直接访问同一 URL 却能下)。URL 固定是为了发版不用改 md —— 漏改的后果是 404 或永远下不到新版。
+- **包必须由 Pages 自己发**,不能链 GitHub 的 release 下载地址:那条链要跳两次(github.com →
+  release-assets),在 Titan 2 的浏览器上直接落到 Chrome 的「网页可能暂时无法连接」错误页
+  (真机复现,同机 curl 是 200)。
 
 
 ## Timeline
@@ -281,3 +258,15 @@ manifest 里写死 release + 资产名,正是为了让部署侧**没有可猜的
   summary: "源码仓转 public 之后,发布链的执行者收回 hwkbd_ime 自己的 CI。理由是当初换机器的两个理由都消失了:私有仓 Actions 不免费(公开后免费)、408 送不出去大包(包已不进 git,manifest 那条链解决了)。连带作废:gaia 的 .github/workflows/publish-ime.yml 与 secret IME_SOURCE_PAT —— 那个只读 fine-grained PAT 存在的唯一理由是「公开 runner 要检出私有源码」,源码公开后它只是一个多余的凭据,也是每次交接都要在浏览器里手配一次的坑(它至今没被创建过)。gaia 保留 Pages 与 deploy.yml 的按 manifest 取包"
   source: "2026-10-26 用户定案(执行待落地)"
   affects: [site-repo-topology]
+
+- time: 2026-10-27T08:58:11
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-27 用户定案「删除网站仓库,本仓库使用 monorepo 模式」+ 落地(新增本仓 deploy-site.yml / publish-ime.yml,删 site remote 与产物提交这一步)"
+  affects: [site-repo-topology]
+
+- time: 2026-10-27T08:58:31
+  kind: reversal
+  summary: "作废「产物推到公开仓 adam-ikari/gaia 的 dist/、Pages 从那个仓发布」以及本页面标题里的「产物在公开仓」。2026-10-27 定 monorepo:网站仓删除,本仓改名为 gaia 保住 https://adam-ikari.github.io/gaia/(project site 改名不留 redirect,旧地址直接 404,所以只能保名字)。产物改由本仓 deploy-site.yml 直接 upload-pages-artifact,不进任何 git;跨仓 secret IME_SOURCE_PAT 与 gaia 的 publish-ime.yml/deploy.yml 一并拆掉。构建仍必须在 runner:开发机 gh release upload 10MB 就在 ~101 秒超时"
+  source: "2026-10-27 用户「删除网站仓库 本仓库使用monorepo模式」+ 选择「先落地再删」「仓库换名」"
+  affects: [site-repo-topology, release-flow]
