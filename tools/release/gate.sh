@@ -59,10 +59,10 @@ step() { STEP=$((STEP + 1)); printf '\n\033[1m[%d/%d] %s\033[0m\n' "$STEP" "$TOT
 ok()   { printf '      \033[32m✓\033[0m %s\n' "$1"; }
 die()  { printf '\n\033[31m::error:: %s\033[0m\n' "$1" >&2; exit 1; }
 
-TOTAL=9
-[ "$QUICK" = 1 ] && TOTAL=3
+TOTAL=10
+[ "$QUICK" = 1 ] && TOTAL=4
 # 测试版跳过「版本号漂移」「版本号 ↔ tag 对齐」两步 —— 见 check_beta_notes。
-[ "$BETA" = 1 ] && TOTAL=7
+[ "$BETA" = 1 ] && TOTAL=8
 
 # CI 固定的工具版本,三处流水线一致。改这里要同步改三个 yml。
 CI_CMAKE=3.22.1
@@ -134,6 +134,36 @@ preflight() {
   local L=app/src/main/cpp/librime
   [ -d "$L/src" ] || die "$L/ 是空的。checkout 必须带 submodules: recursive"
   ok "librime 子模块在位"
+}
+
+# ---------------------------------------------------------------------------
+# 1b. 私钥不许出现在跟踪清单里
+#
+# ## 为什么单独一条:`.gitignore` 拦不住它
+#
+# gitignore 只对**未跟踪**的路径生效。一旦某个文件已经在索引里,加 ignore 规则
+# 改的只是状态显示,commit 照样带上它。2026-10-28 查发布链时抓到的正是这一条:
+# `b0d360c` 的标题是「签名钥匙与口令移出被跟踪的文件」,而它只改了 .gitignore、
+# build.gradle.kts 和 gate.sh —— 没跑 `git rm --cached`,钥匙在 HEAD 上仍被跟踪,
+# 于是「已经移出去了」这个说法活了两个月,直到真要转 public 才被值(索引)戳穿。
+#
+# 判据因此不落在「日志里有没有」而落在**索引**上:`git ls-files` 是唯一权威。
+# 报错发生在闸门第一步而不是发布之后 —— 转 public 之后想收回同一个 blob
+# 要重写全历史 + 让 GitHub 清缓存(见 brain/pages/release-flow.md)。
+# ---------------------------------------------------------------------------
+check_tracked_secrets() {
+  step "私钥不许被跟踪"
+  local hits
+  hits=$(git ls-files | grep -Ei '\.(keystore|jks|p12|pfx)$' || true)
+  if [ -n "$hits" ]; then
+    die "这些签名钥匙文件正被 git 跟踪:
+     $hits
+     它们会进历史,而历史一旦公开(转 public)就拿不干净了。挪出去:
+       git rm --cached <path>        # 只脱管,不动盘上的文件
+     本机签名读 local.properties 的 signing.storeFile(指仓库外,如 ~/.gaia-signing/),
+     CI 读 SIGNING_KEYSTORE_BASE64 —— 两边都不需要仓库里有一份。"
+  fi
+  ok "跟踪清单里没有钥匙文件"
 }
 
 # ---------------------------------------------------------------------------
@@ -454,13 +484,14 @@ check_e2e_cited() {
 
 # ---------------------------------------------------------------------------
 if [ "$QUICK" = 1 ]; then
-  preflight; check_drift; run_tests
+  preflight; check_tracked_secrets; check_drift; run_tests
   printf '\n\033[32m闸门(quick)通过\033[0m —— 只跑了单测,不算发版通过。\n'
   exit 0
 fi
 
 printf '\033[1m发布闸门\033[0m  repo=%s  HEAD=%s\n' "$REPO_ROOT" "$(git log --oneline -1 | cut -c1-8)"
 preflight
+check_tracked_secrets
 if [ "$BETA" = 1 ]; then
   check_beta_notes
 else
