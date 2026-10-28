@@ -627,6 +627,13 @@ android {
             // x86_64 只为模拟器存在,不进给用户下的包(约省 1.2MB)。
             // 用 keep 排除而不是删掉 abi:ABIs 列表里要留着它,E2E 才装得上。
             keepDebugSymbols += setOf("**/libc++_shared.so")
+
+            // AGP 默认 useLegacyPackaging=false ⇒ .so 以 STORED 进包,三个 native 库
+            // 原样占 24.7MB。实测(deflate level 6/9 取小)压后共省 16.16MB,
+            // 正式包从 103,060,178 落到 ~86.9MB —— 只为把包送上传这一跳:
+            // 单请求能活的时长是随机的(94MB 那次撑到 190 秒),短 16% 就短 16%。
+            // 代价是 extractNativeLibs=true:安装时解压、多占设备存储。
+            useLegacyPackaging = true
         }
     }
 
