@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T15:09:22"
+updated: "2026-10-28T15:13:14"
 ---
 
 <!-- compiled_truth -->
@@ -441,3 +441,9 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   summary: "PATCH repos/{owner}/{repo}/releases/{id} 必须同时带 tag_name:只发 target_commitish 会让 GitHub 把 draft 的 tag_name 换成 untagged-<slug> 占位符,之后 gh release view v0.7.12 直接 release not found、gh release upload 全失败,而 API 返回 200 不报错。改 draft 的目标 commit 时正确写法是 gh api -X PATCH …/releases/{id} -f tag_name=v0.7.12 -f target_commitish=<sha>,改完必须 gh release view <tag> 读回确认 tagName 还在。"
   source: "2026-10-28 自己踩的:把 draft 426334441 改指 e8f65ae 时漏带 tag_name"
   affects: [release-flow]
+
+- time: 2026-10-28T15:13:14
+  kind: evidence
+  summary: "压包这条路已实测无效(2026-10-28):useLegacyPackaging=true 后 app-release.apk 从 103,060,178 降到 86,897,718(省 16,162,460,与逐条目 deflate 实测吻合;闸门 10 步全过,JNI 闸门在 compress_type=8 的 .so 上照样通过)。但同一时段重试仍全灭:gh 两次都是 68 秒整 HTTP 408,curl -T 两次 8–10 秒 SSL_read unexpected eof,连 limit-rate=400k 的限速 PUT 也在 10 秒内被切。⇒ 失败与体积无关、与客户端发多慢无关,是链路按时间随机断 TLS。剩下只有两个变量:跨时间稀疏重试(等一个能活 200 秒的窗口)与让 runner 在 GitHub 网络里上传(需 SIGNING_* Secrets)。"
+  source: "2026-10-28 e8f65ae 构建 + /tmp/upload4.log /tmp/upload5.log 完整日志"
+  affects: [release-flow, app/build.gradle.kts]
