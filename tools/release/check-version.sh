@@ -104,15 +104,20 @@ conflict=0
 while read -r t; do
   # 排除待发布的那个 tag 自己(见上面那段)
   [ "$t" = "$TAG" ] && continue
+  # `|| true` 是必需的,不是装饰:本脚本 `set -euo pipefail`,而**不是每个 tag 都有
+  # app/build.gradle.kts** —— 2026-10-28 撞上的是本地那个 `dev-latest`(指向一个纯站点
+  # commit,那棵树里根本没有这个文件)。`git show` 失败在 pipefail 下把整条管道判死,
+  # 于是脚本以 128 **静默退出**(错误被 2>/dev/null 吞掉,连一行都不打)。
+  # 静默退出比报错更糟:闸门「没通过」和「没跑」在退出码之外看不出区别。
   vc="$(git show "${t}:${GRADLE}" 2>/dev/null \
-        | sed -n 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -1)"
+        | sed -n 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -1 || true)"
   [ -n "$vc" ] || continue
   if [ "$vc" -ge "$VERSION_CODE" ]; then
     echo "::error::versionCode $VERSION_CODE 已被 tag $t 用过(或更大)。每个发出去的版本必须独占一个递增的 versionCode,否则 Android 拒装升级(等于版本号回退)。" >&2
     conflict=1
   fi
   prev_desc="$prev_desc $t=$vc"
-done < <(git tag --sort=v:refname)
+done < <(git tag -l 'v*' --sort=v:refname)
 
 [ "$conflict" -eq 0 ] || exit 1
 
