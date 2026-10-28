@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T14:44:56"
+updated: "2026-10-28T14:54:46"
 ---
 
 <!-- compiled_truth -->
@@ -422,4 +422,16 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: evidence
   summary: "发布这一跳的设备侧纪律:GitHub 令牌一律不进进程 argv。手写 curl -H \"Authorization: bearer $TOKEN\" 会把令牌写进 /proc/<pid>/cmdline,任何 pgrep -af / ps aux 都会原样打印出来,本次事故就是这样把 gho_ 前缀的 OAuth token 泄进了会话记录。要带鉴权头就用 curl -K - 从 stdin 喂配置,或者干脆用 gh release upload 让 gh 自己从 keyring 取。查进度的正确姿势:读 gh release view --json assets 的 size,不读进程表。"
   source: "2026-10-28 v0.7.12 资产上传重试时 pgrep -af 泄露令牌的事故"
+  affects: [release-flow]
+
+- time: 2026-10-28T14:47:55
+  kind: evidence
+  summary: "实测「切 legacy packaging 能把正式包压到多小」:v0.7.12 的 app-release.apk 103,060,178 字节里,大 STORED 条目合计 98,909,603。三个 .so 用 deflate(level 6/9 取小)后的尺寸:libonnxruntime.so 16,035,904→5,534,614(省 10,501,290)、libsherpa-onnx-jni.so 4,896,992→1,694,441(省 3,202,551)、librime_jni.so 3,750,960→1,290,741(省 2,460,219)。模型 zip 本身再 deflate 只省 24,805(已压过)。⇒ packaging.jniLibs.useLegacyPackaging=true 估计净省约 16.16MB,包落到 ~86.9MB。代价:extractNativeLibs=true,安装时解压、多占设备存储。判据来自直接读 APK 内条目,不是 AGP 文档的估计值。"
+  source: "2026-10-28 本机 python zipfile+zlib 读 app-release.apk 逐条目实测"
+  affects: [app/build.gradle.kts]
+
+- time: 2026-10-28T14:54:46
+  kind: evidence
+  summary: "v0.7.12 正式包(103,060,178 字节)在本机传不上 GitHub release 资产,两种客户端各 6 次全部失败,失败形状与体积无关:gh release upload 6 次全是 HTTP 408 Upload body timed out due to inactivity,且死亡时间均匀到 68 秒;curl 流式 PUT(-T,鉴权走 stdin)6 次全是 curl(56) SSL_read unexpected eof,5 秒内被切。同一只包此前有一次 curl 跑到 190 秒/94MB(91%)才被切断,另两次死在 7s/3MB 与 31s/18MB。⇒ 结论:单请求能活的时长是随机的、没有固定字节上限,压小包(legacy packaging 省 16MB)只把需要的窗口缩短 16%,不改变失败形状。真正绕开这条路的只有让 runner 在 GitHub 自己的网络里上传(workflow_dispatch + SIGNING_* Secrets)。"
+  source: "2026-10-28 本机 gh/curl 各 6 次重试的完整日志"
   affects: [release-flow]
