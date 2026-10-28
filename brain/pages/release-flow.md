@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T11:45:47"
+updated: "2026-10-28T11:50:30"
 ---
 
 <!-- compiled_truth -->
@@ -404,4 +404,10 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: note
   summary: "给 brain CLI 传长文本时,**双引号里不许有反引号**:那串本该写「而落在 git ls-files」的 summary 里的反引号被 zsh 当命令替换执行了,于是 216 行文件清单被插进 brain/pages/release-flow.md 的一条 summary 中间(YAML 结构破坏),而我没读回来就 commit + push 了。特征不是报错,是**内容里出现你不认识的清单** ⇒ 每次 CLI 写完必须把那一行读回来看一眼。修法用 heredoc 或单引号传参;全 brain/ 扫同类污染(独立成行的裸文件名)零命中"
   source: "2026-10-28 自己踩的,当场修回"
+  affects: [release-flow]
+
+- time: 2026-10-28T11:50:30
+  kind: evidence
+  summary: "清洗 + force-push 之后**公开仓的 ref 和 clone 是干净的,但数据没被撤销**:GitHub 仍按 SHA 直接提供旧对象,匿名(不带 token)就能把 hwkbd.keystore 那 2580 字节整把私钥下载走。更要命的是**旧 SHA 根本不需要谁写在文本里** —— repos/*/events 的 PushEvent.head 里就躺着 ef9e513a(公开事件流,保留约 90 天),任何人都能自己枚举。⇒ 两条推论,以后别再走弯路:① 「把 blob SHA 从文档里删掉」不是缓解措施,只是心理安慰;② 「历史已清洗」与「凭据未泄露」是两件事,清洗的保证只有「新克隆拿不到」,**已经发出去的字节要算作公开**。 私钥的处置只剩两条硬路:找 GitHub Support 走 expire cached objects(让那些 SHA 变 404,清的是数据),或者换签名钥匙(清的是**授权**,代价是老用户不能原地升级)。对 APK 签名钥匙来说只有第二条真正闭环:拿到钥匙的人能签出「能被所有已装用户原地升级」的包,事件流能不能枚举 SHA 已经不重要了"
+  source: "2026-10-28 转 public 后匿名验证:curl 无 token 取 git/blobs/e182bd90 得 HTTP 200、2580 字节,与 /home/gem/.gaia-signing/hwkbd.keystore cmp 完全相同;同时匿名 clone(23M)里没有该 blob、HEAD 文本里没有口令"
   affects: [release-flow]
