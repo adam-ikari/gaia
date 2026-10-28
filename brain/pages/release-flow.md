@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T12:36:59"
+updated: "2026-10-28T14:44:56"
 ---
 
 <!-- compiled_truth -->
@@ -416,4 +416,10 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: decision
   summary: "私钥仍可被匿名按 SHA 下载这件事,用户判定不影响发布计划:不换钥匙、不开 GitHub 工单、不再把「摘钥匙」当发版前置条件。据此 v0.7.12 直接走 CI 发版。硬约束不变:keystore 本体与口令仍不进公开仓、不进 agent 上下文,CI 只由用户自己在仓库 Secrets 里配 4 个 SIGNING_*;gate.sh 的「私钥不许被跟踪」红线继续拦仓库内副本。"
   source: "2026-10-28 用户裁决:签名不重要"
+  affects: [release-flow]
+
+- time: 2026-10-28T14:44:56
+  kind: evidence
+  summary: "发布这一跳的设备侧纪律:GitHub 令牌一律不进进程 argv。手写 curl -H \"Authorization: bearer $TOKEN\" 会把令牌写进 /proc/<pid>/cmdline,任何 pgrep -af / ps aux 都会原样打印出来,本次事故就是这样把 gho_ 前缀的 OAuth token 泄进了会话记录。要带鉴权头就用 curl -K - 从 stdin 喂配置,或者干脆用 gh release upload 让 gh 自己从 keyring 取。查进度的正确姿势:读 gh release view --json assets 的 size,不读进程表。"
+  source: "2026-10-28 v0.7.12 资产上传重试时 pgrep -af 泄露令牌的事故"
   affects: [release-flow]

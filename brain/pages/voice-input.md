@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, voice, permission]
 created: "2026-10-24T14:31:03"
-updated: "2026-10-26T10:49:15"
+updated: "2026-10-28T14:40:07"
 ---
 
 <!-- compiled_truth -->
@@ -196,3 +196,9 @@ updated: "2026-10-26T10:49:15"
   kind: reversal
   summary: "推翻「模型 zip 直接内置进仓库(app/src/main/assets/sherpa/paraformer-zh-small.zip)」:改为 :app:fetchVoiceModel 构建期按固定 URL+sha256 下载、解包重打包到 build/generated/voiceAssets 并挂进 main assets。理由不是洁癖,是这台机器 git push 到 8MB 就 HTTP 408 —— 带着 74MB 的仓库根本推不上去,连源码一起锁死"
   affects: [app/build.gradle.kts, app/src/main/assets/sherpa, .gitignore, THIRD_PARTY_NOTICES.md, README.md]
+
+- time: 2026-10-28T14:40:07
+  kind: reversal
+  summary: "推翻「模型改按需下载」这一整轮方案:语音模型继续构建期由 :app:fetchVoiceModel 抓上游、解包重打成确定性 zip、挂进 main assets、首次使用解到 filesDir;不声明 INTERNET、零配置、站点文案「不联网」全部保持不变。设备侧不写下载器,不引 commons-compress,发布链不新增 publish-model.yml。留一手实测数据免得日后再查:作者本人的 HF 仓库 csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09 里 model.int8.onnx 与内置那份逐字节相同(sha256 3ef6c19369b912f7caf3cef8e545c5ccd1a33d9d7ec792a46668dc41c4b229ec,81828675 字节),tokens.txt sha256 4b2d964e18b9cf139b473003b6698fb2ed9a2a5ec55b93daa677b28f578897aa(75352),URL 可钉 commit 63ddc3cd0f2810b68289a7b3876e62ef5d53d6df;hf-mirror.com 实测 8MB/3.4s=2.43MB/s 且 GET Range 回 206,huggingface.co 1.57MB/s 同样回 206。"
+  source: "2026-10-28 用户裁决:「改回内置」(此前一轮为「语音模型改为在线安装」)"
+  affects: [voice-input, release-flow]
