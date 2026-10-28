@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T11:50:30"
+updated: "2026-10-28T12:36:59"
 ---
 
 <!-- compiled_truth -->
@@ -410,4 +410,10 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: evidence
   summary: "清洗 + force-push 之后**公开仓的 ref 和 clone 是干净的,但数据没被撤销**:GitHub 仍按 SHA 直接提供旧对象,匿名(不带 token)就能把 hwkbd.keystore 那 2580 字节整把私钥下载走。更要命的是**旧 SHA 根本不需要谁写在文本里** —— repos/*/events 的 PushEvent.head 里就躺着 ef9e513a(公开事件流,保留约 90 天),任何人都能自己枚举。⇒ 两条推论,以后别再走弯路:① 「把 blob SHA 从文档里删掉」不是缓解措施,只是心理安慰;② 「历史已清洗」与「凭据未泄露」是两件事,清洗的保证只有「新克隆拿不到」,**已经发出去的字节要算作公开**。 私钥的处置只剩两条硬路:找 GitHub Support 走 expire cached objects(让那些 SHA 变 404,清的是数据),或者换签名钥匙(清的是**授权**,代价是老用户不能原地升级)。对 APK 签名钥匙来说只有第二条真正闭环:拿到钥匙的人能签出「能被所有已装用户原地升级」的包,事件流能不能枚举 SHA 已经不重要了"
   source: "2026-10-28 转 public 后匿名验证:curl 无 token 取 git/blobs/e182bd90 得 HTTP 200、2580 字节,与 /home/gem/.gaia-signing/hwkbd.keystore cmp 完全相同;同时匿名 clone(23M)里没有该 blob、HEAD 文本里没有口令"
+  affects: [release-flow]
+
+- time: 2026-10-28T12:36:59
+  kind: decision
+  summary: "私钥仍可被匿名按 SHA 下载这件事,用户判定不影响发布计划:不换钥匙、不开 GitHub 工单、不再把「摘钥匙」当发版前置条件。据此 v0.7.12 直接走 CI 发版。硬约束不变:keystore 本体与口令仍不进公开仓、不进 agent 上下文,CI 只由用户自己在仓库 Secrets 里配 4 个 SIGNING_*;gate.sh 的「私钥不许被跟踪」红线继续拦仓库内副本。"
+  source: "2026-10-28 用户裁决:签名不重要"
   affects: [release-flow]
