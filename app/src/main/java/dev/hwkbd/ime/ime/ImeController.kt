@@ -770,11 +770,26 @@ class ImeController(
      * 选显示位 i 的候选上屏。显示位与物理五键对应(左→右 = 4 2 1 3 5):
      * 0=Shift(候选4) 1=Sym(候选2) 2=空格(候选1,首选) 3=Ctrl(候选3) 4=Alt(候选5)。
      * 候选栏点选/上滑 5 区/五键选字/高亮确认都用显示位;Ctrl+QWERT 不选字(原样转发)。
+     *
+     * ## 返回值不是糖 —— 飞字动画挂在「这次真的选了」这个事实上
+     *
+     * @return true = 这一槽有词,已上屏并触发了 [onCandidateSelected];false = 这一槽
+     * 没有词,**什么都没发生**(没上屏、没动画)。
+     *
+     * 为什么必须由调用方知道:上滑选字那条路在**越过阈值的那一帧**就把 `committed`
+     * 落下了(见 `ImeService.FlyDetector`),此后抬手一律「已提交,不归我管」。那个判断
+     * 默认「`onFlyCommit` 一定起得了完成段动画」—— 而动画是挂在 [onCandidateSelected]
+     * 上的,正是下面两个 `?: return false` 会跳过的东西。于是假成功会留下一份
+     * **没有弹簧在带的飞字状态**,候选栏从此画的是冻住的旧词表(真机报
+     * 「偶尔有始终显示之前候选词的 bug」,2026-10-28)。
+     *
+     * ⇒ 判据:**闩锁不许落在它保证不了的那个副作用之前**;做不到就把事实如实返回去,
+     *   让落闩锁的一方收尾。
      */
-    fun selectCandidate(displayIndex: Int) {
+    fun selectCandidate(displayIndex: Int): Boolean {
         val logical = state.currentPageLogical()
-        val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return
-        val c = logical.getOrNull(li) ?: return
+        val li = state.displayOrder(logical.size).getOrNull(displayIndex) ?: return false
+        val c = logical.getOrNull(li) ?: return false
 
         // **先问引擎:这个候选吃掉了多少输入字符**(2026-10-04 用户「拼音的消费也要
         // 根据实际选词消费,不能一次清空」;2026-10-05 修「给引擎的是页内下标」)。
@@ -830,7 +845,8 @@ class ImeController(
         val remainder = readRemainder(consumed)
 
         // **先通知再上屏**:视图要趁候选行还在屏上把词画走,顺序反了就没什么可飞的了。
-        // 放在两个 `?: return` 之后 —— 选不中就不该有动画。
+        // 放在两个 `?: return false` 之后 —— 选不中就不该有动画(而**必须**把「没选中」
+        // 如实返回去,让落闩锁的调用方收尾,见 [selectCandidate] 的 @return)。
         onCandidateSelected?.invoke(displayIndex, c.word)
         host.commitText(c.word)
         inputMethod().onCommitted(c.word)
@@ -858,6 +874,7 @@ class ImeController(
             )
         }
         host.render()
+        return true
     }
 
     /**

@@ -1088,7 +1088,16 @@ class ImeService : InputMethodService() {
         // **动画不在这里起**了:由 [ImeController.onCandidateSelected] 统一触发
         // (2026-10-02 用户「按键选词也需要飞字动画」)。九处选字入口共用同一个回调,
         // 才不会出现"上滑有飞字、按键没有"这种按入口不一致的表现。
-        controller.selectCandidate(zone)
+        //
+        // **这一条路已经先落了闩锁**:探测器越过阈值那一帧就 `committed = true`,此后
+        // 抬手不再走 `onFlyAbort`(见 [FlyDetector] 的 UP 分支)。它默认「`onFlyCommit`
+        // ⇒ 完成段动画一定在跑」,而那个动画挂在 [ImeController.onCandidateSelected] 上 ——
+        // 选不中就没有动画,于是没人淡回,飞字状态把冻住的旧词表永久撑在屏上。
+        // 全貌与判据见 [ImeController.selectCandidate] 的 @return(2026-10-28 真机报障)。
+        if (!controller.selectCandidate(zone)) {
+            android.util.Log.i(TAG, "fly select: 第 $zone 区没有候选,收回飞字")
+            candidateBar?.cancelFlyDrag()
+        }
     }
 
 

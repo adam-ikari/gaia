@@ -224,6 +224,27 @@ class CandidateBarView @JvmOverloads constructor(
     fun isFlyAnimating(): Boolean = flyP >= 0f || flyUp.isRunning || flyBack.isRunning
 
 
+    /**
+     * 有没有**弹簧**在带着飞字走。与 [isFlyAnimating] 不是一回事,别混用:
+     *
+     * - [isFlyAnimating] 答「画面现在归飞字管吗」⇒ 两态可见性用它(拖动段也算,
+     *   否则手指还按在半空,候选行就掉回状态行了)。
+     * - 本属性答「有没有人在推进它」⇒ **`flyP >= 0f && !flyDriven` 就是「状态还留着,
+     *   但没有任何东西在带它走」** —— 残留,或者是手指拖动段本身(拖动段没有弹簧)。
+     *
+     * ## 这里踩过一次:三条自愈判据写成 `flyP >= 0f && !isFlyAnimating()`,恒假
+     *
+     * `isFlyAnimating()` 的第一项就是 `flyP >= 0f`,所以 `flyP >= 0f` 成立时
+     * `!isFlyAnimating()` **永远为假**。三处(横滑接管、同区重入、外部驱动的 MOVE)
+     * 都想「把没人要的飞字放回去」,结果一处都没执行过 —— 于是真机上「偶尔」进来的
+     * 那份残留(见 `ImeService.commitFly`)没有任何出口,只有再上滑一次
+     * ([beginFlyDrag] 里那句无条件的 [cancelFlyDragNow])才清得掉。
+     *
+     * ⇒ 判据:**两个判据的合取如果在定义上不可能为真,它就不是一条闸门,是一段装饰**。
+     *   写完要问「什么输入能让它成立」,答不出来就是写错了。
+     */
+    private val flyDriven: Boolean get() = flyUp.isRunning || flyBack.isRunning
+
 
     /** [onDraw] 埋点的上一次签名,只为「变了才打一行」。见那里的说明。 */
     private var lastDrawSig = 0
@@ -249,6 +270,18 @@ class CandidateBarView @JvmOverloads constructor(
                 // 而不是靠人眼看截图 —— 见 scenarios.mjs 的 `page-words-match`。
                 "words=${state.pageSlots().filterNotNull().joinToString("|") { it.word }}"
         )
+        // ## 无人驱动的飞字残留,在每次状态进来时收一次(2026-10-28)
+        //
+        // 没有组词、又没有弹簧在带 ⇒ 这份 `flyP` 是残留,而它同时做两件错事:
+        // [onDraw] 优先画冻住的 `flyOutSlots`(`slots` 排在它后面那条分支),
+        // 而 `isFlyAnimating()` 让 `ImeService` 把候选行**一直撑在屏上**。
+        // 判据照搬 [takeOverPageDrag] 里那条翻页残留的清理(「陈旧且没有弹簧在跑的
+        // 过渡:清掉,否则画的那一对不是 controller 当前的页」)。
+        //
+        // **只收 `!hasComposition` 的**:手指还在拖动时 `flyDriven` 同样为假(拖动段本来就
+        // 没有弹簧),而那时 raw 还没被吃掉 —— 那条要留给它自己的收尾(淡回/起飞),
+        // 在这里清等于每帧打断用户的手势。
+        if (flyP >= 0f && !flyDriven && !state.hasComposition) resetFly()
         val newSlots = state.pageSlots()
         // 跟手翻页要预览相邻页,先备好(越界为空表 = 那一侧没有页,拖过去也不动)
         pageNextSlots = state.pageSlotsAt(state.page + 1)
@@ -643,7 +676,7 @@ haptics?.confirm()
      */
     private fun takeOverPageDrag(dir: Float, x: Float, eventTimeMs: Long, external: Boolean): Boolean {
         // 翻页接管时正在上滑的词要放回去,别两条拖动同时跑
-        if (flyP >= 0f && !isFlyAnimating()) cancelFlyDrag()
+        if (flyP >= 0f && !flyDriven) cancelFlyDrag()
         // **本次拖动是谁发起的**:两条路共用绘制,但提交线的量纲不同(见 [pageCommitPx]),
         // 所以每次起手都要重新标一遍 —— 不能靠 externalCommitPx != 0 判断,
         // 那个值是常驻的,会顺带把候选行自己的翻页也改成 60px(划一下就翻)。
@@ -1199,7 +1232,7 @@ pageSlide = pageSettleTarget
     /** 飞字拖动开始:冻结当前候选,后续 [setFlyDrag] 按手指进度实时驱动。可重入(拖回又拖上来时接管淡回)。 */
     fun beginFlyDrag(zone: Int) {
         if (flyCompleting) return
-        if (flyP >= 0f && flyZone == zone && !isFlyAnimating()) return
+        if (flyP >= 0f && flyZone == zone && !flyDriven) return
         cancelFlyDragNow()
         flyZone = zone
         flyX = (zone + 0.5f) * cellWidth
@@ -1415,7 +1448,7 @@ pageSlide = pageSettleTarget
                     // keycombination Alt+L 会被五键选字吃掉,手动分节符在这台设备上
                     // 本就难以输入 —— 上屏入口收敛为点选)。键盘面的上滑飞字不受
                     // 影响,触发区仍是屏宽五等份。
-                    flyP >= 0f && !isFlyAnimating() -> cancelFlyDrag()
+                    flyP >= 0f && !flyDriven -> cancelFlyDrag()
                 }
             }
             MotionEvent.ACTION_UP -> {

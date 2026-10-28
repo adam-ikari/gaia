@@ -597,16 +597,37 @@ class ImeControllerTest {
 
     @Test
     fun `选不中时不给回调`() {
-        // 回调放在两个 ?: return 之后:显示位越界、或者当前页没词,都不该有动画 ——
+        // 回调放在两个 `?: return false` 之后:显示位越界、或者当前页没词,都不该有动画 ——
         // 那会让视图凭空飞一个不存在的词
         val r = rig()
         val seen = mutableListOf<Int>()
         r.c.onCandidateSelected = { zone, _ -> seen += zone }
-        r.c.selectCandidate(0) // 还没组词,没有候选
+        assertFalse("无候选时不该算选中", r.c.selectCandidate(0)) // 还没组词,没有候选
         assertTrue("无候选时不该回调", seen.isEmpty())
         r.type("ni")
-        r.c.selectCandidate(99) // 显示位越界
+        assertFalse("显示位越界不该算选中", r.c.selectCandidate(99)) // 显示位越界
         assertTrue("显示位越界不该回调", seen.isEmpty())
+    }
+
+    @Test
+    fun `半满那一页的空槽要如实报选不中`() {
+        // **这条钉的是返回值本身,不是回调**。上滑选字那条路在越过阈值那一帧就落下
+        // `committed`(见 ImeService.FlyDetector),此后抬手一律「已提交,不归我管」;
+        // 而完成段动画挂在 [ImeController.onCandidateSelected] 上 —— 选不中就没有动画,
+        // 也就没有任何东西在带 `flyP` 走。那一刻视图画的是**冻住的上一批词**,而
+        // `isFlyAnimating()` 还恒真把候选行撑在屏上(2026-10-28 真机报
+        // 「偶尔有始终显示之前候选词的 bug」)。所以「这一槽没词」必须**说得出**、
+        // 而落闩锁的那一方必须据此收尾。
+        val r = rig()
+        r.type("ni") // 6 个候选 → 第二页只剩"捏",落在中间槽(空格位)
+        assertTrue(r.key(KeyEvent.KEYCODE_DPAD_RIGHT))
+        val seen = mutableListOf<Int>()
+        r.c.onCandidateSelected = { zone, _ -> seen += zone }
+        assertFalse("外侧空槽必须报选不中", r.c.selectCandidate(0))
+        assertTrue("选不中不该吃掉组词", r.c.state.hasComposition)
+        assertEquals("选不中不该起动画", emptyList<Int>(), seen)
+        assertTrue("中间槽有词,要报选中", r.c.selectCandidate(2))
+        assertEquals(listOf(2), seen)
     }
 
     @Test
