@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T10:41:34"
+updated: "2026-10-28T11:45:47"
 ---
 
 <!-- compiled_truth -->
@@ -392,4 +392,16 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: decision
   summary: "v0.7.12 走**完整发布链**,顺序定死:① 本地可逆那几刀(git rm --cached + 闸门红线 + 全链产物验证)→ ② 镜像备份仓外 → ③ git filter-repo 剔 hwkbd.keystore 这个 path 并做 replace-text 抹历史口令(会同时改掉 brain/pages/release-flow.md 那条引用口令的 timeline 与 40 个历史 build.gradle.kts)→ ④ **停下要一次明确 go** → force-push(不可逆,哈希全变)→ ⑤ **再停下要一次明确 go** → 转 public → ⑥ 用户配 4 个 SIGNING_* → ⑦ 才做 bump commit(versionCode 31 / versionName 0.7.12)并打 tag。"
   source: "2026-10-28 用户三选:完整发布链 / 打正式 tag v0.7.12 / SIGNING_* 由用户本人在仓库 Secrets 配置(助手不接触钥匙与口令)"
+  affects: [release-flow]
+
+- time: 2026-10-28T11:45:33
+  kind: evidence
+  summary: "重写历史之后往 GitHub 推,卡的是**单个 HTTPS 请求约 20 秒被 408 掐断**,而 payload 之所以是 11M 有一个隐蔽原因:**filter-repo 会把旧对象 repack 掉(reflog 也清空,实测 git reflog 行数=0),于是 send-pack 做 common 协商时本地根本找不到远端 advertise 的那些 commit**,不能把「远端已有的对象」排除掉 ⇒ 它把整条链的所有对象当新的发一遍。修法不是重试,是**先把旧对象捞回来**:`git fetch <清洗前的 mirror 备份> +refs/heads/*:refs/pre-rewrite/heads/* +refs/tags/*:refs/pre-rewrite/tags/*`,让旧 commit 在本地重新存在,协商才有 have 可用;然后**按 ref 分批推**(tag 按 creatordate 顺序 28 条 + 两条分支),每批 payload 自然小于 ceiling。实测:整批 11M 失败,单批最大 4.7M(master 剩余)5s 通过,3.1M(feat 分支)7s 通过 ⇒ 这台机器对 GitHub 的上行约 450KB/s,安全线上限估 8~9M。推完再删 refs/pre-rewrite/* + reflog expire + gc --prune=now,本地也不留钥匙 blob"
+  source: "2026-10-28 实测:首次整批 push HTTP 408;把 delta 用 git bundle 量出来是 11M;分 28 tag + 2 分支逐条 push 后每条 1~7s 全过"
+  affects: [release-flow]
+
+- time: 2026-10-28T11:45:47
+  kind: note
+  summary: "给 brain CLI 传长文本时,**双引号里不许有反引号**:那串本该写「而落在 git ls-files」的 summary 里的反引号被 zsh 当命令替换执行了,于是 216 行文件清单被插进 brain/pages/release-flow.md 的一条 summary 中间(YAML 结构破坏),而我没读回来就 commit + push 了。特征不是报错,是**内容里出现你不认识的清单** ⇒ 每次 CLI 写完必须把那一行读回来看一眼。修法用 heredoc 或单引号传参;全 brain/ 扫同类污染(独立成行的裸文件名)零命中"
+  source: "2026-10-28 自己踩的,当场修回"
   affects: [release-flow]
