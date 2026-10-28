@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T16:23:46"
+updated: "2026-10-28T16:29:19"
 ---
 
 <!-- compiled_truth -->
@@ -471,3 +471,9 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   summary: "正式 release 该带两个 APK:release.yml 的 files 至今列 app-release.apk 与 app-debug.apk,v0.7.1—v0.7.9 也确实都带。v0.7.10/v0.7.11 只剩一个不是决定,是后果 —— 那两版由本机手传,只传得动正式包那一个。所以「少一个资产」不能当惯例照着抄;v0.7.12 按 release.yml 补齐(app-debug.apk 103,934,664,同样走切块+runner 拼接,正文写明它是 debug 签名、不能与正式包互相覆盖安装)。"
   source: "2026-10-28 v0.7.12 资产清单核对(逐 release 的 assets 列表 + release.yml files 输入)"
   affects: [.github/workflows/assemble-parts.yml]
+
+- time: 2026-10-28T16:29:19
+  kind: evidence
+  summary: "手工 publish(PATCH draft=false)不会把这一版设成 latest:releases/latest 继续 302 到上一版,得再 PATCH 一次带 make_latest=true。判据要打在发布链里 —— 只看 release 本身的 draft/tag 字段全绿,而用户点的「最新版」是旧的。GitHub 重算指针有几十秒延迟,所以验它不能立刻验。"
+  source: "2026-10-28 v0.7.12 publish 后 /releases/latest 仍指 v0.7.11(实测 45 秒后才改口)"
+  affects: [.github/workflows/release.yml]
