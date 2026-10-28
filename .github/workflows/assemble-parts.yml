@@ -11,6 +11,8 @@ name: Assemble split release asset
 # 坏包上不了 release。上传后再回下一遍算 hash ⇒ 「发出去的字节 == 本地签好的字节」才算完成。
 #
 # 谁能触发:只有 `workflow_dispatch`(同 `publish-ime.yml` 的理由,不重述)。
+# 这个 job 不 checkout 源码 —— 它不需要,所以每条 `gh release` 都要显式给 `-R`,
+# 否则 gh 会去当前目录问 git 要仓库(实测报 "failed to run git: fatal: not a git repository")。
 
 on:
   workflow_dispatch:
@@ -62,7 +64,9 @@ jobs:
             --jq ".[] | select(.tag_name==env.TAG) | .id" | head -1)
           [ -n "$rid" ] || { echo "no release for tag $TAG"; exit 1; }
           echo "release id=$rid"
-          gh release download "$TAG" -p "$PREFIX*" -D /tmp/parts
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$PREFIX*" -D /tmp/parts
+          # 逐块大小打在日志里:hash 对不上时,这里就能看出是哪一块短了。
+          stat -L -c '%n %s' /tmp/parts/* | sort
           : > "/tmp/$ASSET"
           n=0
           for f in $(ls -1 /tmp/parts | sort); do
@@ -82,7 +86,7 @@ jobs:
           set -euo pipefail
           rid=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
             --jq ".[] | select(.tag_name==env.TAG) | .id" | head -1)
-          gh release upload "$TAG" "/tmp/$ASSET" --clobber
+          gh release upload "$TAG" "/tmp/$ASSET" --clobber -R "$GITHUB_REPOSITORY"
           state=$(gh api "repos/$GITHUB_REPOSITORY/releases/$rid/assets" --paginate \
             --jq ".[] | select(.name==env.ASSET) | .state")
           echo "asset state=$state"
@@ -92,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf /tmp/verify && mkdir -p /tmp/verify
-          gh release download "$TAG" -p "$ASSET" -D /tmp/verify --clobber
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$ASSET" -D /tmp/verify --clobber
           got=$(sha256sum "/tmp/verify/$ASSET" | cut -d' ' -f1)
           echo "downloaded sha256=$got want=$WANT"
           [ "$got" = "$WANT" ] || { echo "downloaded bytes differ from the local build"; exit 1; }
