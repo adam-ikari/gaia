@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T14:54:46"
+updated: "2026-10-28T15:09:22"
 ---
 
 <!-- compiled_truth -->
@@ -434,4 +434,10 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: evidence
   summary: "v0.7.12 正式包(103,060,178 字节)在本机传不上 GitHub release 资产,两种客户端各 6 次全部失败,失败形状与体积无关:gh release upload 6 次全是 HTTP 408 Upload body timed out due to inactivity,且死亡时间均匀到 68 秒;curl 流式 PUT(-T,鉴权走 stdin)6 次全是 curl(56) SSL_read unexpected eof,5 秒内被切。同一只包此前有一次 curl 跑到 190 秒/94MB(91%)才被切断,另两次死在 7s/3MB 与 31s/18MB。⇒ 结论:单请求能活的时长是随机的、没有固定字节上限,压小包(legacy packaging 省 16MB)只把需要的窗口缩短 16%,不改变失败形状。真正绕开这条路的只有让 runner 在 GitHub 自己的网络里上传(workflow_dispatch + SIGNING_* Secrets)。"
   source: "2026-10-28 本机 gh/curl 各 6 次重试的完整日志"
+  affects: [release-flow]
+
+- time: 2026-10-28T15:09:22
+  kind: evidence
+  summary: "PATCH repos/{owner}/{repo}/releases/{id} 必须同时带 tag_name:只发 target_commitish 会让 GitHub 把 draft 的 tag_name 换成 untagged-<slug> 占位符,之后 gh release view v0.7.12 直接 release not found、gh release upload 全失败,而 API 返回 200 不报错。改 draft 的目标 commit 时正确写法是 gh api -X PATCH …/releases/{id} -f tag_name=v0.7.12 -f target_commitish=<sha>,改完必须 gh release view <tag> 读回确认 tagName 还在。"
+  source: "2026-10-28 自己踩的:把 draft 426334441 改指 e8f65ae 时漏带 tag_name"
   affects: [release-flow]
