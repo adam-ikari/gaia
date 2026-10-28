@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T15:13:14"
+updated: "2026-10-28T15:49:23"
 ---
 
 <!-- compiled_truth -->
@@ -447,3 +447,21 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   summary: "压包这条路已实测无效(2026-10-28):useLegacyPackaging=true 后 app-release.apk 从 103,060,178 降到 86,897,718(省 16,162,460,与逐条目 deflate 实测吻合;闸门 10 步全过,JNI 闸门在 compress_type=8 的 .so 上照样通过)。但同一时段重试仍全灭:gh 两次都是 68 秒整 HTTP 408,curl -T 两次 8–10 秒 SSL_read unexpected eof,连 limit-rate=400k 的限速 PUT 也在 10 秒内被切。⇒ 失败与体积无关、与客户端发多慢无关,是链路按时间随机断 TLS。剩下只有两个变量:跨时间稀疏重试(等一个能活 200 秒的窗口)与让 runner 在 GitHub 网络里上传(需 SIGNING_* Secrets)。"
   source: "2026-10-28 e8f65ae 构建 + /tmp/upload4.log /tmp/upload5.log 完整日志"
   affects: [release-flow, app/build.gradle.kts]
+
+- time: 2026-10-28T15:49:12
+  kind: decision
+  summary: "正式包的上传走「本机切 5MB 块传进同一个 release,runner 在 GitHub 网络里拼回整包」(assemble-parts.yml)。理由:这台机器到 GitHub 的单个上传请求有天花板且与大小/速率无关 —— 5MB 稳定通、20MB 起随机断(408 inactivity 或 TLS EOF),103MB 与压到 86.9MB 各试 6 次全灭,唯一一次例外撑到 190 秒/94MB。签名按用户裁决留在本地 ⇒ 没有能编出正式包的 runner,但拼字节不需要签名凭据:该 job 只 contents: write、不读任何 SIGNING_*、只有 workflow_dispatch。这是路径 1(本机重试)与路径 2(压包)都被实测否掉之后的正解,不是绕过问题。"
+  source: "v0.7.12 发布过程(2026-10-28):12 次单请求重试 + 17 块切块上传实测"
+  affects: [app/build.gradle.kts]
+
+- time: 2026-10-28T15:49:23
+  kind: evidence
+  summary: "release 资产的判据不能只看 size:一次没跑完的 PUT 照样留下一条 size 等于声明长度的资产行,只是 state=starter。可信组合是 state==uploaded 加 API 直接给的 digest(sha256),digest 是 GitHub 对已存字节算的,不用回下整包;要证「发到用户手里的那份 == 本地签好的那份」再加一次回下重算。v0.7.12 三条都对上:digest==本地 sha256==1b9641735baf…,runner 回下重算同值,匿名公开 URL Range 取前 1KB 与本地逐字节相同。"
+  source: "v0.7.12 资产核对(2026-10-28)"
+  affects: [tools/release 的资产判据]
+
+- time: 2026-10-28T15:49:23
+  kind: evidence
+  summary: "两条会让「看起来对」的脚本死掉的细节:draft release 用 GET /repos/{o}/{r}/releases/tags/{tag} 是 404,要列全量再按 tag_name 挑(gh release download 自己能处理 draft,它走列表);gh 在非 git 目录里没有仓库上下文,每条 gh release 必须显式 -R,报的是 failed to run git: fatal: not a git repository,看不出跟 gh 有关。"
+  source: "assemble-parts 首跑失败(run 40651801972)"
+  affects: [.github/workflows/assemble-parts.yml]
