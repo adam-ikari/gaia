@@ -1,0 +1,111 @@
+name: Assemble split release asset
+
+# 这个 job 只搬字节:不编译、不签名、不碰任何 `SIGNING_*`。
+#
+# 为什么需要它:开发机到 GitHub 的**单个上传请求**有天花板(实测 5MB 通、20MB 起随机断,
+# 死状是 408 inactivity 或 TLS EOF,与包大小和速率都不相关)。签名留在本地 ⇒ 87MB 的正式包
+# 没有 runner 可编 ⇒ 只能「本地切成 5MB 的块传进同一个 release,再让 runner 在 GitHub
+# 网络里拼回来」。块是 transport,不是产物。
+#
+# 正确性靠输入里的 `sha256`:那是本地构建算出来的值。拼出来对不上就直接红,
+# 坏包上不了 release。上传后再回下一遍算 hash ⇒ 「发出去的字节 == 本地签好的字节」才算完成。
+#
+# 谁能触发:只有 `workflow_dispatch`(同 `publish-ime.yml` 的理由,不重述)。
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '目标 release 的 tag(draft 也行)'
+        required: true
+        type: string
+      asset_name:
+        description: '拼完后的资产名'
+        required: true
+        default: app-release.apk
+        type: string
+      sha256:
+        description: '本地产物的 sha256,对不上就失败'
+        required: true
+        type: string
+      chunk_prefix:
+        description: '分块资产名前缀'
+        required: false
+        default: apkpart-
+        type: string
+      delete_chunks:
+        description: '核对通过后才删分块'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.release_tag }}
+      ASSET: ${{ inputs.asset_name }}
+      PREFIX: ${{ inputs.chunk_prefix }}
+      WANT: ${{ inputs.sha256 }}
+      KEEP: ${{ inputs.delete_chunks }}
+    steps:
+      - name: 取回分块并按名字顺序拼接
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/parts
+          # draft 资产走不通 releases/tags/{tag}(实测 404),列全量再按 tag_name 挑。
+          rid=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name==env.TAG) | .id" | head -1)
+          [ -n "$rid" ] || { echo "no release for tag $TAG"; exit 1; }
+          echo "release id=$rid"
+          gh release download "$TAG" -p "$PREFIX*" -D /tmp/parts
+          : > "/tmp/$ASSET"
+          n=0
+          for f in $(ls -1 /tmp/parts | sort); do
+            cat "/tmp/parts/$f" >> "/tmp/$ASSET"
+            n=$((n + 1))
+          done
+          echo "joined $n chunks"
+          [ "$n" -gt 0 ] || { echo "no $PREFIX* chunks on $TAG"; exit 1; }
+          sha256sum "/tmp/$ASSET" | awk -v want="$WANT" '{
+            print "assembled sha256=" $1
+            if ($1 != want) { print "MISMATCH want=" want; exit 1 }
+          }'
+          stat -L -c 'assembled size=%s' "/tmp/$ASSET"
+
+      - name: 上传整包
+        run: |
+          set -euo pipefail
+          rid=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name==env.TAG) | .id" | head -1)
+          gh release upload "$TAG" "/tmp/$ASSET" --clobber
+          state=$(gh api "repos/$GITHUB_REPOSITORY/releases/$rid/assets" --paginate \
+            --jq ".[] | select(.name==env.ASSET) | .state")
+          echo "asset state=$state"
+          [ "$state" = uploaded ] || { echo "asset state=$state, not uploaded"; exit 1; }
+
+      - name: 回读核对(下载回来重算 hash)
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/verify && mkdir -p /tmp/verify
+          gh release download "$TAG" -p "$ASSET" -D /tmp/verify --clobber
+          got=$(sha256sum "/tmp/verify/$ASSET" | cut -d' ' -f1)
+          echo "downloaded sha256=$got want=$WANT"
+          [ "$got" = "$WANT" ] || { echo "downloaded bytes differ from the local build"; exit 1; }
+
+      - name: 删掉分块
+        if: env.KEEP == 'true'
+        run: |
+          set -euo pipefail
+          rid=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name==env.TAG) | .id" | head -1)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$rid/assets" --paginate \
+            --jq ".[] | select(.name | startswith(env.PREFIX)) | .id" > /tmp/chunk-ids.txt
+          while read -r id; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            echo "deleted chunk id=$id"
+          done < /tmp/chunk-ids.txt
