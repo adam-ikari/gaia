@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T15:49:23"
+updated: "2026-10-28T16:23:46"
 ---
 
 <!-- compiled_truth -->
@@ -464,4 +464,10 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   kind: evidence
   summary: "两条会让「看起来对」的脚本死掉的细节:draft release 用 GET /repos/{o}/{r}/releases/tags/{tag} 是 404,要列全量再按 tag_name 挑(gh release download 自己能处理 draft,它走列表);gh 在非 git 目录里没有仓库上下文,每条 gh release 必须显式 -R,报的是 failed to run git: fatal: not a git repository,看不出跟 gh 有关。"
   source: "assemble-parts 首跑失败(run 40651801972)"
+  affects: [.github/workflows/assemble-parts.yml]
+
+- time: 2026-10-28T16:23:46
+  kind: evidence
+  summary: "正式 release 该带两个 APK:release.yml 的 files 至今列 app-release.apk 与 app-debug.apk,v0.7.1—v0.7.9 也确实都带。v0.7.10/v0.7.11 只剩一个不是决定,是后果 —— 那两版由本机手传,只传得动正式包那一个。所以「少一个资产」不能当惯例照着抄;v0.7.12 按 release.yml 补齐(app-debug.apk 103,934,664,同样走切块+runner 拼接,正文写明它是 debug 签名、不能与正式包互相覆盖安装)。"
+  source: "2026-10-28 v0.7.12 资产清单核对(逐 release 的 assets 列表 + release.yml files 输入)"
   affects: [.github/workflows/assemble-parts.yml]
