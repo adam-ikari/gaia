@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-29T20:17:17"
+updated: "2026-10-29T21:29:12"
 ---
 
 <!-- compiled_truth -->
@@ -500,4 +500,14 @@ API 坑(下次别再踩):PATCH release 的布尔字段必须用 gh api -F draft=
 
 无残留:公开站点首页只出现 0.7.11,没有指向 v0.7.12 的链接,撤回不影响站点。另:本仓 release 清单里没有任何 beta-* 或 dev-latest —— β/dev 渠道的线上产物仍在老 gaia 仓(待办 #23)。"
   source: "user order 2026-10-29「撤回正式版」"
+  affects: [release-flow]
+
+- time: 2026-10-29T21:29:12
+  kind: evidence
+  summary: "撤回之后正式版产物已从 GitHub 删除:release 426334441(含 app-release.apk 86,897,718 / app-debug.apk 103,934,664)整条 DELETE,连带两个资产;核对 GET 返回 404、draft 计数 0、/releases/latest = v0.7.11。
+
+删得掉是因为字节没丢:本地 app/build/outputs/apk/release/app-release.apk 与 debug/app-debug.apk 的 sha256(1b96417… / a9bb3ca…)与远端资产 digest 逐字节一致,重建只是重走切块上传(小时级),不是重写代码。⇒ 删除产物前先把本地包 hash 与远端 digest 对一遍,这一步决定删除是可逆还是不可逆。
+
+v0.7.12 现在的完整状态:无 tag、无 release、无资产,只有 master 带着 31/0.7.12(漂移检查判红,见上一条)。"
+  source: "user order 2026-10-29「删除正式版apk」"
   affects: [release-flow]
