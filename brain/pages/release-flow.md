@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-28T16:29:19"
+updated: "2026-10-29T20:08:31"
 ---
 
 <!-- compiled_truth -->
@@ -477,3 +477,9 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   summary: "手工 publish(PATCH draft=false)不会把这一版设成 latest:releases/latest 继续 302 到上一版,得再 PATCH 一次带 make_latest=true。判据要打在发布链里 —— 只看 release 本身的 draft/tag 字段全绿,而用户点的「最新版」是旧的。GitHub 重算指针有几十秒延迟,所以验它不能立刻验。"
   source: "2026-10-28 v0.7.12 publish 后 /releases/latest 仍指 v0.7.11(实测 45 秒后才改口)"
   affects: [.github/workflows/release.yml]
+
+- time: 2026-10-29T20:08:31
+  kind: evidence
+  summary: "发版正文是照抄发版 commit 的 message 生成的,而那条 message 里留着「长按上屏改成三选一(关闭 / L2 / L3)」—— 这个方案 6d35047 早上 08:19 落地、10:03 就被 210921a 收回成单开关,收回 commit 同样是 d73323d 的祖先。⇒ 中途试错又收回的方案会作为「本版特性」写进 commit message,并顺着发版正文传到用户眼前,而产物里根本没有。转正/发布前必须把正文每一条与产物对一遍(这次靠 grep 产物代码 30 秒就能抓出来),不能假定 message 是最终态。已改正文并注明收回 commit。"
+  source: "2026-10-29 用户指出「长按上屏应该只有关和输入 L2」;核对 ImeController.onLongPressFire、prefs.xml、strings.xml 与线上 β 的 last-modified 后确认代码从来如此,错的是 v0.7.12 的发版正文"
+  affects: [tools/release/gate.sh]
