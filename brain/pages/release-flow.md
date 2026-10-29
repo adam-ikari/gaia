@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-29T20:08:31"
+updated: "2026-10-29T20:17:17"
 ---
 
 <!-- compiled_truth -->
@@ -483,3 +483,21 @@ skipped 且退出码 0** —— 流水线全绿而站点停在旧版本(v0.4.2 /
   summary: "发版正文是照抄发版 commit 的 message 生成的,而那条 message 里留着「长按上屏改成三选一(关闭 / L2 / L3)」—— 这个方案 6d35047 早上 08:19 落地、10:03 就被 210921a 收回成单开关,收回 commit 同样是 d73323d 的祖先。⇒ 中途试错又收回的方案会作为「本版特性」写进 commit message,并顺着发版正文传到用户眼前,而产物里根本没有。转正/发布前必须把正文每一条与产物对一遍(这次靠 grep 产物代码 30 秒就能抓出来),不能假定 message 是最终态。已改正文并注明收回 commit。"
   source: "2026-10-29 用户指出「长按上屏应该只有关和输入 L2」;核对 ImeController.onLongPressFire、prefs.xml、strings.xml 与线上 β 的 last-modified 后确认代码从来如此,错的是 v0.7.12 的发版正文"
   affects: [tools/release/gate.sh]
+
+- time: 2026-10-29T20:17:17
+  kind: reversal
+  summary: "v0.7.12 撤回正式发版身份(2026-10-29,用户令「0.7.12 仍然应该是一个beta版本」→「撤回正式版」)
+
+执行:release 426334441 由已发布改回 draft(两个 APK 86,897,718 / 103,934,664 字节保留在资产里,不重传);删除已推送的 annotated tag —— tag object 758c4a96f9106f8b3df7144c31365bd2fdd45aa7 指向 commit e8f65ae0658bbfa5b1f28269c73786ba3f61e6b6,要恢复可原样重建。公开接口 /releases/latest 已回到 v0.7.11,git ref tags/v0.7.12 返回 404,本地 tag 同步删除。
+
+API 坑(下次别再踩):PATCH release 的布尔字段必须用 gh api -F draft=true;用 -f draft=true 会被当字符串,GitHub 静默忽略并返回 draft=false,不报错。本轮实测:第一次 PATCH(-f tag_name=... -f draft=true)无效果,改 -F 才生效。
+
+保留的裁决:master 继续带 versionCode 31 / versionName 0.7.12,不改回 30/0.7.11。理由:0.7.12 改由测试版渠道交付,而 β 包的版本名继承基线 versionName(基线 + -beta.<hash>);把基线退回 0.7.11 会让装着 0.7.12 内容的包装着 0.7.11 的标签 —— 那是另一种误报,比闸门变红更贵。
+
+代价写在这里,不许让闸门静默红着被绕过:gate.sh --quick / --tag 在 master 上的「版本号漂移」一步现在判红(最新 v* tag 是 v0.7.11=30/0.7.11,而 HEAD=31/0.7.12 且 tip 没碰 app/build.gradle.kts)。它只在两种情况下自愈:0.7.12 重新拿到 v* tag,或版本号退回 30。CI 不受影响 —— 本仓只有 release.yml(on push tags v*)与 publish-ime.yml 跑 gate.sh,后者走 β/dev 模式,本来就跳过版本号那两步。
+
+「0.7.12 是个 beta」的正确做法不是给已发布的正式包贴 prerelease 标签:app-release.apk 是正式渠道包(applicationId dev.hwkbd.ime),标签与包身份不一致会让装它的人拿到正式渠道的占用。要走 tools/release/publish-beta.sh —— 它建 beta flavor(applicationId .beta、tag beta-<hash>、prerelease、R8 混淆)。
+
+无残留:公开站点首页只出现 0.7.11,没有指向 v0.7.12 的链接,撤回不影响站点。另:本仓 release 清单里没有任何 beta-* 或 dev-latest —— β/dev 渠道的线上产物仍在老 gaia 仓(待办 #23)。"
+  source: "user order 2026-10-29「撤回正式版」"
+  affects: [release-flow]
