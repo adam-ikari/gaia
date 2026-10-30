@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-27T10:28:01"
+updated: "2026-10-30T11:18:12"
 ---
 
 <!-- compiled_truth -->
@@ -276,3 +276,16 @@ Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-
   summary: "站点地址有了第二个来源,一次构建只认一个:仓库变量 PAGES_DOMAIN(经 deploy-site.yml 以 SITE_DOMAIN 传给构建步与 --verify 步)。没配=仓名地址+base=/<仓名>/;配了=域根+base=/。实测依据(2026-10-27,本机 DNS 在 sinkhole,curl 结果不可信 ⇒ 走 DoH 解析 + --resolve 打 Pages 边缘 185.199.108.153):① 项目页配自定义域后站点在**域根**服务,/<仓名>/ 是 404(样本 saizuo.is-a.dev↔Saizuo/Portfolio-Saizuo、win11.notaperson535.is-a.dev↔notAperson535/Win11-HTML);② 同一趟 <owner>.github.io/<仓名>/ 变成 **301** 指向该域,不是 404 ⇒ 挂域与换仓名是同一件事的两个选项,别都做;③ GitHub 明说仓库里的 CNAME 文件不会自动加删自定义域,只能设置/API ⇒ 脚本不产 CNAME 文件,只改 base 与验证地址;④ 免费子域服务 is-a.bot/is-a.dev 的 TXT 域验证是推荐非强制(he.is-a.bot 无 TXT 仍 200),但刚合并还没在 GitHub 侧配域的域名 TLS 直接连不上(docconvert.is-a.bot)。新增产物自检:资源前缀必须等于本次 SITE_BASE,否则 die —— base 分叉的症状是页面出、构建绿、用户满屏 404"
   source: "2026-10-27 用户「申请 is-a.bot 域名」→ 定为站点地址、PR 由用户自提;实测走 DoH+--resolve 绕本机 DNS sinkhole"
   affects: [site-repo-topology, release-flow]
+
+- time: 2026-10-30T11:18:12
+  kind: reversal
+  summary: "拓扑收拢成**一个仓**,名字叫 gaia(2026-10-30)
+
+原来两个仓的形状(源码在私有仓、产物与 Pages 在公开 gaia)整个作废:
+· `adam-ikari/hwkbd_ime` 改名成 `adam-ikari/gaia`(源码、release 资产、Pages 同一个仓);
+· 老的公开产物仓改名成 `adam-ikari/gaia-legacy`,待删(它的 Pages 现在挂在 /gaia-legacy/,还 200,里面是 2026-10-26 的 0.7.11 β/dev —— 删仓或关掉 Pages 之前,网上存在两份站,旧的没有下载价值);
+· 站点地址 **没有变**:https://adam-ikari.github.io/gaia/ 从老仓的 Pages 交接到本仓的 Pages。GitHub 的 Pages 地址跟着仓名走、**不跟随改名留跳转**,所以改名那一瞬间 /gaia/ 服务的是本仓上一份按 base=/hwkbd_ime/ 构建的产物 —— 版本号对、静态资源全 404,是个无样式的站。必须紧接着用新仓名重跑一次 deploy-site.yml(publish-site.sh 的 SITE_URL 与 VitePress 的 base 都从**当前仓名**派生,没有字面量可改),这一步不是可选的收尾。
+
+改名后核对过的三件事:manifest 里 repo=adam-ikari/gaia、source_commit=当时 master tip;/gaia/assets/* 路径前缀换过来了;两份包 content-length 仍是 86,897,758 与 96,260,036(β 87MB / dev 96MB 同值,sha256 未变)。旧路径 https://github.com/adam-ikari/hwkbd_ime 给 301 到新名 —— 但那是**平台的好心,不是承诺**:这个名字一旦被占走,301 就断,所以 GPL 在应用内承诺的取源码地址(strings.xml)必须写成 gaia,并随下一个包生效。"
+  source: "user order 2026-10-30「改为项目仓库 gaia,github page 保持和之前的 url 不变」"
+  affects: [site-repo-topology]
