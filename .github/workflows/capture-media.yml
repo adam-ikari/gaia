@@ -1,0 +1,253 @@
+name: 站点素材采集 (模拟器)
+
+# 拉模拟器、装 debug 包、跑 `tools/aitest/shots.mjs` 出一组运行画面,作为 artifact 交出来。
+# 站点上的图来自这里。选图与上图都是**人的动作**:
+# 把 CI 产物自动提交进 `web/docs/public/img/` 等于让「拍到了一个坏状态」直接上线 ——
+# 这事已经发生过一次(2026-10-01 那批图里有三张带 `warn`,拍的是引擎就绪竞态还没修的样子)。
+#
+# ## 为什么这条流水线又回来了(它是 `34715b0` 删掉的那条)
+#
+# 当年撤出 CI 的三条理由,现在只剩一条还成立:
+#
+# 1. **「私有仓 Actions 计费,账单已欠费」** —— 已失效。仓现在是 public
+#    (`gh repo view` 实测 `visibility: PUBLIC`),公开仓的 Linux runner 分钟不计费。
+# 2. **「它本来就不是发布闸门,人工前置跑在远端没有意义」** —— 仍然成立,
+#    所以这里**只 `workflow_dispatch`**:没有 `push: tags`(那是当初 119 分钟/天的来源),
+#    也不在任何闸门里。它产出的是**素材**,不是「能不能发版」的判据。
+# 3. **「模拟器验不到真实屏幕密度、Titan 2 物理键盘、真实触摸时序」** —— 仍然成立,
+#    而且这条直接决定图上必须写清来源:AVD 的屏幕是按 Titan 2 的网格配的
+#    (1440×1440 @ 320dpi),版式是对的;**按键是 `input keyevent` 注进去的,
+#    手感不是**。所以这些图只用来证明「产品长这样、这一行会跟着变」,
+#    不许用来支撑任何跟手、快慢、动画的说法。
+#
+# 真机采图是另一条路(`tools/aitest/local.sh all --shots out/media`),它要手机上点一次
+# 「允许 USB 调试」;这台机器现在 `adb devices` 回 `unauthorized`,所以走 CI。
+#
+# ## 这个文件里每条注释都是踩过才写的(原文在 `34715b0^` 的 e2e.yml)
+#
+# 1. **模拟器的生命周期 == 「启动模拟器」这一个 step。** step 一结束 action 立刻 `emu kill`。
+#    装包、启用输入法、截图全要在里面完成;拆到后面的 step,`adb devices` 已经空了。
+# 2. **`script:` 用 `/usr/bin/sh` 逐行执行**,多行 shell 结构报 `Syntax error: end of file
+#    unexpected`、`set -o pipefail` 报 `Illegal option`(dash 没有)。⇒ 只写一行。
+# 3. **adb 路径与序列号显式给。** PATH 上的 adb 不保证是 action 用的那个,
+#    `adb shell getprop` 会静默无输出,看着像 boot 不完。
+# 4. **KVM 权限**runner 默认没有。
+# 5. **不能事后 `wm size` / `wm density`。** 改了会把系统搞瘫:launcher
+#    `ArithmeticException: divide by zero`,之后 `am start -W` 一直回 `LaunchState: UNKNOWN (0)`。
+#    屏幕只能在**开机前**写进 AVD 的 `config.ini`。
+# 6. **`avdmanager create avd` 在这台 runner 上回 rc=0 却什么都不建**,也不认 `--sdk_root`。
+#    ⇒ AVD 手写,它本来就只是两个文本文件。
+# 7. `-gpu swiftshader_indirect` 在 emulator 37 报 `Failed to find ColorBuffer`(已废弃),
+#    用 `-gpu swiftshader`;`-no-boot-anim` 不能去掉,去掉 `boot_completed` 迟迟不上报。
+
+on:
+  workflow_dispatch:
+    inputs:
+      shots:
+        description: 采集运行画面(截图)
+        type: boolean
+        default: true
+      scenes:
+        description: 顺便跑哪些回归场景(逗号分隔;留空 = 只采图)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # 两个模拟器同时抢一台 runner 的 /dev/kvm,只会一起变慢一起挂。
+  group: capture-media
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        # librime 是 submodule,它的 vendored deps 又是子模块。不带 recursive 就是空目录,
+        # CMake 在 configure 阶段报「The source directory .../deps/yaml-cpp does not exist」——
+        # 那个报错完全指不到真正的原因。
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: 给 gradlew 执行权限
+        run: chmod +x gradlew
+
+      # 版本要与 app/build.gradle.kts 的 ndkVersion 对上,与 release.yml 一致。
+      # 许可直接 `yes | sdkmanager --licenses`(试过 accept-android-sdk-licenses 那个 action,
+      # 报 `Unable to resolve action ... repository not found`)。
+      - name: 装 NDK / CMake
+        run: |
+          set -uo pipefail
+          export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'ndk;27.1.12297006' 'cmake;3.22.1' >/dev/null
+          echo "ndk: $(ls $ANDROID_SDK_ROOT/ndk)"
+
+      # ---- 这里**不跑** `tools/release/gate.sh --quick` ----
+      #
+      # 原来的 e2e.yml 跑它,是为了「三条流水线调同一个闸门」。但那条闸门含 `check_drift`
+      # (HEAD 的 versionCode/versionName 要和最新的 `v*` tag 对得上),而 master 现在自称
+      # 31/0.7.12、却没有 v0.7.12 这个 tag —— 那是「正式版撤回」留下的已知状态,
+      # 见 brain 的 release-flow。
+      #
+      # 于是闸门在这条流水线里会**稳定误报**:采一张图,判据却去问版本号该不该发。
+      # 会误报的闸门只会被绕过,而这次绕过的方式是整步删掉 —— 所以把它写下来:
+      # 这条流水线的产物不是「能不能发版」的证据,任何发版判据都不该挂在它身上。
+      - name: 构建 debug 包
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      # ---- 把磁盘腾出来,否则 AVD 建不起来 ----
+      #
+      # 2026-10-03 实测的失败长这样(它看着像 APK 或 AVD 的问题,其实不是):
+      #   `Not enough space to create userdata partition.
+      #    Available: 6725.43 MB, need 7372.80 MB`
+      # APK 已经打完了,后面再也不需要 NDK / CMake,所以直接删。
+      # `df -h` 是为了下次再挂时不用猜 —— 之前这个 FATAL 藏在 android-emulator-runner
+      # 输出的第 17 行,前面全是 INFO,极易看漏。
+      - name: 回收磁盘(AVD 需要 7.4GB)
+        run: |
+          set -uo pipefail
+          echo "--- 清理前 ---"; df -h /home/runner | tail -1
+          rm -rf "$ANDROID_SDK_ROOT/ndk" "$ANDROID_SDK_ROOT/cmake"
+          rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/daemon"
+          sudo rm -rf /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake
+          sudo rm -rf /opt/hostedtoolcache/Node/*/x64/lib/node_modules/npm/node_modules 2>/dev/null || true
+          echo "--- 清理后 ---"; df -h /home/runner | tail -1
+
+      - name: 打开 KVM 权限
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo usermod -aG kvm "$USER" 2>/dev/null || echo "usermod 失败(可能已有权限)"
+            sudo chown "$USER" /dev/kvm 2>/dev/null || true
+            ls -l /dev/kvm
+          else
+            echo "::error::本机没有 /dev/kvm:runner 是无硬件加速的 VM,x86_64 模拟器跑不起来"
+            exit 1
+          fi
+
+      # ---- 手写一个 Titan 2 屏幕的 AVD ----
+      #
+      # **1440x1440 @ 320dpi**:320dpi = 2.5 密度,1440 / 2.5 = 576dp,和 Titan 2 原生宽度一致。
+      # 为什么要抠这个数:状态行中区 = 屏宽 − 2 × bar_side_box − 12dp。手机上(1080dp 屏)
+      # 只有 159dp,Titan 2 上是 346dp —— 差一倍多,L4 一行装得下几把键、哪些溢出到 L5
+      # 全都不一样。**按手机的宽度拍,版式就是错的,而错得很像对的。**
+      - name: 手写一个 Titan 2 屏幕的 AVD
+        run: |
+          set -uo pipefail
+          export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          export ANDROID_SDK_ROOT ANDROID_HOME="$ANDROID_SDK_ROOT"
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'system-images;android-34;default;x86_64' >/dev/null
+
+          img="$ANDROID_SDK_ROOT/system-images/android-34/default/x86_64"
+          if [ ! -d "$img" ]; then
+            echo "::error::系统镜像没装上:$img 不存在"
+            exit 1
+          fi
+
+          avdhome="$HOME/.android/avd"
+          rm -rf "$avdhome/titan2.avd" "$avdhome/titan2.ini"
+          mkdir -p "$avdhome/titan2.avd"
+          echo "--- 建 AVD 时的可用空间(不够会 FATAL)---"
+          df -h --output=avail,target "$avdhome" | tail -1
+
+          cat > "$avdhome/titan2.ini" <<EOF
+          avd.ini.encoding=UTF-8
+          path=$avdhome/titan2.avd
+          path.rel=avd/titan2.avd
+          target=android-34
+          EOF
+
+          cat > "$avdhome/titan2.avd/config.ini" <<'EOF'
+          avd.ini.encoding=UTF-8
+          AvdId=titan2
+          abi.type=x86_64
+          tag.id=default
+          tag.display=Default Android System Image
+          image.sysdir.1=system-images/android-34/default/x86_64/
+          hw.cpu.arch=x86_64
+          hw.cpu.ncore=4
+          hw.ramSize=2048
+          hw.gpu.enabled=yes
+          hw.gpu.mode=swiftshader
+          hw.keyboard=yes
+          hw.lcd.width=1440
+          hw.lcd.height=1440
+          hw.lcd.density=320
+          hw.initialOrientation=portrait
+          # 数据分区:装 APK + 部署后的 librime 工作目录(约 50MB),2G 绰绰有余。
+          # **不要为了"保险"往大写** —— 这一项直接决定上面那个
+          # `Not enough space to create userdata partition` 会不会触发。
+          disk.dataPartition.size=2G
+          skin.dynamic=yes
+          EOF
+
+          echo "--- 屏幕配置:"
+          grep -E 'hw.lcd|image.sysdir|skin' "$avdhome/titan2.avd/config.ini"
+
+      # 装 APK、启用输入法、截图全在这**一个** step 里跑完(坑 1),逻辑在 shell 脚本里(坑 2)。
+      # shots.mjs 顺带录屏;那条 mp4 现在**不进站点**(视频裁不出「只有产品」的帧),
+      # 但脚本照跑,采到的东西多看一眼不要钱。
+      - name: 启动模拟器 + 采集
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_ADB_PATH: /usr/local/lib/android/sdk/platform-tools/adb
+          ANDROID_SERIAL: emulator-5554
+          SHOOTS: ${{ inputs.shots && '1' || '' }}
+          SCENES: ${{ inputs.scenes }}
+        with:
+          api-level: 34
+          arch: x86_64
+          avd-name: titan2
+          # 用上一步手写的 AVD,**别让 action 重建**(重建会把屏幕写回手机的尺寸)
+          force-avd-creation: false
+          cores: 4
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader -no-boot-anim
+          script: bash tools/aitest/ci-capture.sh
+
+      # ---- 采完之后先把「哪张能用」说出来,再交产物 ----
+      #
+      # 这一步不是打印清单,是把选图的判据变成**看得见的东西**:
+      # `manifest.json` 里的 `warn` 是 shots.mjs 自己对着输入框内容断言出来的不符
+      # (键码写错、输入法改了行为,图都照样拍得出来)。带 warn 的一律不上图。
+      # `crop` 是「从聚焦输入框上沿裁到屏幕底边」那一张 —— 站点能用的只有它;
+      # 全屏帧里输入法那一行只占一小条,其余是调试页「实验场」。
+      - name: 素材判读
+        if: always()
+        run: |
+          M=out/media/shots/manifest.json
+          if [ ! -s "$M" ]; then
+            echo "::error::没有 $M —— 采集没跑成,这次产物不可用"
+            exit 1
+          fi
+          echo "文件 · 站点可用的裁切 · 自检结果"
+          jq -r '.shots[] | "\(.file)\t\(.crop.file // "无裁切(整屏帧)")\t\(.warn // "✓")"' "$M"
+          if jq -e '[.shots[] | select(.warn)] | length > 0' "$M" >/dev/null; then
+            echo "::warning::有截图自检没过 —— 带 warn 的那些不许进站点"
+          fi
+          if jq -e '[.shots[] | select(.crop == null)] | length > 0' "$M" >/dev/null; then
+            echo "::warning::有截图裁不出输入区(那一步没有聚焦的输入框,或输入法没显示)"
+          fi
+
+      - name: 上传素材
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: site-media
+          path: out/media
+          if-no-files-found: error

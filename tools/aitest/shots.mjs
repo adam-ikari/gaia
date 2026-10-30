@@ -12,8 +12,9 @@
  *   ./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk
  *   node tools/aitest/shots.mjs [输出目录]     # 默认 evidence/shots
  *
- * 产出(可直接喂给站点 docs/public/media/):
- *   NN-name.png   每个步骤一张截图
+ * 产出:
+ *   NN-name.png   每个步骤的全屏帧(留给人核对现场,**不直接上图**)
+ *   crop-NN-name.png  从聚焦输入框上沿裁到屏幕底边 —— 站点要的是这张
  *   gaia-demo.mp4 全程录屏(screenrecord,8Mbps)
  *   gaia-demo-poster.png 封面(站点的 <video poster>)
  *   manifest.json 图文对照表
@@ -30,7 +31,7 @@
  * 退出码:0 = 核心步骤全过;1 = 有核心步骤失败(产物仍在,可先看图再判断)
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync, readFileSync, renameSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync, readFileSync, renameSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -74,6 +75,66 @@ function screencap(file) {
     console.log(`\n截图尺寸 ${firstShot.w}×${firstShot.h}`)
   }
   return file
+}
+
+/** 只读文件头的 PNG 宽高(裁切要知道屏幕多高,不必解码整张图)。 */
+function pngSizeOfFile(file) {
+  const fd = openSync(file, 'r')
+  try {
+    const b = Buffer.alloc(33)
+    readSync(fd, b, 0, 33, 0)
+    return pngSize(b)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+const isPng = (file) => {
+  if (!existsSync(file)) return false
+  const fd = openSync(file, 'r')
+  try {
+    const b = Buffer.alloc(4)
+    readSync(fd, b, 0, 4, 0)
+    return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * 从全屏帧里裁出**输入区**:从当前聚焦输入框的上沿一直到屏幕底边。
+ *
+ * ## 为什么必须裁
+ * 站点上的图只能是产品。全屏帧里输入法那一行只占一小条,其余是「实验场」这个调试页
+ * (标着「网址 textUri → L4 http://」的输入框、三个按钮、日志区)。把它原样发出去,
+ * 说的是「看,这是我们的测试页面」。
+ *
+ * ## 为什么下沿取屏幕底边而不是输入法窗口的高度
+ * 输入法是**另一个窗口**,不在 uiautomator 的 dump 里(见上面 verifyFocus 的注释),
+ * 于是它的高度在这里读不到。而「输入框 + 到屏幕底」必然含住输入法那一行,
+ * 中间多出来的是页面自己的空白。
+ *
+ * 上沿取 `bounds.top` 不放大:标签文字在框的**上面**,留边就是把调试页的标签拍进产品图。
+ *
+ * 读不到聚焦输入框(设置在屏幕上没有输入框)时不裁 —— 那种图本来就是整屏的应用界面。
+ */
+async function cropInputFrame(fullFile, cropFile) {
+  const field = (await nodes()).find((n) => n.focused && /EditText$/.test(n.cls))
+  if (!field) return null
+  const { w, h } = pngSizeOfFile(fullFile)
+  const top = Math.max(0, Math.min(h - 1, field.top))
+  const height = h - top
+  try {
+    execFileSync('convert', [fullFile, '-crop', `${w}x${height}+0+${top}`, '+repage', cropFile], { timeout: 30000 })
+  } catch (e) {
+    throw new Error(`裁不出输入区:${e.message}`)
+  }
+  if (!isPng(cropFile)) throw new Error(`裁不出输入区:${cropFile} 不是 PNG`)
+  const c = pngSizeOfFile(cropFile)
+  if (c.w !== w || c.h !== height) {
+    throw new Error(`裁不出输入区:${cropFile} 是 ${c.w}×${c.h},应为 ${w}×${height}`)
+  }
+  return { top, height }
 }
 
 /** 主屏 displayId:挑 displayId=0 的 viewport;解析不到返回 null(调用方退回默认屏)。 */
@@ -136,6 +197,10 @@ async function nodes(xml = null) {
       desc: g(/content-desc="([^"]*)"/),
       cx: b ? Math.round((Number(b[1]) + Number(b[3])) / 2) : 0,
       cy: b ? Math.round((Number(b[2]) + Number(b[4])) / 2) : 0,
+      left: b ? Number(b[1]) : 0,
+      top: b ? Number(b[2]) : 0,
+      right: b ? Number(b[3]) : 0,
+      bottom: b ? Number(b[4]) : 0,
     }
   })
 }
@@ -673,6 +738,15 @@ async function main() {
       const file = join(outDir, `${s.name}.png`)
       screencap(file)
       const entry = { file: `${s.name}.png`, caption: s.caption }
+      // 站点能用的是**裁过的**那张(全屏帧 90% 是调试页)。裁不出输入区就只留全屏帧,
+      // 由人决定这张要不要上图 —— 不拿全屏帧冒充产品。
+      try {
+        const cropFile = join(outDir, `crop-${s.name}.png`)
+        const cut = await cropInputFrame(file, cropFile)
+        if (cut) entry.crop = { file: `crop-${s.name}.png`, top: cut.top, height: cut.height }
+      } catch (e) {
+        console.log(`\n裁切 ${s.name} 失败:${e.message}`)
+      }
       manifest.shots.push(entry)
       // 自检:**图拍到了不等于图里是对的**。键码写错、输入法改了行为,图都照样拍出来,
       // 只有对着输入框的实际内容断言才看得出来。图照拍(要看就看得见),
