@@ -75,6 +75,12 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    # `publish-site.sh` 要用 gh 从 release 资产取包。Actions 不把 token 注进步骤的环境
+    # (它是 secret,不是 env),而 `gh api` 无凭据时**直接拒绝调用** —— 症状是「连续 5 次
+    # 取不到 release 清单」,看起来像「这个仓没有 beta」。同仓的 assemble-parts.yml 与
+    # publish-ime.yml 都显式传了这份 env,这里搬进来时漏了(2026-10-30 首次在本仓 run 撞到)。
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
 
