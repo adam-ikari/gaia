@@ -1,4 +1,4 @@
-# hwkbd_ime — 盖亚输入法
+# gaia — 盖亚输入法
 
 为 Unihertz Titan 2 全键盘(TT2)设计的硬件键盘拼音输入法。Android 8.0+(minSdk 26)。
 
