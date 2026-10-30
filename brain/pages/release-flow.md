@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [release, ci, tooling]
 created: "2026-09-30T09:50:05"
-updated: "2026-10-29T21:29:12"
+updated: "2026-10-30T11:06:39"
 ---
 
 <!-- compiled_truth -->
@@ -510,4 +510,31 @@ API 坑(下次别再踩):PATCH release 的布尔字段必须用 gh api -F draft=
 
 v0.7.12 现在的完整状态:无 tag、无 release、无资产,只有 master 带着 31/0.7.12(漂移检查判红,见上一条)。"
   source: "user order 2026-10-29「删除正式版apk」"
+  affects: [release-flow]
+
+- time: 2026-10-30T11:06:03
+  kind: decision
+  summary: "0.7.12 的内容改由 β + dev 两条渠道交付,站点收回本仓跑通(2026-10-30)
+
+发出去的东西:beta-c233fa9(资产 app-beta-c233fa9.apk,86,897,758 B,sha256 faff10bf…,applicationId dev.hwkbd.ime.beta,versionName 0.7.12-beta.c233fa9)与 dev-latest(资产 app-dev-a77b6fb.apk,96,260,037 B,sha256 01a69c58…,versionName 0.7.12-dev.a77b6fb)。站点 https://adam-ikari.github.io/hwkbd_ime/ 由本仓 deploy-site.yml 部署(run 40995057302),manifest 的 source_commit=a77b6fb。
+
+这条路的成立条件,记下来免得下次重新发现:
+· 发 β 前必须把 master 推上去 —— β 的身份是 git hash,commit 不公开就等于「用户按 hash 自己编不出同样的包」,那个包不该发。
+· 本仓的 Pages 原来是**没开的**(GET /pages 返回 404)。站点侧 publish-site.sh 只从当前仓取包、deploy-site.yml 只往自己仓的 Pages 交产物,所以「发布到网站」在这个仓的第一件事是 POST /pages -f build_type=workflow,不是改文案。
+· 站点缺 dev 渠道是**可用的**:take_channel 对 dev 是 fatal=no,只 warn 并跳过按钮,对 β 是 fatal=yes。所以能先只发 β,dev 后补,再重跑一次 deploy-site.yml —— 两次部署互不冲突(concurrency group pages 排队)。
+
+还没解决的:README 第 5 行把官网写成 https://adam-ikari.github.io/gaia/,而那个地址仍由老 gaia 仓的 Pages 服务,装的是 2026-10-26 的 0.7.11 β/dev。把已知地址接上新站点要靠 #24(老仓改名腾名 + 本仓改名成 gaia),没有它,用户照 README 走拿到的还是旧包。"
+  source: "user order 2026-10-30「发布到网站」"
+  affects: [release-flow]
+
+- time: 2026-10-30T11:06:39
+  kind: evidence
+  summary: "三个执行期实测,都是「症状离根因很远」那一类
+
+1. deploy-site.yml 搬进本仓后**漏传 token env**:Actions 不把 GITHUB_TOKEN 注进步骤环境(它是 secret),而 gh 无凭据时直接拒绝调用 API。症状是 publish-site.sh 报「连续 5 次取不到 adam-ikari/hwkbd_ime 的 release 清单 —— 这不代表没有 beta」,读起来像仓库没有 β 包,实际是 runner 没带票。同仓的 assemble-parts.yml 与 publish-ime.yml 都在 step 上写了 GH_TOKEN: github.token,只有站点这条没写 ⇒ 补在 job 级 env(commit a77b6fb)。判据:run 40990701183 在「构建站点产物」判红、后两步 skipped;补完 40991345129 全绿。
+
+2. **大包直传的成败是随机的,与体积不是单调关系**:β 86,897,758 B 第一次 `gh release upload` 就过(state=uploaded、GitHub 侧 digest 与本地 sha256 相同);dev 96,260,037 B 同一趟十次全挂(`uploads.github.com ... unexpected EOF`)。⇒ 顺序应当是**先试一次直传,失败再切块**,不要预设「>50MB 必走切块」——切块的代价是 19 个资产 + 一次 runner 拼接,而这次 β 一点都没用上。dev 这次就是切块传上去、由 assemble-parts.yml 拼回并核对 hash 的。
+
+3. **`gh release upload <path>` 的资产名取自文件 basename**,`#label` 那套只改 label。我手搓重试脚本时直接传 app/build/outputs/apk/dev/app-dev.apk,远端就多了一个 name=app-dev.apk 的资产 —— 站点是按资产名的 hash 尾巴解析身份的,名字里没有 hash 就是**静默坏渠道**(publish-beta.sh 文件头写过这条,自己还是踩了)。这种行没完成时 state=starter,GET 也能列出 size(报的是声明长度),所以判据必须带 state==\"uploaded\"。已删。"
+  source: "2026-10-30 首次在本仓跑站点部署 + 两条渠道上传"
   affects: [release-flow]
