@@ -225,8 +225,8 @@ jobs:
       # 这一步不是打印清单,是把选图的判据变成**看得见的东西**:
       # `manifest.json` 里的 `warn` 是 shots.mjs 自己对着输入框内容断言出来的不符
       # (键码写错、输入法改了行为,图都照样拍得出来)。带 warn 的一律不上图。
-      # `crop` 是「从聚焦输入框上沿裁到屏幕底边」那一张 —— 站点能用的只有它;
-      # 全屏帧里输入法那一行只占一小条,其余是调试页「实验场」。
+      # `crop` 是「屏幕底部那条 48dp 的输入法行」—— 站点能用的只有它:这个产品
+      # 没有屏幕键盘,屏幕上输入法只画一行,全屏帧里其余 99% 是调试页「实验场」。
       - name: 素材判读
         if: always()
         run: |
@@ -236,13 +236,16 @@ jobs:
             exit 1
           fi
           echo "文件 · 站点可用的裁切 · 自检结果"
-          jq -r '.shots[] | "\(.file)\t\(.crop.file // "无裁切(整屏帧)")\t\(.warn // "✓")"' "$M"
-          if jq -e '[.shots[] | select(.warn)] | length > 0' "$M" >/dev/null; then
+          jq -r '.shots[] | "\(.file)\t\(.crop.file // "无裁切(整屏帧)")\t\(.warn // .crop.warn // "✓")"' "$M"
+          if jq -e '[.shots[] | select(.warn or .crop.warn)] | length > 0' "$M" >/dev/null; then
             echo "::warning::有截图自检没过 —— 带 warn 的那些不许进站点"
           fi
-          if jq -e '[.shots[] | select(.crop == null)] | length > 0' "$M" >/dev/null; then
-            echo "::warning::有截图裁不出输入区(那一步没有聚焦的输入框,或输入法没显示)"
-          fi
+          # 「没有裁切」本身**不是**告警:设置页、许可页上没有输入法行,整屏帧就是产品。
+          # 真正的裁切失败(缺工具、尺寸对不上、行没显示、上沿裁亏)由 shots.mjs 计进退出码,
+          # 上面那条「素材脚本有失败项」就是它。这里只把名单打出来给人看。
+          miss=$(jq -r '[.shots[] | select(.crop == null) | .file] | join(" ")' "$M")
+          [ -n "$miss" ] && echo "整屏帧(这一步不裁行,或输入法没显示): $miss"
+          true
 
       - name: 上传素材
         if: always()

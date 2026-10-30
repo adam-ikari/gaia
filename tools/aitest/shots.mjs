@@ -102,39 +102,84 @@ const isPng = (file) => {
 }
 
 /**
- * 从全屏帧里裁出**输入区**:从当前聚焦输入框的上沿一直到屏幕底边。
+ * 屏幕密度(dpi)。裁输入法那一行需要知道 48dp 等于几个物理像素。
  *
- * ## 为什么必须裁
- * 站点上的图只能是产品。全屏帧里输入法那一行只占一小条,其余是「实验场」这个调试页
- * (标着「网址 textUri → L4 http://」的输入框、三个按钮、日志区)。把它原样发出去,
- * 说的是「看,这是我们的测试页面」。
- *
- * ## 为什么下沿取屏幕底边而不是输入法窗口的高度
- * 输入法是**另一个窗口**,不在 uiautomator 的 dump 里(见上面 verifyFocus 的注释),
- * 于是它的高度在这里读不到。而「输入框 + 到屏幕底」必然含住输入法那一行,
- * 中间多出来的是页面自己的空白。
- *
- * 上沿取 `bounds.top` 不放大:标签文字在框的**上面**,留边就是把调试页的标签拍进产品图。
- *
- * 读不到聚焦输入框(设置在屏幕上没有输入框)时不裁 —— 那种图本来就是整屏的应用界面。
+ * `wm density` 可能同时打 `Physical density` 和 `Override density` —— 用 **Override**,
+ * 它是真正生效的那个;没有 Override 才退回 Physical。读不出来就抛:猜一个数会把行裁歪,
+ * 而歪掉的图在站点上看着只是"有点窄",没人看得出来裁错了 —— 这正是这套自检要拦的那类错。
  */
-async function cropInputFrame(fullFile, cropFile) {
-  const field = (await nodes()).find((n) => n.focused && /EditText$/.test(n.cls))
-  if (!field) return null
+function screenDensity() {
+  const d = shell('wm density 2>/dev/null || true')
+  const n = (s) => Number(d.match(new RegExp(`${s}\\s+density:\\s*(\\d+)`))?.[1] ?? 0)
+  return n('Override') || n('Physical')
+}
+
+/** 整屏帧在 `y` 那一行的第一个像素,RGB 十六进制。只用来问「裁切边落在行的哪一侧」。 */
+function pixelRow(file, y) {
+  const b = execFileSync(
+    'ffmpeg',
+    ['-v', 'error', '-i', file, '-vf', `crop=iw:1:0:${y}`, '-f', 'rawvideo', '-'],
+    { encoding: 'buffer', maxBuffer: 8 * 1024 * 1024, timeout: 30000 },
+  )
+  return b.subarray(0, 3).toString('hex')
+}
+
+/** 输入法根视图的高度(dp)。写死在这儿是因为它就是产品的形状 —— 见 `ime_root.xml`。 */
+const IME_ROW_DP = 48
+
+/**
+ * 从全屏帧里裁出**输入法那一行** —— 站点上唯一能出现的运行画面。
+ *
+ * ## 为什么是「屏幕底部 48dp」这么一条
+ * 这个产品**没有屏幕键盘**。Titan 2 的键盘是实体键帽,L1/L2/L3 只是同一批物理键的三层映射。
+ * 屏幕上输入法画出来的东西只有一条行:`res/layout/ime_root.xml` 开头写的
+ * 「输入法根视图:48dp 单行两态」—— 组词中是通栏五格候选,空闲是状态行,二者互斥。
+ * 2026-10-30 在 CI 帧上逐像素量过:1440×1440 的屏,y≤1343 是实验场的底色 `#f4f5f7`,
+ * y=1344 起到底边是 `#000000` —— 96px,正好 48dp @320dpi,底下没有导航栏。
+ * 于是「把调试页裁掉」= 「只留底部这 96px」。
+ *
+ * ## 上一版为什么错(别再改回去)
+ * 原来从聚焦输入框的 `bounds.top` 一路裁到底边,理由是"调试页的按钮和日志区会被裁掉"。
+ * 那句话是错的:那个输入框在实验场**上方**,它下面还压着三个按钮、八个探针输入框、日志区;
+ * 按它裁,留下的 80% 仍然是调试页,只有最底下 96px 是产品。
+ *
+ * ## 两个不裁 / 报错的分支
+ * 输入法是**独立窗口**,不在 uiautomator 的 dump 里(候选行与状态行的内容都读不到),
+ * 所以"这一帧里到底有没有那条行"只能问 `dumpsys input_method` 的 `mInputShown`。
+ * 它为 false 时报错,而不是交一条空黑的:每步的 caption 都在讲"这一行如何如何",
+ * 图里没有行就是货不对板。设置页、许可页本来就没有行,那种图整屏就是产品 ——
+ * 所以裁不裁由步骤自己声明(`row: true`),不靠运行时猜页面。
+ *
+ * ## 裁完还要验一次上沿
+ * 密度读错(或将来设备底下多了导航栏)会让裁切**切进行里**,而那种图看着只是窄一点。
+ * 所以对比「行顶那一像素」与「它上面那条像素」:同色 = 上面还有行没被裁进来,报出来。
+ * 不同色才说明上沿正好落在行与页面的交界上。
+ *
+ * 裁切用 `ffmpeg`,不用 ImageMagick:`convert` 在 GitHub 的 ubuntu runner 上**没有**
+ * (2026-10-30 实测 `spawnSync convert ENOENT`,九张全裁不出),而 ffmpeg 这个脚本本来就要
+ * (录屏收尾的 faststart),装是必然装了。
+ */
+async function cropImeRow(fullFile, cropFile) {
+  const st = shell('dumpsys input_method 2>/dev/null | grep -m1 -o "mInputShown=[a-z]*" || true')
+  if (!st.includes('mInputShown=true')) throw new Error('输入法那一行没显示(mInputShown 不是 true),裁出来是空的')
+  const dpi = screenDensity()
+  if (!dpi) throw new Error('读不到屏幕密度(wm density),不能确定 48dp 是多少像素')
   const { w, h } = pngSizeOfFile(fullFile)
-  const top = Math.max(0, Math.min(h - 1, field.top))
-  const height = h - top
+  const height = Math.min(h, Math.round((IME_ROW_DP * dpi) / 160))
+  const top = h - height
   try {
-    execFileSync('convert', [fullFile, '-crop', `${w}x${height}+0+${top}`, '+repage', cropFile], { timeout: 30000 })
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', fullFile, '-vf', `crop=${w}:${height}:0:${top}`, cropFile], { timeout: 30000 })
   } catch (e) {
-    throw new Error(`裁不出输入区:${e.message}`)
+    throw new Error(`裁不出输入法那一行:${e.message}`)
   }
-  if (!isPng(cropFile)) throw new Error(`裁不出输入区:${cropFile} 不是 PNG`)
+  if (!isPng(cropFile)) throw new Error(`裁不出输入法那一行:${cropFile} 不是 PNG`)
   const c = pngSizeOfFile(cropFile)
   if (c.w !== w || c.h !== height) {
-    throw new Error(`裁不出输入区:${cropFile} 是 ${c.w}×${c.h},应为 ${w}×${height}`)
+    throw new Error(`裁不出输入法那一行:${cropFile} 是 ${c.w}×${c.h},应为 ${w}×${height}`)
   }
-  return { top, height }
+  // top === 0 时上面没有像素可问,当作通过(整屏就是行,不可能裁亏)。
+  const topEdgeOk = top === 0 || pixelRow(fullFile, top - 1) !== pixelRow(cropFile, 0)
+  return { top, height, dpi, topEdgeOk }
 }
 
 /** 主屏 displayId:挑 displayId=0 的 viewport;解析不到返回 null(调用方退回默认屏)。 */
@@ -539,6 +584,9 @@ function finalizeVideo(file) {
  *  截出来的却是一张空闲状态的状态行 —— 看的人不会知道是演示没做出来,
  *  只当是功能没有。所以每步要么拍到那个状态,要么 verify 说不清。
  *
+ *  `row: true` = 这一步的主角是**输入法那一行**,产物额外裁一份 `crop-*.png`
+ *  (见 cropImeRow)。没标 row 的两步(设置页、许可页)主角是应用自己的页面,整屏就是产品。
+ *
  *  步骤顺序也是刻意的:alt 锁定那步放在 url/number 之后,免得锁住的层把后面两张
  *  输入类型对照图污染掉(设置/许可两页不显示输入法条,解锁失败也无所谓,但还是解开)。
  */
@@ -546,6 +594,7 @@ const STEPS = [
   {
     name: '01-idle',
     core: true,
+    row: true,
     caption: '打开输入框的样子。就这一行：左边是状态，中间是这一层能按的键，右边三个按钮。',
     async run() {
       await clearField(':id/et_playground')
@@ -563,9 +612,10 @@ const STEPS = [
   {
     name: '02-composing',
     core: true,
-    caption: '打了一半：nivhao。候选实时跟着变，你不用等它想完。',
+    row: true,
+    caption: "打了一半：ni'hao。候选实时跟着变，你不用等它想完。",
     async run() {
-      key(K.n, K.i, K.v, K.h, K.a, K.o)
+      key(K.n, K.i, K.h, K.a, K.o)
       await sleep(2000)
     },
     async verify() {
@@ -576,6 +626,7 @@ const STEPS = [
   {
     name: '03-committed',
     core: true,
+    row: true,
     caption: '空格上屏。首选在正中间，按一下空格就是它。',
     async run() {
       key(K.space)
@@ -593,6 +644,7 @@ const STEPS = [
     // (查过一次,别再查。)
     name: '04-page-swipe',
     core: true,
+    row: true,
     caption: '候选多于一页。在这一行上左右划，就换页 —— 划的是手指走过多少，不是屏幕宽的几分之几。',
     async run() {
       await clearField(':id/et_playground')
@@ -616,6 +668,7 @@ const STEPS = [
   {
     name: '05-url-field',
     core: false,
+    row: true,
     caption: '切到网址框,中间那排键就换成网址常用的那几把:http://、https://、www.。',
     async run() {
       await clearField(':id/et_url')
@@ -626,6 +679,7 @@ const STEPS = [
   {
     name: '06-number-field',
     core: false,
+    row: true,
     caption: '切到数字框，左边这一项直接写出这类框能打的字符。',
     async run() {
       await clearField(':id/et_number')
@@ -636,6 +690,7 @@ const STEPS = [
   {
     name: '07-alt-layer',
     core: false,
+    row: true,
     caption: '连按两下 Alt，这一层就锁住：左边多出 alt 这一项，带下划线就是锁着的样子。再按一下解开。',
     async run() {
       // 必须先回到拼音态的普通文本框:上一步停在数字框,数字态里 alt 那一项
@@ -685,6 +740,7 @@ async function main() {
   const manifest = { package: PKG, serial: serial ?? 'default', shots: [] }
   let coreFail = 0
   let fail = 0
+  let cropFail = 0
 
   shell(`ime enable ${IME} >/dev/null 2>&1 || true`)
   // 刚装完包时 IME 可能还没注册进 ime list,直接 set 会报 "Unknown input method"。
@@ -738,14 +794,28 @@ async function main() {
       const file = join(outDir, `${s.name}.png`)
       screencap(file)
       const entry = { file: `${s.name}.png`, caption: s.caption }
-      // 站点能用的是**裁过的**那张(全屏帧 90% 是调试页)。裁不出输入区就只留全屏帧,
-      // 由人决定这张要不要上图 —— 不拿全屏帧冒充产品。
-      try {
+      // 站点能用的是**只含输入法那一行**的裁切图(全屏帧 99% 是调试页)。
+      // 「这一步没有输入法行」(设置页、许可页)是正常的,整屏帧本来就是产品;
+      // 但**裁切本身失败**(缺工具、尺寸对不上、行没显示)必须计进退出码 —— 那种情况下
+      // 产物里只剩全屏帧,而全屏帧是不许上站的。让它悄悄过去,等于交一份没素材的货。
+      if (s.row) {
         const cropFile = join(outDir, `crop-${s.name}.png`)
-        const cut = await cropInputFrame(file, cropFile)
-        if (cut) entry.crop = { file: `crop-${s.name}.png`, top: cut.top, height: cut.height }
-      } catch (e) {
-        console.log(`\n裁切 ${s.name} 失败:${e.message}`)
+        let cut = null
+        try {
+          cut = await cropImeRow(file, cropFile)
+        } catch (e) {
+          cropFail++
+          console.log(`\n✗ ${e.message}`)
+        }
+        if (cut) {
+          entry.crop = { file: `crop-${s.name}.png`, top: cut.top, height: cut.height, dpi: cut.dpi }
+          // 上沿落在行内 = 密度读错或底下多了导航栏。图看着只是窄一点,所以必须报出来。
+          if (!cut.topEdgeOk) {
+            cropFail++
+            entry.crop.warn = '裁切上沿与行顶同色 —— 上面还有行没被裁进来(密度不对?底部有导航栏?)'
+            console.log(`\n⚠ ${s.name} ${entry.crop.warn}`)
+          }
+        }
       }
       manifest.shots.push(entry)
       // 自检:**图拍到了不等于图里是对的**。键码写错、输入法改了行为,图都照样拍出来,
@@ -808,11 +878,12 @@ async function main() {
   console.log(`\n截图 ${manifest.shots.length} 张 → ${outDir}`)
   console.log(`录屏:${videoOk ? 'gaia-demo.mp4 ✓' : '不可用'}`)
   console.log(`失败步骤 ${fail} 个(其中核心 ${coreFail} 个)`)
+  if (cropFail) console.log(`裁切问题 ${cropFail} 处 —— 这些步的产物只有全屏帧,而全屏帧不许上站`)
   // 录屏坏了**要让这轮红**。理由:录屏坏掉时 manifest 会写 video:false,
   // 但产物目录里躺着的东西会被下一个人当成"这轮是好的"。2026-10-01 就是这么把一个
   // 播不了的 mp4 提交进站点仓库的 —— 截图全绿、退出码 0,没人发现问题。
   if (!videoOk) console.log('⚠ 录屏不可用')
-  process.exitCode = coreFail > 0 || !videoOk ? 1 : 0
+  process.exitCode = coreFail > 0 || cropFail > 0 || !videoOk ? 1 : 0
 }
 
 main().catch((e) => {
