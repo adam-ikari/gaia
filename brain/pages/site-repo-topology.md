@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-30T11:18:12"
+updated: "2026-10-30T11:19:12"
 ---
 
 <!-- compiled_truth -->
@@ -288,4 +288,10 @@ Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-
 
 改名后核对过的三件事:manifest 里 repo=adam-ikari/gaia、source_commit=当时 master tip;/gaia/assets/* 路径前缀换过来了;两份包 content-length 仍是 86,897,758 与 96,260,036(β 87MB / dev 96MB 同值,sha256 未变)。旧路径 https://github.com/adam-ikari/hwkbd_ime 给 301 到新名 —— 但那是**平台的好心,不是承诺**:这个名字一旦被占走,301 就断,所以 GPL 在应用内承诺的取源码地址(strings.xml)必须写成 gaia,并随下一个包生效。"
   source: "user order 2026-10-30「改为项目仓库 gaia,github page 保持和之前的 url 不变」"
+  affects: [site-repo-topology]
+
+- time: 2026-10-30T11:19:12
+  kind: evidence
+  summary: "改名核对那条把 dev 包大小写错了:线上与本地的 app-dev-a77b6fb.apk 都是 **96,260,037** 字节,不是 96,260,036(β 的 86,897,758 与两个 sha256 不变)。顺带记下 `brain append-timeline --kind` 只吃 decision / evidence / reversal / note,写 correction 会被拒 —— 而被拒的那条正好是「更正」,所以更正归到 evidence 里。数字抄错和抄漏一样会进 durable record,「写后读回」不是形式动作。"
+  source: "2026-10-30 自查(写后读回抓到的)"
   affects: [site-repo-topology]
