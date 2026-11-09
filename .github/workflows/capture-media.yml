@@ -85,6 +85,18 @@ jobs:
       - name: 给 gradlew 执行权限
         run: chmod +x gradlew
 
+      # ubuntu-24.04 的 runner 镜像里**没有 ffmpeg**(2026-10-30 实测 `spawnSync ffmpeg ENOENT`:
+      # 九张裁切全废、录屏也验不了流,而流水线还是绿的 —— 因为退出码被脚本吃掉了)。
+      # 放在建包之前:缺工具这件事要在头三十秒暴露,不要等模拟器起来四分钟。
+      # `--no-install-recommends`:只要 ffmpeg/ffprobe 本体,不要那一堆字体与额外编解码库
+      # (这一步在「回收磁盘」之前跑,别先把空间吃掉)。
+      - name: 装 ffmpeg(裁图 + 验录屏)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+
       # 版本要与 app/build.gradle.kts 的 ndkVersion 对上,与 release.yml 一致。
       # 许可直接 `yes | sdkmanager --licenses`(试过 accept-android-sdk-licenses 那个 action,
       # 报 `Unable to resolve action ... repository not found`)。

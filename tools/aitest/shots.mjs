@@ -155,9 +155,10 @@ const IME_ROW_DP = 48
  * 所以对比「行顶那一像素」与「它上面那条像素」:同色 = 上面还有行没被裁进来,报出来。
  * 不同色才说明上沿正好落在行与页面的交界上。
  *
- * 裁切用 `ffmpeg`,不用 ImageMagick:`convert` 在 GitHub 的 ubuntu runner 上**没有**
- * (2026-10-30 实测 `spawnSync convert ENOENT`,九张全裁不出),而 ffmpeg 这个脚本本来就要
- * (录屏收尾的 faststart),装是必然装了。
+ * 裁切用 `ffmpeg`。GitHub 的 ubuntu runner 镜像里**两样都没有** —— `convert` 与 `ffmpeg`
+ * 在 2026-10-30 各实测过一次 ENOENT(九张全裁不出、录屏也验不了流),所以 workflow 里有
+ * 一步装 ffmpeg,而脚本开头 `requireTool('ffmpeg')` 先验:缺工具要在三秒内红,
+ * 不要等模拟器起来四分钟后交一堆不许上站的全屏帧。
  */
 async function cropImeRow(fullFile, cropFile) {
   const st = shell('dumpsys input_method 2>/dev/null | grep -m1 -o "mInputShown=[a-z]*" || true')
@@ -732,7 +733,21 @@ const STEPS = [
   },
 ]
 
+/**
+ * 开工前先确认外部工具在。**模拟器起来之后才发现缺工具,这一轮的四分钟就白烧了** ——
+ * 2026-10-30 那次就是:runner 镜像里没有 ffmpeg,九张全屏帧都拍了,裁切七连败,
+ * 而产物里只剩不许上站的全屏帧。宁可在这里 3 秒内红掉。
+ */
+function requireTool(name, why) {
+  try {
+    execFileSync(name, ['-version'], { stdio: 'ignore', timeout: 15000 })
+  } catch {
+    throw new Error(`${name} 不在 PATH 上(${why})—— 这轮素材没有意义,先装工具再跑`)
+  }
+}
+
 async function main() {
+  requireTool('ffmpeg', '裁不出输入法那一行,录屏也验不了流')
   const outDir = process.argv[2] ? join(process.cwd(), process.argv[2]) : join(HERE, 'evidence', 'shots')
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
