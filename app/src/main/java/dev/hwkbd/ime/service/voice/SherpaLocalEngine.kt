@@ -6,7 +6,7 @@ import android.os.Looper
 import android.util.Log
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
-import com.k2fsa.sherpa.onnx.OfflineParaformerModelConfig
+import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import java.io.BufferedInputStream
@@ -18,7 +18,7 @@ import java.io.IOException
 import java.util.zip.ZipInputStream
 
 /**
- * 本地离线识别:sherpa-onnx + Paraformer-zh-small。
+ * 本地离线识别：sherpa-onnx + SenseVoiceSmall(zh-en-ja-ko-yue, 2024-07-17)。
  *
  * 非流式(整段录完再解码),正好匹配「按住说、松手出字」的交互:
  * 拾音期间不占用解码器,松手后一次性出结果。
@@ -151,8 +151,11 @@ class SherpaLocalEngine(
         val config = OfflineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = PcmRecorder.SAMPLE_RATE, featureDim = 80),
             modelConfig = OfflineModelConfig(
-                paraformer = OfflineParaformerModelConfig(
+                senseVoice = OfflineSenseVoiceModelConfig(
                     model = File(root, MODEL_FILE).absolutePath,
+                    language = "zh",
+                    // 数字规范化：「九点」→「9点」，输入法里更好改。
+                    useInverseTextNormalization = true,
                 ),
                 tokens = File(root, TOKENS_FILE).absolutePath,
                 numThreads = 2,
@@ -240,7 +243,7 @@ class SherpaLocalEngine(
             try {
                 stream.acceptWaveform(samples, PcmRecorder.SAMPLE_RATE)
                 rec.decode(stream)
-                rec.getResult(stream).text.trim().replace(" ", "")
+                rec.getResult(stream).text.trim()
             } finally {
                 stream.release()
             }
@@ -256,7 +259,11 @@ class SherpaLocalEngine(
     private fun ensureExtracted(): File {
         val root = File(context.filesDir, "sherpa")
         val target = File(root, MODEL_ID)
-        if (File(target, READY_MARKER).isFile()) return target
+        val marker = File(target, READY_MARKER)
+        if (marker.isFile() && marker.readText() == READY) return target
+
+        // 换模型后旧目录就是纯垃圾(旧版 75MB)。只删目录,不碰别的文件。
+        root.listFiles()?.filter { it.isDirectory && it.name != MODEL_ID }?.forEach { it.deleteRecursively() }
 
         val temp = File(root, "$MODEL_ID.tmp")
         temp.deleteRecursively()
@@ -285,7 +292,7 @@ class SherpaLocalEngine(
                     }
                 }
             }
-            File(temp, READY_MARKER).writeText(MODEL_ID)
+            File(temp, READY_MARKER).writeText(READY)
             target.deleteRecursively()
             if (!temp.renameTo(target)) throw IOException("模型目录改名失败")
             return target
@@ -297,10 +304,14 @@ class SherpaLocalEngine(
 
     companion object {
         private const val TAG = "SherpaLocal"
-        private const val ASSET_ZIP = "sherpa/paraformer-zh-small.zip"
-        private const val MODEL_ID = "paraformer-zh-small"
+        private const val MODEL_ID = "sense-voice-zh-en-ja-ko-yue"
+        private const val MODEL_VERSION = "2024-07-17"
+        private const val ASSET_ZIP = "sherpa/$MODEL_ID-$MODEL_VERSION.zip"
         private const val MODEL_FILE = "model.int8.onnx"
         private const val TOKENS_FILE = "tokens.txt"
+
+        /** 解压目录的完成标记：内容带版本，换模型/换版本都会重新解压。 */
+        private const val READY = "$MODEL_ID $MODEL_VERSION"
         private const val READY_MARKER = ".ready"
     }
 }

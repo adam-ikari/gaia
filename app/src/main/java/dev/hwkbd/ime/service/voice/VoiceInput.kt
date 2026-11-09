@@ -10,7 +10,7 @@ import androidx.core.content.ContextCompat
 /**
  * 语音识别门面:保证所有回调都回到主线程。
  *
- * 控制器只认识「开始/停止/取消」三个动作;识别本身由内置的 sherpa-onnx + Paraformer
+ * 控制器只认识「开始/停止/取消」三个动作;识别本身由内置的 sherpa-onnx + SenseVoice
  * 完成,不联网、不需要任何配置。
  */
 class VoiceInput(

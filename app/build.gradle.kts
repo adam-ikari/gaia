@@ -21,47 +21,60 @@ plugins {
  *
  * ## 为什么不是「直接内置」
  *
- * 模型 zip 有 74MB,而这台机器到 GitHub 的上传在 8MB 就被 HTTP 408 掐断
- * (2026-10-26 实测:2MB 通过、8MB/20MB 失败,资产上传 3MB 通过、10MB 失败)。
- * 把它提交进仓库,等于**整个仓库推不上去** —— 源码那几 MB 反而被一个二进制绑死。
- * 改成构建期按固定 URL + sha256 取,仓库回到几 MB,缓存留在 `.cache/`。
+ * 模型解压后 228MB(zip 153MB),而这台机器到 GitHub 的上传在 8MB 就被 HTTP 408 掐断
+ * (2026-10-26 实测)。把它提交进仓库,等于**整个仓库推不上去** —— 源码那几 MB
+ * 反而被一个二进制绑死。改成构建期按固定 URL + sha256 取,缓存留在 `.cache/`。
+ *
+ * ## 为什么按文件取,不再下上游的 tar.bz2
+ *
+ * GitHub release 资产在这台机器上稳定断在 10–17MB(2026-11-09 实测:11 分钟只接到
+ * 17MB,HTTP 56),rerun 也只能接着磨。HF 的 `resolve/main` 直连正常:229MB 一分钟内
+ * 下完。按文件取还顺带甩掉了外部 `tar`/bzip2 依赖,也不再下载包里白带的 fp32 模型
+ * 与测试音频。
  *
  * ## 为什么钉 sha256
  *
- * 上游那个 release 资产是可以被替换的。不校验的话,「构建成功」只说明
- * 拿到过某个 79MB 的包,不说明拿到的是**验证过的那一份**。而这条网络连**下载**也会
- * 静默截断(见 [download]),所以校验不只是报错用的 —— 它是重试的判断依据。
+ * 上游文件是可以被替换的。不校验的话,「构建成功」只说明拿到过某个 229MB 的文件,
+ * 不说明拿到的是**验证过的那一份**。而这条网络连**下载**也会静默截断(见 [download]),
+ * 所以校验不只是报错用的 —— 它是重试的判断依据。
  *
  * ## 缓存放在哪里
  *
- * `<root>/.cache/voice-model/paraformer/<版本>/`(gitignore)。刻意**不在** `build/`
- * 里:`./gradlew clean` 之后不该让人重下一遍 78MB。解包与重新打包很便宜(几秒),
- * 只有下载贵,所以缓存只存原始 tar.bz2。
+ * `<root>/.cache/voice-model/<模型 id>/<版本>/<文件名>`(gitignore)。刻意**不在**
+ * `build/` 里:`./gradlew clean` 之后不该让人重下一遍 229MB。
  *
  * ## 离线怎么办
  *
- * `-PvoiceModelTar=/path/to/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2`:
- * 用本地那份压缩包,仍然校验 sha256。CI 与日常构建不需要它。
+ * `-PvoiceModelDir=/path/to/dir`(目录里放同名文件):仍然校验 sha256。
+ * CI 与日常构建不需要它。
  */
+
 abstract class FetchVoiceModel : DefaultTask() {
+
+    @get:Input
+    abstract val modelId: Property<String>
 
     @get:Input
     abstract val modelVersion: Property<String>
 
+    /** 三个列表按同一下标对应:文件名 / 下载地址 / 钉死的 sha256。 */
     @get:Input
-    abstract val archiveUrl: Property<String>
+    abstract val fileNames: ListProperty<String>
 
     @get:Input
-    abstract val archiveSha256: Property<String>
+    abstract val fileUrls: ListProperty<String>
+
+    @get:Input
+    abstract val fileSha256: ListProperty<String>
 
     /** 缓存根目录(在 `build/` 之外)。 */
     @get:Internal
     abstract val cacheRoot: DirectoryProperty
 
-    /** `-PvoiceModelTar`:给了就不下载,直接用这份本地文件(依旧校验)。 */
+    /** `-PvoiceModelDir`:给了就不下载,直接用这个目录里的同名文件(依旧校验)。 */
     @get:Optional
-    @get:InputFile
-    abstract val localArchive: RegularFileProperty
+    @get:InputDirectory
+    abstract val localDir: DirectoryProperty
 
     /** 产物目录:作为 assets 的一个 srcDir 交给 AGP 合并。 */
     @get:OutputDirectory
@@ -74,61 +87,47 @@ abstract class FetchVoiceModel : DefaultTask() {
 
     @TaskAction
     fun fetch() {
-        val version = modelVersion.get()
-        val expect = archiveSha256.get().lowercase()
-        val dir = cacheRoot.get().asFile.resolve("paraformer/$version")
-        val tar = dir.resolve(ARCHIVE_NAME)
+        val id = modelId.get()
+        val names = fileNames.get()
+        val urls = fileUrls.get()
+        val shas = fileSha256.get().map { it.lowercase() }
+        if (names.size != urls.size || names.size != shas.size) {
+            throw GradleException("语音模型的三张表(文件名/URL/sha256)长度不一致")
+        }
+        if (names.isEmpty()) throw GradleException("语音模型没有要下载的文件")
+
+        val dir = cacheRoot.get().asFile.resolve("$id/${modelVersion.get()}")
         dir.mkdirs()
+        val local = localDir.orNull?.asFile
 
-        val source = localArchive.orNull?.asFile
-        if (source != null) {
-            if (!source.isFile) throw GradleException("-PvoiceModelTar 指向的不是文件:$source")
-            if (!tar.isFile || sha256Of(source) != sha256Of(tar)) source.copyTo(tar, overwrite = true)
-        } else if (tar.isFile && sha256Of(tar) == expect) {
-            logger.lifecycle("语音模型用缓存:$tar")
-        } else {
-            download(tar, expect)
+        names.forEachIndexed { i, name ->
+            val dest = File(dir, name)
+            val expect = shas[i]
+            val source = local?.resolve(name)
+            if (source != null) {
+                if (!source.isFile) throw GradleException("-PvoiceModelDir 里没有 $name:$source")
+                val actual = sha256Of(source)
+                if (actual != expect) {
+                    throw GradleException(
+                        "-PvoiceModelDir 里的 $name 与钉死的值不符。\n  期望 $expect\n  实际 $actual\n  文件 $source",
+                    )
+                }
+                if (!dest.isFile || sha256Of(dest) != expect) source.copyTo(dest, overwrite = true)
+            } else if (dest.isFile && sha256Of(dest) == expect) {
+                logger.lifecycle("语音模型用缓存:$dest")
+            } else {
+                download(dest, urls[i], expect, name)
+            }
         }
 
-        val actual = sha256Of(tar)
-        if (actual != expect) {
-            tar.delete()
-            throw GradleException(
-                "语音模型校验失败,已删掉这份缓存(下次构建重下)。\n" +
-                    "  期望 sha256 $expect\n  实际 sha256 $actual\n  来源 ${archiveUrl.get()}\n" +
-                    "若是上游换了包:核对新版本号与哈希后改 app/build.gradle.kts,不要放宽校验。",
-            )
-        }
-
-        // 解包目录用 `temporaryDir`(在 `build/` 下),不放 `.cache/`:上游包里除了
-        // 要用的两个文件还白带着 fp32 模型与测试音频,400MB 上下。留原料、丢解包,
-        // `clean` 就把它清掉 —— `.cache/` 只长那一份 78MB 的 tar.bz2。
-        val extracted = File(temporaryDir, "extract")
-        extracted.deleteRecursively()
-        extracted.mkdirs()
-        // JDK 没有 bzip2,只能调外部 tar(Linux/macOS/Windows 10+ 的 bsdtar 都认 -xjf)。
-        val rc = ProcessBuilder("tar", "-xjf", tar.absolutePath, "-C", extracted.absolutePath)
-            .redirectErrorStream(true)
-            .start()
-            .also { it.inputStream.copyTo(loggingStream()) }
-            .waitFor()
-        if (rc != 0) {
-            throw GradleException(
-                "解包失败(tar 退出码 $rc):$tar\n" +
-                    "这台机器的 tar 不支持 bzip2 —— 装一个带 bzip2 的 tar(Git Bash/bsdtar 都行)后重试。",
-            )
-        }
-
-        // 解压出来是 `<tar 名>/model.int8.onnx`,但顶层目录名跟着上游版本走,
-        // 所以按「哪个目录里有 model.int8.onnx」找,不写死路径。
-        val root = extracted.walk().firstOrNull { it.resolve(MODEL_FILE).isFile }
-            ?: throw GradleException("解包后找不到 ${MODEL_FILE}(上游包结构变了?)")
-
+        // 缓存里的文件是唯一源:packZip 只认这些名字,不存在「解包目录跟缓存不一致」。
         val out = assetsOut.get().asFile.resolve("sherpa")
         out.mkdirs()
-        val zip = out.resolve("paraformer-zh-small.zip")
-        packZip(zip, root)
-        logger.lifecycle("语音模型就绪:${zip.name} ${zip.length() / 1024 / 1024}MB(源 sha256 ${expect.take(12)})")
+        val zip = out.resolve("$id-${modelVersion.get()}.zip")
+        packZip(zip, dir, id)
+        // 上一次构建/上一个模型的 zip 不能跟着一起进 APK(会白白多背几十 MB)。
+        out.listFiles()?.filter { it.isFile && it.name != zip.name }?.forEach { it.delete() }
+        logger.lifecycle("语音模型就绪:${zip.name} ${zip.length() / 1024 / 1024}MB($id/${modelVersion.get()})")
     }
 
     /**
@@ -149,8 +148,7 @@ abstract class FetchVoiceModel : DefaultTask() {
      * 字节数不足 → 继续续传;字节数完整而 sha 不符 → 才是真的换包,这时删掉 `.tmp`
      * 并直接失败,不再浪费带宽。
      */
-    private fun download(to: File, expect: String) {
-        val url = archiveUrl.get()
+    private fun download(to: File, url: String, expect: String, label: String) {
         val tmp = File(to.parentFile, to.name + ".tmp")
         val notes = mutableListOf<String>()
         for (attempt in 1..MAX_ATTEMPTS) {
@@ -166,20 +164,20 @@ abstract class FetchVoiceModel : DefaultTask() {
             if (actual != expect) {
                 tmp.delete()
                 throw GradleException(
-                    "语音模型字节数是完整的,但 sha256 与钉死的值不符 —— 这个包不是我们验过的那一份。\n" +
+                    "$label 字节数是完整的,但 sha256 与钉死的值不符 —— 这个文件不是我们验过的那一份。\n" +
                         "  期望 sha256 $expect\n  实际 sha256 $actual\n  源 $url\n" +
                         "核对过上游确实换包后,一起改 app/build.gradle.kts 的 URL 与哈希,不要放宽校验。",
                 )
             }
             if (!tmp.renameTo(to)) throw GradleException("模型缓存落盘失败:$to")
-            logger.lifecycle("语音模型下载完成:${ARCHIVE_NAME}(第 $attempt 次尝试)")
+            logger.lifecycle("语音模型下载完成:$label(第 $attempt 次尝试)")
             return
         }
         throw GradleException(
-            "语音模型下不下来(试了 $MAX_ATTEMPTS 次,已保留断点):\n  ${notes.joinToString("\n  ")}\n" +
+            "$label 下不下来(试了 $MAX_ATTEMPTS 次,已保留断点):\n  ${notes.joinToString("\n  ")}\n" +
                 "  源 $url\n" +
                 "重跑构建会从 ${tmp.absolutePath} 接着下;\n" +
-                "网络实在不通就把压缩包放到本地,用 -PvoiceModelTar=<路径> 指给构建。",
+                "网络实在不通就把 $(to.name) 放到一个目录里,用 -PvoiceModelDir=<目录> 指给构建。",
         )
     }
 
@@ -207,18 +205,18 @@ abstract class FetchVoiceModel : DefaultTask() {
     }
 
     /**
-     * 打成设备侧认识的形状:顶层一个 `paraformer-zh-small/` 目录,里面只有模型与词表
+     * 打成设备侧认识的形状:顶层一个 `<modelId>/` 目录,里面只有模型与词表
      * (`SherpaLocalEngine.ensureExtracted` 剥掉顶层目录后按文件名找)。
      *
      * 条目顺序与时间戳固定 —— 同一个源包要能编出同样的 zip,否则「按 hash 复现」这件事
      * 又被一个随机器时间变的二进制破坏。
      */
-    private fun packZip(zip: File, modelDir: File) {
+    private fun packZip(zip: File, modelDir: File, modelId: String) {
         val tmp = File(zip.parentFile, zip.name + ".tmp")
         ZipOutputStream(BufferedOutputStream(tmp.outputStream())).use { z ->
             z.setMethod(ZipEntry.DEFLATED)
             for (name in listOf(MODEL_FILE, TOKENS_FILE)) {
-                val entry = ZipEntry("$MODEL_ID/$name")
+                val entry = ZipEntry("$modelId/$name")
                 entry.time = FIXED_ENTRY_TIME
                 z.putNextEntry(entry)
                 File(modelDir, name).inputStream().use { it.copyTo(z) }
@@ -241,30 +239,40 @@ abstract class FetchVoiceModel : DefaultTask() {
     }
 
     private companion object {
-        const val ARCHIVE_NAME = "sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
-        const val MODEL_ID = "paraformer-zh-small"
         const val MODEL_FILE = "model.int8.onnx"
         const val TOKENS_FILE = "tokens.txt"
 
         /** 下载尝试次数(每次都可能被截断,靠 `.tmp` 续传接完)。 */
         const val MAX_ATTEMPTS = 6
 
-        /** 2024-03-09 00:00:00 —— 上游模型包的发布日,写死以免产物随构建时间漂移。 */
+        /** 2024-07-17 00:00:00 —— 上游模型包的发布日,写死以免产物随构建时间漂移。 */
         val FIXED_ENTRY_TIME: Long = Calendar.getInstance().apply {
             clear()
-            set(2024, Calendar.MARCH, 9, 0, 0, 0)
+            set(2024, Calendar.JULY, 17, 0, 0, 0)
         }.time.time
     }
 }
 
-/** 语音模型的版本、来源与校验值。换版本 = 三个常量一起改。 */
-val VOICE_MODEL_VERSION = "2024-03-09"
-val VOICE_MODEL_URL =
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
-        "sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
+/**
+ * 语音模型的版本、来源与校验值。
+ *
+ * 2026-11-09 从「整包 tar.bz2」改成「HF 上按文件直取」:GitHub release 资产在这台机器上
+ * 稳定断在 10–17MB(11 分钟只接到 17MB,HTTP 56),HF 的 229MB 一分钟内下完。
+ * 顺带不再需要外部 tar/bzip2,也不再下载上游包里白带的 fp32 模型与测试音频。
+ */
+val VOICE_MODEL_ID = "sense-voice-zh-en-ja-ko-yue"
+val VOICE_MODEL_VERSION = "2024-07-17"
+val VOICE_MODEL_BASE =
+    "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main"
 
-/** 上游那个 tar.bz2 的 sha256(77,920,048 字节)。 */
-val VOICE_MODEL_SHA256 = "da92b3db5218c5be53aad53e57d1b6e63e7fc98a0e054fbdd6dbe18e9c6b1450"
+/** 按此顺序下载、打包;文件名就是上游的原始文件名。 */
+val VOICE_MODEL_FILES = listOf("model.int8.onnx", "tokens.txt")
+
+/** 逐文件钉死的 sha256(与 [VOICE_MODEL_FILES] 同下标)。 */
+val VOICE_MODEL_SHA256 = listOf(
+    "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51", // 239,233,841 字节
+    "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc", // 315,894 字节
+)
 
 
 /**
@@ -666,14 +674,16 @@ tasks.withType<Test>().configureEach {
 // 依赖由任务图自己推,不需要到处 `dependsOn`。
 val fetchVoiceModel = tasks.register<FetchVoiceModel>("fetchVoiceModel") {
     group = "build"
-    description = "获取并校验离线语音模型,产出 assets/sherpa/paraformer-zh-small.zip"
+    description = "获取并校验离线语音模型,产出 assets/sherpa/$VOICE_MODEL_ID-$VOICE_MODEL_VERSION.zip"
+    modelId.set(VOICE_MODEL_ID)
     modelVersion.set(VOICE_MODEL_VERSION)
-    archiveUrl.set(VOICE_MODEL_URL)
-    archiveSha256.set(VOICE_MODEL_SHA256)
+    fileNames.set(VOICE_MODEL_FILES)
+    fileUrls.set(VOICE_MODEL_FILES.map { "$VOICE_MODEL_BASE/$it" })
+    fileSha256.set(VOICE_MODEL_SHA256)
     cacheRoot.set(rootProject.layout.projectDirectory.dir(".cache/voice-model"))
     assetsOut.set(layout.buildDirectory.dir("generated/voiceAssets"))
-    if (project.hasProperty("voiceModelTar")) {
-        localArchive.set(file(project.property("voiceModelTar").toString()))
+    if (project.hasProperty("voiceModelDir")) {
+        localDir.set(file(project.property("voiceModelDir").toString()))
     }
 }
 
@@ -712,7 +722,7 @@ dependencies {
 
     // 离线语音识别:sherpa-onnx(新一代 Kaldi,Apache 2.0)。模型走 assets,不依赖任何云服务。
     // AAR 里带 arm64-v8a/x86_64 的 libsherpa-onnx-jni.so 与官方 Kotlin 封装;
-    // 模型用 Paraformer-zh-small(非流式,适合按住说话)。
+    // 模型用 SenseVoiceSmall(非流式,适合按住说话;带标点与 ITN)。
     implementation("com.bihe0832.android:lib-sherpa-onnx:6.25.21")
 
     testImplementation("junit:junit:4.13.2")

@@ -85,10 +85,10 @@ tools/release/publish-site.sh --skip-fetch # 不联网的 HTML 冒烟构建（�
 满屏 404。
 
 为什么本机发不了：开发机到 GitHub 的上传**单个请求持续 ~20 秒就被 408 掐断**
-（实测 12MB 失败、2MB 通过），而两条渠道的包合计 ~233MB，git 也无法续传。
+（实测 12MB 失败、2MB 通过），而两条渠道的包合计 ~355MB，git 也无法续传。
 搬到 runner 之后，包的走法是 release 资产 → runner → Pages artifact，**全程不进 git**：
-GitHub 对单个文件有 100.00MB 的服务端硬上限，带离线语音模型的包（β 103.06MB /
-dev 130.07MB）在任何机器上都推不进去。
+GitHub 对单个文件有 100.00MB 的服务端硬上限，带离线语音模型的包（β 172.98MB /
+dev 182.34MB）在任何机器上都推不进去。
 
 判据是**公开站点上那份与本次产物逐字节一致**，不是「run 绿了」。
 `upload-pages-artifact`、`deploy-pages`、线上生效是三件事，中间还有 CDN 缓存，

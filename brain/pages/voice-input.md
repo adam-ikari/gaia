@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, voice, permission]
 created: "2026-10-24T14:31:03"
-updated: "2026-10-28T14:40:07"
+updated: "2026-11-09T20:03:29"
 ---
 
 <!-- compiled_truth -->
@@ -13,15 +13,15 @@ updated: "2026-10-28T14:40:07"
 
 | 项 | 决定 |
 | --- | --- |
-| 引擎 | sherpa-onnx + `paraformer-zh-small`(int8 ONNX),非流式:整段录完一次解码 |
+| 引擎 | sherpa-onnx + `sense-voice-zh-en-ja-ko-yue`(2024-07-17, int8 ONNX),非流式:整段录完一次解码 |
 | 语言 | **仅中文**。英文长按空格直接提示不支持,没有云端可换 |
 | 配置 | **零配置**。没有引擎选择、没有密钥输入框、没有任何需要填写的东西 |
 | 网络 | 不联网,Manifest **不声明 `INTERNET`**;`RECORD_AUDIO` 是应用唯一的敏感权限 |
-| 体积 | 模型 zip 约 71MB(**构建期下载**,不在仓库里),dev APK 约 124MB |
+| 体积 | 模型 zip 160,304,626 字节(153MB),**构建期下载**,不在仓库里;dev APK 182.34MB、β 172.98MB |
 
 ## 为什么删掉云端
 
-腾讯云一句话识别与讯飞流式听写的请求本身就带鉴权(TC3-HMAC-SHA256 / `api_key` + HMAC 签名),**不填密钥就没有"云端免鉴权"这条路** —— 服务端在握手阶段就拒绝。而"要用户先去两个平台开账号、填四五个密钥"这个门槛,让语音输入对多数人等于不可用;加上密钥与服务商额度、隐私提示带来的一整块设置 UI 与两个引擎实现,维护成本与收益不成比例。识别质量上 Paraformer 已经够用,所以选择**只留本地**。
+腾讯云一句话识别与讯飞流式听写的请求本身就带鉴权(TC3-HMAC-SHA256 / `api_key` + HMAC 签名),**不填密钥就没有"云端免鉴权"这条路** —— 服务端在握手阶段就拒绝。而"要用户先去两个平台开账号、填四五个密钥"这个门槛,让语音输入对多数人等于不可用;加上密钥与服务商额度、隐私提示带来的一整块设置 UI 与两个引擎实现,维护成本与收益不成比例。识别质量上本地模型够用,所以选择**只留本地**。
 
 删除范围:`TencentEngine` / `XfyunEngine` / `Tc3Signer` / `XfyunSigner` 及其单测、`VoiceSettings` 与 `AsrBackend`、设置页的引擎选择与密钥输入项、`INTERNET` 权限、OkHttp/Okio 依赖、云端失败自动回落逻辑(没有云端可回落)。`VoiceInput` 现在只是"主线程回调桥 + 权限检查 + 一个本地引擎实例"。
 
@@ -40,11 +40,25 @@ updated: "2026-10-28T14:40:07"
 
 ## 本地模型
 
-- zip 由 `:app:fetchVoiceModel` 在构建期产出到 `build/generated/voiceAssets/sherpa/`(作为 main assets 的一个 srcDir),模型**不在版本库里**;`noCompress += "zip"`。首次使用解压到 `filesDir/sherpa/paraformer-zh-small/`:先解到 `.tmp`,校验 zip-slip,写完 `.ready` 再改名;中断不会留下半份模型。
-- 源包:`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2`(77,920,048 字节,sha256 `da92b3db5218c5be53aad53e57d1b6e63e7fc98a0e054fbdd6dbe18e9c6b1450`)。任务只取 `model.int8.onnx` + `tokens.txt`,按固定条目时间与顺序重打包 —— 同一个源包编出同一个 zip,否则「按 hash 复现」被一个随机器时间变的二进制破坏。
-- **为什么不提交进仓库(2026-10-26 推翻「直接内置」)**:这台机器到 GitHub 的**上传**在 8MB 就被 HTTP 408 掐断(实测 2MB 过、8MB/20MB 挂;release 资产 3MB 过、10MB 挂)。74MB 的模型进 git 等于**整个仓库推不上去** —— 源码那几 MB 被一个二进制绑死。
-- 缓存与截断:`<root>/.cache/voice-model/paraformer/<版本>/` 只存原始 tar.bz2(gitignore,`./gradlew clean` 不清它);解包放 `build/tmp/`(上游包里白带着 fp32 模型与测试音频,400MB 上下)。这条网络**连下载也会静默截断**(实测只拿到 46,872,955/77,920,048 字节而连接正常结束),所以下载按 `.tmp` 断点续传、**先对字节数再对 sha256**;字节数完整而 sha 不符才判定为上游换包。
-- 离线逃生口:`-PvoiceModelTar=/path/to/那个tar.bz2`,用本地那份,依旧校验 sha256。
+- zip 由 `:app:fetchVoiceModel` 在构建期产出到 `build/generated/voiceAssets/sherpa/sense-voice-zh-en-ja-ko-yue-2024-07-17.zip`(作为 main assets 的 srcDir),模型**不在版本库里**;`noCompress += "zip"`。首次使用解压到 `filesDir/sherpa/sense-voice-zh-en-ja-ko-yue/`:先解到 `.tmp`,校验 zip-slip,`.ready` 写入 `"<id> <version>"` 再改名;标记不匹配就重解,并顺手删掉其它模型目录(旧 Paraformer 目录 75MB)。
+- 源文件(HF 直取,**不是** tar.bz2):
+  - `https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx`(239,233,841 字节,sha256 `c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51`)
+  - 同前缀 `tokens.txt`(315,894 字节,sha256 `f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc`)
+  - 任务按「文件名/URL/sha256」三张表逐文件下载,再按固定条目时间与顺序打 zip。
+- **为什么不提交进仓库**:这台机器到 GitHub 的**上传**在 8MB 就被 HTTP 408 掐断(2026-10-26 实测)。228MB 模型进 git 等于整个仓库推不上去。构建期按固定 URL + sha256 取,缓存留在 `.cache/`。
+- **为什么从 tar.bz2 改成按文件直取(2026-11-09)**:GitHub release 资产在这台机器上稳定断在 10–17MB(实测 11 分钟只接到 17,609,870/约 230MB,HTTP 56,重试也一样);HF `resolve/main` 229MB 一分钟内下完(实测 47 秒)。顺带甩掉外部 `tar`/bzip2 依赖,也不再下载上游包里白带的 fp32 模型与测试音频。
+- 缓存与截断:`<root>/.cache/voice-model/sense-voice-zh-en-ja-ko-yue/2024-07-17/{model.int8.onnx,tokens.txt}`(gitignore,`clean` 不清)。下载仍是 `.tmp` 断点续传、**先对字节数再对 sha256**;字节数完整而 sha 不符才判定上游换包。产物目录每次构建会删掉非当前 zip(否则旧 zip 会被 merge 进 APK,实测曾出现 74MB 旧包 + 160MB 新包同时进包)。
+- 离线逃生口:`-PvoiceModelDir=/path/to/dir`(目录里放 `model.int8.onnx` 与 `tokens.txt`),依旧校验 sha256。
+
+## 模型选型(2026-11-09 基准)
+
+- **保留:Paraformer-zh-small 被换掉,不是因为它在干净音频上更差**。在短句裁切(2.0–3.0s)上它反而更稳:`开放时间早上` 对,`paraformer-large` 与 SenseVoice 都听成「开饭时间」。
+- **换 SenseVoice 的理由是噪声鲁棒与可用标点**:10dB/5dB 白噪下,长句(5–8s)SenseVoice 的一致性明显更好(例:天津话样例 5dB,small 出「就是他就是每个人都个守法」,SenseVoice 出「其实他就怕每个人都会守法」;四川话样例 SenseVoice 逐字正确);输出自带标点与 ITN(`9点至下午5点`),输入法上屏可读性更高。
+- 否决 `paraformer-large` int8(217MB):干净音频同样把「开放时间」听成「开饭时间早上煮」,无标点,更快但不更准。
+- 否决 Dolphin base int8(99MB):英文输出阿拉伯字母,首字/数字崩。
+- 否决 SenseVoice 2025-09-09 int8(226MB):无标点,英文大写且错(`ESTERDAY WAS`、`THE TRIVBAL CHIEF THIN CALLED`),天津话样例首字丢。2024-07-17 明显更好。
+- 速度(本机 x64,2 线程):SenseVoice RTF≈0.05,Paraformer-small≈0.02。Titan 2 上仍是松手后零点几秒量级,不构成否决理由。
+- **已知短板,勿当已验证**:短句/安静场景「开放时间」仍可能听成「开饭/派班时间」;BiBi-Keyboard issue #64 说英文一般(本项目只做中文)。真机噪声环境尚未验证。
 
 - 开关一打开就 `prepare()` 预热,别让用户长按时等解压;松手到出字在 Titan 2 上约 0.3–0.7s。
 - R8 要 keep `com.k2fsa.sherpa.onnx.**`:config/recognizer 由 JNI 按类名与字段名读取,混淆后症状是模型路径传进去、第一次 `decode` 才崩。
@@ -69,7 +83,7 @@ updated: "2026-10-28T14:40:07"
 ## 验证状态
 
 - 触发器 JVM 单测覆盖 10 种情形;`testDebugUnitTest` 与 `compileDebugKotlin` 通过。
-- `assembleDev`(R8)通过,dev APK 124MB;`aapt2 dump permissions` 确认只剩 `RECORD_AUDIO`;mapping 中 `com.k2fsa.sherpa.onnx.**` 未改名。
+- `assembleDev`(R8)通过,dev APK 182.34MB;`assembleBeta` 通过,β 172.98MB;`aapt2 dump permissions` 确认只剩 `RECORD_AUDIO`;mapping 中 `com.k2fsa.sherpa.onnx.**` 未改名。
 - **尚未真机验证**:Titan 2 上的拾音、Paraformer 解压/加载耗时与识别质量、音量表观感需装机确认。
 
 
@@ -202,3 +216,107 @@ updated: "2026-10-28T14:40:07"
   summary: "推翻「模型改按需下载」这一整轮方案:语音模型继续构建期由 :app:fetchVoiceModel 抓上游、解包重打成确定性 zip、挂进 main assets、首次使用解到 filesDir;不声明 INTERNET、零配置、站点文案「不联网」全部保持不变。设备侧不写下载器,不引 commons-compress,发布链不新增 publish-model.yml。留一手实测数据免得日后再查:作者本人的 HF 仓库 csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09 里 model.int8.onnx 与内置那份逐字节相同(sha256 3ef6c19369b912f7caf3cef8e545c5ccd1a33d9d7ec792a46668dc41c4b229ec,81828675 字节),tokens.txt sha256 4b2d964e18b9cf139b473003b6698fb2ed9a2a5ec55b93daa677b28f578897aa(75352),URL 可钉 commit 63ddc3cd0f2810b68289a7b3876e62ef5d53d6df;hf-mirror.com 实测 8MB/3.4s=2.43MB/s 且 GET Range 回 206,huggingface.co 1.57MB/s 同样回 206。"
   source: "2026-10-28 用户裁决:「改回内置」(此前一轮为「语音模型改为在线安装」)"
   affects: [voice-input, release-flow]
+
+
+## Timeline
+
+- time: 2026-10-24T14:31:03
+  kind: decision
+  summary: "Created this page: 长按空格语音输入:系统 SpeechRecognizer + 设置开关"
+  source: created via brain create-page
+  affects: [voice-input]
+
+- time: 2026-10-24T14:31:11
+  kind: decision
+  summary: "语音输入定为:设置开关默认关、空闲 L1 长按空格才武装、按住说话松手上屏;权限只能由设置页申请,IME 启动失败退回一个空格"
+  source: "2026-10-24 用户「添加语音输入方式 / 触发方式是长按空格键 设置里增加一个开关」"
+  affects: [voice-input]
+
+- time: 2026-10-24T16:12:17
+  kind: decision
+  summary: "语音输入改用可切换引擎:默认内置 Vosk 离线,云端可选腾讯云一句话识别或讯飞流式听写;彻底移除系统 SpeechRecognizer"
+  source: "2026-10-24 用户「不能依赖google服务 选择其他的方法」「先做本地 云端使用腾讯云和讯飞两个服务」「直接内置」"
+  affects: [voice-input]
+
+- time: 2026-10-24T16:17:55
+  kind: evidence
+  summary: "构建验证:testDebugUnitTest(含两个签名固定向量)通过;assembleDebug 与 assembleBeta(R8)通过;beta APK 60MB、debug 86MB(双 ABI),均含 43.9MB 模型 zip;Vosk/JNA keep 规则生效(mapping 中 org.vosk 未改名)。真机拾音与模型解压仍未验证"
+  source: "2026-10-24 本地构建"
+  affects: [voice-input]
+
+- time: 2026-10-24T18:10:49
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-24 用户「本地语音识别效果很差 换一个模型」→ 选 Paraformer-zh-small;同时加入云端失败自动回落与语音 HUD"
+  affects: [voice-input]
+
+- time: 2026-10-24T18:10:49
+  kind: decision
+  summary: "本地引擎从 Vosk small 换成 sherpa-onnx + Paraformer-zh-small(int8,71MB zip);云端失败自动用本地重识别,5 分钟冷却;语音 HUD 显示麦克风+音量表;无云端密钥也可开启语音开关"
+  source: "2026-10-24 用户「本地语音识别效果很差 换一个模型」「云端api不可调用或者额度耗尽的时候使用本地模型」「语音识别的时候需要显示一个悬浮的麦克风图标和音量表」"
+  affects: [voice-input]
+
+- time: 2026-10-24T22:05:07
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-10-24 用户「删除云端API和配置页面项」"
+  affects: [voice-input]
+
+- time: 2026-10-24T22:05:08
+  kind: reversal
+  summary: "推翻「云端可选 + 失败自动回落本地」:整体删除腾讯云/讯飞引擎、签名实现与单测、引擎选择与密钥设置项、云端回落逻辑、INTERNET 权限与 OkHttp 依赖。语音输入只剩本地 sherpa-onnx Paraformer,仅中文、零配置"
+  source: "2026-10-24 用户「删除云端API和配置页面项」;此前确认云端不填 key 无法使用(TC3/HMAC 鉴权在请求本体内)"
+  affects: [voice-input, stack]
+
+- time: 2026-10-24T22:05:17
+  kind: note
+  summary: "老用户本机填过的云端密钥要抹掉:ImeRuntime.init 一次性 remove voice_engine 与五个密钥键 —— 代码不读不等于不存在,备份/取证仍会带走"
+  source: "2026-10-24 移除云端时的隐私自查"
+  affects: [voice-input]
+
+- time: 2026-10-26T10:49:03
+  kind: decision
+  summary: "语音模型改为构建期下载+缓存(不在仓库):钉 URL/sha256、断点续传、-PvoiceModelTar 逃生口;理由是这台机器 GitHub 上传 8MB 即 408"
+  source: "用户 2026-10-26「模型构建时下载缓存」"
+  affects: [voice-input]
+
+- time: 2026-10-26T10:49:15
+  kind: reversal
+  summary: "推翻「模型 zip 直接内置进仓库(app/src/main/assets/sherpa/paraformer-zh-small.zip)」:改为 :app:fetchVoiceModel 构建期按固定 URL+sha256 下载、解包重打包到 build/generated/voiceAssets 并挂进 main assets。理由不是洁癖,是这台机器 git push 到 8MB 就 HTTP 408 —— 带着 74MB 的仓库根本推不上去,连源码一起锁死"
+  affects: [app/build.gradle.kts, app/src/main/assets/sherpa, .gitignore, THIRD_PARTY_NOTICES.md, README.md]
+
+- time: 2026-10-28T14:40:07
+  kind: reversal
+  summary: "推翻「模型改按需下载」这一整轮方案:语音模型继续构建期由 :app:fetchVoiceModel 抓上游、解包重打成确定性 zip、挂进 main assets、首次使用解到 filesDir;不声明 INTERNET、零配置、站点文案「不联网」全部保持不变。设备侧不写下载器,不引 commons-compress,发布链不新增 publish-model.yml。留一手实测数据免得日后再查:作者本人的 HF 仓库 csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09 里 model.int8.onnx 与内置那份逐字节相同(sha256 3ef6c19369b912f7caf3cef8e545c5ccd1a33d9d7ec792a46668dc41c4b229ec,81828675 字节),tokens.txt sha256 4b2d964e18b9cf139b473003b6698fb2ed9a2a5ec55b93daa677b28f578897aa(75352),URL 可钉 commit 63ddc3cd0f2810b68289a7b3876e62ef5d53d6df;hf-mirror.com 实测 8MB/3.4s=2.43MB/s 且 GET Range 回 206,huggingface.co 1.57MB/s 同样回 206。"
+  source: "2026-10-28 用户裁决:「改回内置」(此前一轮为「语音模型改为在线安装」)"
+  affects: [voice-input, release-flow]
+
+- time: 2026-11-09T19:12:14
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "2026-11-09 换 SenseVoiceSmall + HF 按文件下载,基准测试与构建验证"
+  affects: [voice-input]
+
+- time: 2026-11-09T19:15:09
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "修正 compiled_truth(去掉误带进去的 frontmatter)"
+  affects: [voice-input]
+
+- time: 2026-11-09T19:17:01
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "修正 2026-10-24 遗留的 Paraformer 表述"
+  affects: [voice-input]
+
+- time: 2026-11-09T19:17:01
+  kind: reversal
+  summary: "换引擎:Paraformer-zh-small → SenseVoiceSmall(zh-en-ja-ko-yue 2024-07-17 int8)。基准(6 条干净样例 + 10/5dB 白噪,2 线程):干净短句 small 仍更稳(「开放时间」small 对,large 与 SenseVoice 都听成「开饭」);但噪声长句 SenseVoice 一致性明显更好(5dB 天津话:small「就是他就是每个人都个守法」vs SV「其实他就怕每个人都会守法」;四川话 SV 逐字正确),且自带标点与 ITN。否决 paraformer-large(217MB,更差、无标点)、Dolphin(英文/数字/首字崩)、SenseVoice 2025-09-09(无标点、英文错、首字丢)。构建期下载从 GitHub tar.bz2 改成 HF 按文件直取:GitHub 实测 11 分钟只接到 17,609,870B(HTTP 56),HF 229MB 47 秒下完;两文件逐钉 sha256。产物 zip 160,304,626B;dev APK 182.34MB、β 172.98MB(旧 β 103.06MB)。"
+  source: "2026-11-09 用户「解决语音输入问题,找更合适的模型」"
+  affects: [voice-input, app/build.gradle.kts, SherpaLocalEngine.kt]
+
+- time: 2026-11-09T20:03:29
+  kind: evidence
+  summary: "另测 csukuangfj/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17(252MB,可被 from_sense_voice 加载):短句修正了「开放时间早上」(sv24 听成「开饭」),但输出完全无标点、无 ITN、中英混说崩(yay was星期一)。不换:输入法上屏需要标点,且中英混输是硬需求。FunASR-Nano 原版(encoder 227+embedding 148+llm 572MB)体积 ~950MB,不适合随 APK 分发。"
+  source: "2026-11-09 额外基准"
+  affects: [voice-input]
