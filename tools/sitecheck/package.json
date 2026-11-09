@@ -1,0 +1,8 @@
+{
+  "name": "gaia-sitecheck",
+  "private": true,
+  "description": "站点版式的数值判据(本地跑,不进站点构建、不进 CI 闸门)",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
