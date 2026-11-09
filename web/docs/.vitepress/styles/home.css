@@ -127,6 +127,13 @@
   margin: 0 auto;
 }
 
+/*
+ * 双类名不是凑写法。`responsive.css` 在 ≥720px 的断点里给 `.gaia-band-inner`
+ * 设了 900/1080/1180 的宽度，与本文件同特异性、且在样式表里**排在后面**，
+ * 会把这些带的上限一起改掉 —— 表现是桌面上正文带跑到 1080px,一行五十多个字。
+ * `.gaia-band-inner.gaia-band-narrow`（20）才压得住它。
+ */
+.gaia-band-inner.gaia-band-narrow,
 .gaia-band-narrow {
   max-width: 720px;
   text-align: center;
@@ -151,6 +158,16 @@
 .gaia-band-visual {
   flex: 1 1 440px;
   max-width: 520px;
+}
+
+/*
+ * 整屏宽的图跟在文案后面时要自己留距离。
+ *
+ * `.gaia-band p` 的 margin 是 0(段间距离由上面那条 `p + p` 管),而图是 `<figure>`:
+ * 不补这一条,输入法那一行就贴在最后一句话下面。
+ */
+.gaia-band-narrow > * + figure {
+  margin-top: 36px;
 }
 
 .gaia-band h2 {
@@ -188,3 +205,91 @@
 .gaia-band-ink th {
   background: rgba(255, 255, 255, 0.06);
 }
+
+/* ------------------------------------------------------- 视觉件的局部变量 */
+
+/*
+ * 图、表、示意件里用到的**描边与底色**，全部走局部变量，不在组件里写死颜色。
+ * 原因是分区有三种底色（stone / ink / white），而 ink 是**深底**：
+ * 组件读的是 `--vp-c-text-1` 这类全局变量，在浅色模式下它是近黑 ——
+ * 近黑写在近黑的底上就是**看不见**。所以 ink 分区连文字变量一起就地改掉，
+ * 组件不需要知道自己在哪种底色上。
+ *
+ * 这是「ink 分区不看站点深色模式」的必然结果：底色是写死的，
+ * 变量就必须跟着底色写死，否则同一个组件在两种模式下会有两种对比度。
+ */
+.gaia-band-white {
+  --gaia-line: rgba(0, 0, 0, 0.1);
+  --gaia-soft: #f5f5f7;
+  --gaia-brand-soft: rgba(0, 113, 227, 0.1);
+  --gaia-cap-bg: #fff;
+  --gaia-cap-line: rgba(0, 0, 0, 0.12);
+  --gaia-cap-out: #1d1d1f;
+  --gaia-cap-print: #86868b;
+}
+
+.gaia-band-stone {
+  --gaia-line: rgba(0, 0, 0, 0.1);
+  --gaia-soft: #fff;
+  --gaia-brand-soft: rgba(0, 113, 227, 0.12);
+  --gaia-cap-bg: #fff;
+  --gaia-cap-line: rgba(0, 0, 0, 0.12);
+  --gaia-cap-out: #1d1d1f;
+  --gaia-cap-print: #86868b;
+}
+
+.gaia-band-ink {
+  --vp-c-text-1: #f5f5f7;
+  --vp-c-text-2: #a1a1a6;
+  --vp-c-text-3: #86868b;
+  --vp-c-brand-1: #2997ff;
+  --vp-c-divider: rgba(255, 255, 255, 0.16);
+
+  --gaia-line: rgba(255, 255, 255, 0.2);
+  --gaia-soft: rgba(255, 255, 255, 0.06);
+  --gaia-brand-soft: rgba(41, 151, 255, 0.2);
+  --gaia-cap-bg: rgba(255, 255, 255, 0.06);
+  --gaia-cap-line: rgba(255, 255, 255, 0.2);
+  --gaia-cap-out: #f5f5f7;
+  --gaia-cap-print: #a1a1a6;
+}
+
+/* ------------------------------------------------------- 分区的宽与留白 */
+
+/*
+ * 键位表那一屏：26 个格子按十列排，720px 的正文带装不下（每格只剩 58px，
+ * `PgUp` 那种三字标签会被挤扁）。它仍是**居中排版**（narrow 管这件事），
+ * 只是带子放宽。写在 narrow 之后，同特异性下靠顺序取胜。
+ *
+ * 双类名同 narrow 那条:压住 responsive.css 的 `.gaia-band-inner` 宽度。
+ */
+.gaia-band-inner.gaia-band-wide,
+.gaia-band-wide {
+  max-width: 880px;
+}
+
+/*
+ * 两栏分区的留白。`p + p` 那条只可能命中 narrow 带 —— split 带的段落包在
+ * `.gaia-band-copy` 里，不是内层的直接子元素，于是 split 带永远吃默认值。
+ * split 带一屏有文案 + 一个视觉件，本来就该比纯文字带松一点。
+ */
+.gaia-band:has(> .gaia-band-split) {
+  padding: 88px 24px;
+}
+
+/*
+ * 行内代码。
+ *
+ * 首页**不在 `.vp-doc` 里**（自定义布局自己包的 DOM，实测 dist/index.html 没有 vp-doc 节点），
+ * 所以 VitePress 与 apple.css 给 `.vp-doc code` 定的那套底色、字体一条都落不到这儿 ——
+ * 页面上的 `<code>` 一直是裸的 UA 等宽。给它一层底色，符号键位（`<`、`【`、`￥`）
+ * 才与周围的中文分得开；底色走分区的局部变量，所以在 ink 带上不会是一块白。
+ */
+.gaia-band code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--gaia-soft);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.9em;
+}
+

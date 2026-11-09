@@ -106,6 +106,9 @@ export default defineConfig({
   cleanUrls: true,
 
   head: [
+    // 路径必须过 SITE_BASE。写死 `/favicon.svg` 的表现是「本地对、线上 404」——
+    // 站点挂在 /gaia/ 下,而浏览器会去根路径要这个文件。
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${SITE_BASE}favicon.svg` }],
     ['meta', { name: 'theme-color', content: '#0071e3' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: '盖亚输入法 — 给 Titan 2 量身定做的拼音输入法' }],

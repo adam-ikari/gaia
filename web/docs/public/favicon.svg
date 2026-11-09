@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="盖亚输入法">
+  <!--
+    站点的 favicon。**不画键盘,也不用字标**。
+
+    - 不画键盘:`a1ee77f` 反对的就是「自己画的东西演示产品」,16px 的格子里画键位
+      只会糊成一团噪声(应用启动图标那 48dp 版有 12 个键,缩到这里每个不到 2px)。
+    - 不用字标:SVG favicon 里的 `<text>` 靠访问者机器上的字体渲染,没装中文字体的
+      机器上直接变豆腐块 —— 而这是个中文站的图标,不该赌客户端的字体。
+
+    所以这里只放**产品自己的那一条事实**:一排五格,中间那格是首选
+    (与 `ImeState.kt:336`、`CandidateSlots.vue` 同一件事)。配色沿用应用启动图标
+    `app/src/main/res/drawable/ic_launcher.xml` 的三个值,所以标签页与手机桌面是同一张脸。
+
+    只用矢量:不支持 SVG favicon 的浏览器只有 IE11 与旧 Edge,而这个站的用户在
+    Unihertz Titan 2 上,不在那两家里。
+  -->
+  <path fill="#16181D" d="M4 10a6 6 0 0 1 6-6h28a6 6 0 0 1 6 6v28a6 6 0 0 1-6 6H10a6 6 0 0 1-6-6z"/>
+  <path fill="#E7EAF0" d="M6 20h6v8H6zM13.5 20h6v8h-6zM28.5 20h6v8h-6zM36 20h6v8h-6z"/>
+  <path fill="#B66B4A" d="M21 20h6v8h-6z"/>
+</svg>

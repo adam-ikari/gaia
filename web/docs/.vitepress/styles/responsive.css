@@ -4,9 +4,8 @@
  * **Unihertz Titan 2**：面板 1440×1440、逻辑宽度 576px（density 2.5），所以 CSS 视口是
  * **576×576 的正方形** —— 比常见手机宽、比它矮，而且不是"扁的"，是正方。这个形状是本次
  * 设计的基准：
- *   - 宽度 576 > 430 → 不走极窄排版，保持单列；
- *   - 高度 576 落在 `[520, 640]` 这一档里 → 吸顶逐帧区**保留**，只按视口高度缩放模型；
- *     再矮一档（横屏手机 ~400–480）才退化为静态逐帧列表；
+ *   - 宽度 576 > 430 → 不走极窄排版，键位表保持十列；
+ *   - 高度 576 落在 `[520, 640]` 这一档里 → 首屏按视口高度缩放，不会被顶出屏幕；
  *   - 正方形意味着横竖屏尺寸相同，`orientation` 断点在这里没有意义 —— 只看宽高数值。
  *
  * 其余断点覆盖普通手机（320–430）、平板（≥720）与桌面（≥1024）。
@@ -29,8 +28,8 @@
  *    而是**全站被缩小、右侧一截被切掉**。这轮实测：键盘立体那块的 3D 外接框把 375px
  *    的手机撑成 559px 布局视口。
  *
- *    用 clip 不用 hidden：clip 不建立滚动容器，`position: sticky` 照常工作（导航、
- *    ScrollFrames 的吸顶都依赖它）；hidden 会破坏。
+ *    用 clip 不用 hidden：clip 不建立滚动容器，`position: sticky` 照常工作（导航的吸顶依赖它）；
+ *    hidden 会破坏。
  */
 html {
   overflow-x: hidden;
@@ -66,22 +65,13 @@ html {
     font-size: 26px;
   }
 
-  .gfs-frame {
-    padding: 18px 16px;
-    border-radius: 26px;
-  }
-
-  .gfs-cand {
-    height: 44px;
-    font-size: 15px;
-  }
-
-  .gfs-line {
-    font-size: 22px;
-  }
-
-  .gfs-tick {
-    width: 12px;
+  /*
+   * 两栏带的留白在 home.css 里是 `:has(> .gaia-band-split)`（特异性 20），
+   * 上面那条 `.gaia-band`（10）压不住它 —— 媒体查询不加分。
+   * 不写这条，375px 的手机上单列的带还是 88px 上下。
+   */
+  .gaia-band:has(> .gaia-band-split) {
+    padding: 56px 20px;
   }
 }
 
@@ -89,55 +79,12 @@ html {
   .gaia-hero-title {
     font-size: 27px;
   }
-
-  .gfs-cands,
-  .gfs-keys {
-    gap: 5px;
-  }
-
-  .gfs-cand {
-    height: 40px;
-    font-size: 14px;
-  }
 }
 
-/* ---------------------------------------------------------------- 视口高度：模型缩放 + 退化 */
+/* ---------------------------------------------------------------- 视口高度：缩放 */
 
-/* 576 高：Titan 2 竖放刚好在这一档里。模型按视口高度缩，避免吸顶时被顶出屏幕。 */
+/* 576 高：Titan 2 竖放刚好在这一档里。首屏按视口高度缩，避免吸顶时被顶出屏幕。 */
 @media (max-height: 640px) {
-  .gfs-frame {
-    padding: 18px 16px;
-    border-radius: 28px;
-  }
-
-  .gfs-line {
-    min-height: 36px;
-    font-size: 22px;
-  }
-
-  .gfs-cands {
-    margin: 10px 0;
-  }
-
-  .gfs-cand {
-    height: 44px;
-    font-size: 15px;
-  }
-
-  .gfs-alpha {
-    height: 46px;
-    margin-top: 10px;
-  }
-
-  .gfs-hint {
-    margin-top: 12px;
-    min-height: 2.4em;
-  }
-
-  .gfs-sticky {
-    gap: 12px;
-  }
-
   .gaia-hero {
     padding: 56px 24px 44px;
   }
@@ -149,38 +96,9 @@ html {
   .gaia-band {
     padding: 64px 24px;
   }
-}
 
-/* 横放的手机（~400–480 高）：吸顶 + 100svh 会把内容顶出屏幕，
-   逐帧动画退化成静态的纵向列表 —— 每一帧都还在，只是不再跟手。 */
-@media (max-height: 520px) {
-  .gfs-scroll {
-    height: auto !important;
-  }
-
-  .gfs-sticky {
-    position: static !important;
-    height: auto !important;
-    display: block !important;
-    padding: 0;
-    columns: 2;
-    column-gap: 16px;
-  }
-
-  .gfs-frame {
-    break-inside: avoid;
-    margin: 0 0 16px;
-  }
-
-  .gfs-frames,
-  .gfs-caption {
-    display: none;
-  }
-}
-
-@media (max-height: 420px) and (orientation: landscape) {
-  .gfs-sticky {
-    columns: 3;
+  .gaia-band:has(> .gaia-band-split) {
+    padding: 64px 24px;
   }
 }
 

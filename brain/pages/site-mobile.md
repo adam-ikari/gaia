@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [视口被撑开是首要故障, 3D 投影的尺寸必须实测:mobile, responsive, css, 3d, viewport]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-08T01:04:11"
+updated: "2026-11-09T16:19:30"
 ---
 
 <!-- compiled_truth -->
@@ -130,3 +130,9 @@ Titan 2 是按 576×576 的视口模拟的,不是那台机器。
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
   affects: [site-mobile]
+
+- time: 2026-11-09T16:19:30
+  kind: decision
+  summary: "正文带上限(720/880)必须写成双类名 .gaia-band-inner.gaia-band-narrow:responsive.css 的断点给 .gaia-band-inner 设 900/1080/1180,与本文件同特异性且排在后面,单类名会被盖掉——桌面端正文带实测 1080px(一行五十多字)"
+  source: "2026-11-09 首页分栏实测(getBoundingClientRect)发现并修正"
+  affects: [site-mobile, site-style]
