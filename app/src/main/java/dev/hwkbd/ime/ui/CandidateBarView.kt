@@ -171,6 +171,12 @@ class CandidateBarView @JvmOverloads constructor(
     private var pageCommitted = false
     private var lastPage = 0
 
+    /**
+     * 上一次的组词缓冲。拼音一变,controller 的页码会归零 —— 那是**新候选表**的第一页,
+     * 不是用户翻页;视图不能把它画成"滑回第一页"的动画(2026-11-18 用户报障)。
+     */
+    private var lastRaw = ""
+
     /** 翻页拖动的基线 x:手指从这里起算 [pageSlide];接管动画时按当前 pageSlide 重定基线,接着走不跳。 */
     private var pageDragBaseX = 0f
     private var pageDragging = false
@@ -286,8 +292,20 @@ class CandidateBarView @JvmOverloads constructor(
         // 跟手翻页要预览相邻页,先备好(越界为空表 = 那一侧没有页,拖过去也不动)
         pageNextSlots = state.pageSlotsAt(state.page + 1)
         pagePrevSlots = state.pageSlotsAt(state.page - 1)
+        val rawChanged = state.raw != lastRaw
+        lastRaw = state.raw
         val pageTurned = state.page != lastPage
-        if (pageTurned) onPageIndexChanged(state.page, newSlots)
+        if (pageTurned) {
+            if (rawChanged) {
+                // 拼音变了 ⇒ 这是新候选表的第一页,不是用户翻页。清掉可能还在跑的
+                // 整页过渡,直接换词,别画"滑回第一页"。
+                pageSpring.cancel()
+                clearPageTurn()
+                pageCommitted = false
+            } else {
+                onPageIndexChanged(state.page, newSlots)
+            }
+        }
         lastPage = state.page
         // 变化动画要在 slots 换掉**之前**算:要对比新旧每一槽是不是同一个词
         if (!pageTurned) startSwapAnim(slots, newSlots)
@@ -1432,7 +1450,7 @@ pageSlide = pageSettleTarget
                 val ady = kotlin.math.abs(dy)
                 // 翻页先判:横滑接管时正在上滑的词要放回去,别两条拖动同时跑
                 var takeOverPage = false
-                if (swipeArmed && swipePageEnabled && adx > pageDeadPx && adx > ady) {
+                if (swipeArmed && swipePageEnabled && adx > pageDeadPx && DragGesture.dominant(adx, ady)) {
                     val dir = if (dx < 0f) 1f else -1f
                     takeOverPage = takeOverPageDrag(dir, event.x, event.eventTime, external = false)
                 }
@@ -1530,7 +1548,7 @@ pageSlide = pageSettleTarget
                     // 抬手时若位移够大且横向占优,直接翻。之前只有点两侧箭头能翻,
                     // 拖动必须过死区才接管,快速轻扫会落进 touchSlop 里什么都不发生。
                     swipeArmed && swipePageEnabled && kotlin.math.abs(dx) > flingDistance &&
-                        kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
+                        DragGesture.dominant(kotlin.math.abs(dx), kotlin.math.abs(dy)) -> {
                         onPage?.invoke(if (dx < 0) 1 else -1)
                     }
                 }

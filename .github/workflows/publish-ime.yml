@@ -151,7 +151,7 @@ jobs:
           printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/hwkbd.keystore"
           echo "keystore: $(stat -c%s "$RUNNER_TEMP/hwkbd.keystore") 字节"
 
-      # 离线语音模型(78MB)不在版本库里,由 `:app:fetchVoiceModel` 构建期取。
+      # 离线语音模型(229MB)不在版本库里,由 `:app:fetchVoiceModel` 构建期取。
       # 这一步在 CI 上必然真的下载一次 —— 那正是模型出仓库换来的东西。
       - name: 取离线语音模型
         run: ./gradlew --no-daemon :app:fetchVoiceModel

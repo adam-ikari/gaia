@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, threshold, sensitivity, deadzone]
 created: "2026-10-03T11:25:29"
-updated: "2026-10-19T20:56:31"
+updated: "2026-11-19T09:04:06"
 ---
 
 <!-- compiled_truth -->
@@ -107,3 +107,9 @@ updated: "2026-10-19T20:56:31"
   summary: "2026-10-19 L5 合并后校正入口命名:L6 视图已不存在,实际滑动入口为键盘面/候选行/L5 面板三条,L4 接门但预留"
   source: "2026-10-19 L5 合并收尾"
   affects: [sensitivity-tiers]
+
+- time: 2026-11-19T09:04:06
+  kind: decision
+  summary: "滑动方向判定加 1.5 倍占优门槛:键面上滑/横滑、候选栏横滑、L5 竖滑统一走 DragGesture.dominant,副轴取绝对值;旧写法 adx > dy 在 dy<0(向下滚)时恒成立,是压键误翻页的直接来源"
+  source: "2026-11-18 用户「优化上滑和左右滑动 减少误触」"
+  affects: [sensitivity-tiers, paging-feel]

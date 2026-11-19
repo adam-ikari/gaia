@@ -150,6 +150,12 @@ abstract class FetchVoiceModel : DefaultTask() {
      */
     private fun download(to: File, url: String, expect: String, label: String) {
         val tmp = File(to.parentFile, to.name + ".tmp")
+        // 上次可能已经下完却没来得及改名:断点就是完整文件,直接落盘,别再发 Range。
+        if (tmp.isFile && sha256Of(tmp) == expect) {
+            if (!tmp.renameTo(to)) throw GradleException("模型缓存落盘失败:$to")
+            logger.lifecycle("语音模型下载完成:$label(断点已完整)")
+            return
+        }
         val notes = mutableListOf<String>()
         for (attempt in 1..MAX_ATTEMPTS) {
             val have = if (tmp.isFile) tmp.length() else 0L
@@ -193,6 +199,11 @@ abstract class FetchVoiceModel : DefaultTask() {
         conn.instanceFollowRedirects = true
         if (have > 0L) conn.setRequestProperty("Range", "bytes=$have-")
         val code = conn.responseCode
+        if (code == 416 && have > 0L) {
+            conn.disconnect()
+            tmp.delete()
+            throw IOException("断点超出当前文件大小(HTTP 416),已丢弃并从零重下")
+        }
         if (code != 200 && code != 206) throw IOException("HTTP $code")
         val resume = code == 206 && have > 0L
         if (!resume && have > 0L) tmp.delete()
@@ -683,7 +694,7 @@ val fetchVoiceModel = tasks.register<FetchVoiceModel>("fetchVoiceModel") {
     cacheRoot.set(rootProject.layout.projectDirectory.dir(".cache/voice-model"))
     assetsOut.set(layout.buildDirectory.dir("generated/voiceAssets"))
     if (project.hasProperty("voiceModelDir")) {
-        localDir.set(file(project.property("voiceModelDir").toString()))
+        localDir.set(rootProject.file(project.property("voiceModelDir").toString()))
     }
 }
 

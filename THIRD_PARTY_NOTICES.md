@@ -104,7 +104,7 @@ librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
   - **模型不在版本库里**：`:app:fetchVoiceModel` 按上面两个 HF 直链下载、逐文件校验 sha256，
     重打包成 `sense-voice-zh-en-ja-ko-yue-2024-07-17.zip` 挂进 assets。
     原件缓存 `.cache/voice-model/`（gitignore），离线时用 `-PvoiceModelDir=<目录>` 指给构建。
-  - 权重源自 FunAudioLLM 的 SenseVoiceSmall，经 sherpa-onnx 转为 ONNX，按 FunASR Model License 1.1 分发：
+  - 权重版权归 Alibaba Group（FunAudioLLM / SenseVoiceSmall），经 sherpa-onnx 转为 ONNX，按 FunASR Model License 1.1（Copyright © 2023–2028 Alibaba Group）分发：
     https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE
   - 上游项目：https://github.com/FunAudioLLM/SenseVoice
 - 许可证全文（代码）：https://www.apache.org/licenses/LICENSE-2.0

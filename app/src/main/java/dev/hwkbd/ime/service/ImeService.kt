@@ -37,6 +37,7 @@ import dev.hwkbd.ime.service.voice.VoiceErrorKind
 import dev.hwkbd.ime.service.voice.VoiceInput
 import dev.hwkbd.ime.service.voice.VoiceState
 import dev.hwkbd.ime.ui.CandidateBarView
+import dev.hwkbd.ime.ui.DragGesture
 import dev.hwkbd.ime.ui.ImeRootView
 import java.util.concurrent.Executors
 
@@ -893,7 +894,9 @@ class ImeService : InputMethodService() {
                     }
                     // 横向占优且过了死区 → 起手翻页拖动(死区吃键面那一档 DEAD_DP_SURFACE)。
                     // 必须在 MOVE 里接管:抬手才判的话整条拖动不画位移,跟手动画就没有。
-                    if (adx > swipeDeadZone && adx > dy) {
+                    // 副轴由 dominant 取绝对值:旧写成 adx > dy 时 dy 为负,向下滚一下
+                    // 配一点横向漂移就恒成立,是压键误翻页的直接来源。
+                    if (adx > swipeDeadZone && DragGesture.dominant(adx, dy)) {
                         val dir = if (dx < 0f) 1f else -1f
                         if (listener.onPageDragBegin(dir, x, eventTime)) {
                             paging = true
@@ -902,7 +905,7 @@ class ImeService : InputMethodService() {
                         }
                     }
                     // 回拖或横向为主:放弃飞字(翻页要么已接管,要么没到死区)
-                    if (dy <= 0f || adx >= dy) {
+                    if (dy <= 0f || !DragGesture.dominant(dy, adx)) {
                         abortDrag()
                         return null
                     }
@@ -954,9 +957,11 @@ class ImeService : InputMethodService() {
                     // [pageThresholdPx] 是**死区之外**的提交距离,而这里的 adx 从 DOWN 算起,
                     // 死区那一截还在里面 —— 所以要先加上死区,两者才同一个口径
                     // (2026-10-02 改档位口径时就是漏了这一次,两处量纲对不上)。
-                    if (adx > swipeDeadZone + pageThresholdPx && adx > dy) return if (dx < 0) PAGE_NEXT else PAGE_PREV
+                    if (adx > swipeDeadZone + pageThresholdPx && DragGesture.dominant(adx, dy)) {
+                        return if (dx < 0) PAGE_NEXT else PAGE_PREV
+                    }
                     // 纵向主位移(向上):兜底(拖动过程的 MOVE 丢失时仍能提交)
-                    if (dy > threshold && dy > adx) return zoneOf(downX)
+                    if (DragGesture.dominant(dy, adx) && dy > threshold) return zoneOf(downX)
                 }
             }
             return null

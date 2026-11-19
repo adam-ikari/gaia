@@ -243,7 +243,8 @@ class SherpaLocalEngine(
             try {
                 stream.acceptWaveform(samples, PcmRecorder.SAMPLE_RATE)
                 rec.decode(stream)
-                rec.getResult(stream).text.trim()
+                // 只认中文:SenseVoice 会在词间/中英之间插空格,上屏不需要。
+                rec.getResult(stream).text.trim().replace(" ", "")
             } finally {
                 stream.release()
             }

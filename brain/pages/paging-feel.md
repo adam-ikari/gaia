@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [gesture, animation, paging]
 created: "2026-09-30T13:23:54"
-updated: "2026-10-16T15:53:44"
+updated: "2026-11-19T09:15:59"
 ---
 
 <!-- compiled_truth -->
@@ -295,3 +295,9 @@ dp 错的推理"都是错的 —— dp 根本不由 px 单独决定。
   summary: "本节死区数值更正:16dp 是 2026-10-02 当时值;现行 = 屏幕触摸板 8dp / 键盘表面 12dp(2026-10-16),并指向 [[sensitivity-tiers]]"
   source: "2026-10-16 用户定案 + 368 单测全绿(c6ece76)"
   affects: [paging-feel]
+
+- time: 2026-11-19T09:15:59
+  kind: decision
+  summary: "候选翻页后继续输入拼音时页码归零不播翻页动画:CandidateBarView.setState 按 raw 变化区分\"新候选表第一页\"与用户翻页,前者取消在跑的整页过渡并直接换词"
+  source: "2026-11-18 用户「候选词翻页之后 继续输入拼音 不要有回到第一页的动画」"
+  affects: [paging-feel, gesture-animation-ownership]

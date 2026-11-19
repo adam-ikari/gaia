@@ -1,6 +1,7 @@
 package dev.hwkbd.ime.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,6 +34,22 @@ class GesturePhysicsTest {
             x = 1000f - dxLeft, baseX = 1000f, dir = 1f, viewW = viewW,
             dead = dead,
         )
+
+    @Test
+    fun `斜向漂移和反向滚动不触发滑动手势`() {
+        // 旧判据 adx > ady:45° 的斜向漂移就算横滑;向下滚时 dy 为负,
+        // "有一点横向位移"就恒成立。两种情况都是压键误翻页/误飞字的来源。
+        assertFalse("斜向漂移不算横滑", DragGesture.dominant(40f, 35f))
+        assertFalse("斜向漂移不算上滑", DragGesture.dominant(35f, 40f))
+        assertFalse("向下滚 + 小横移不算横滑", DragGesture.dominant(20f, -100f))
+        assertFalse("反向不算上滑", DragGesture.dominant(-60f, 0f))
+
+        // 有意划动仍必须触发:副轴小于主轴的 1/DIRECTION_DOMINANCE
+        val secondary = 40f / DragGesture.DIRECTION_DOMINANCE - 1f
+        assertTrue("明显横向占优仍翻页", DragGesture.dominant(40f, secondary))
+        assertTrue("明显纵向占优仍飞字", DragGesture.dominant(40f, -secondary))
+        assertTrue("纯横滑/纯上滑", DragGesture.dominant(40f, 0f))
+    }
 
     // ---------------------------------------------------------------- 跟手
 

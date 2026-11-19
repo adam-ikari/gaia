@@ -133,6 +133,18 @@ internal object DragGesture {
     const val DEAD_SLIP = 0.33f
 
     /**
+     * 方向占优倍率:主轴位移要大于副轴的这个倍数才算这一轴的手势。
+     *
+     * 原先只比 `adx > ady`(45° 就算横滑),压键时手指滚动带出的斜向漂移很容易
+     * 被判成翻页/飞字。1.5 倍把分界线推到约 34°,保留有意划动,压住斜向误触。
+     */
+    const val DIRECTION_DOMINANCE = 1.5f
+
+    /** 主轴位移是否明显压过副轴;副轴取绝对值,反向滚动不能给横滑开绿灯。 */
+    fun dominant(primary: Float, secondary: Float): Boolean =
+        primary > 0f && primary > kotlin.math.abs(secondary) * DIRECTION_DOMINANCE
+
+    /**
      * 跟手进度:位移沿手势正方向累计时,返回 `0..1` 的进度。**只用于判定提交与否。**
      *
      * @param travel 位移(px,已取沿正方向的绝对值)

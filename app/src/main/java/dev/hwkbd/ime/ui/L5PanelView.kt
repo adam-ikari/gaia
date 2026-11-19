@@ -329,7 +329,7 @@ class L5PanelView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 val dx = ev.x - swipeDownX
                 val dy = ev.y - swipeDownY
-                if (swipeArmed && abs(dy) > swipeDeadPx && abs(dy) > abs(dx)) {
+                if (swipeArmed && abs(dy) > swipeDeadPx && DragGesture.dominant(abs(dy), abs(dx))) {
                     // 定方向那一下决定整次手势往哪翻:上滑 = 下一页
                     swipeDir = if (dy < 0f) 1f else -1f
                     swipeTracking = true
@@ -359,7 +359,7 @@ class L5PanelView @JvmOverloads constructor(
                 // 起手落在**键帽之外**(3dp 键距 / 内边距 / 侧边)时,父视图自己就是 touch target,
                 // 这条手势根本不经 [onInterceptTouchEvent] —— 方向判定必须在**这里**也有一份,
                 // 否则那种起手竖滑完全没反应(与 L4PanelView.onTouchEvent 同构)。
-                if (!swipeTracking && swipeArmed && abs(dy) > swipeDeadPx && abs(dy) > abs(dx)) {
+                if (!swipeTracking && swipeArmed && abs(dy) > swipeDeadPx && DragGesture.dominant(abs(dy), abs(dx))) {
                     swipeDir = if (dy < 0f) 1f else -1f
                     swipeTracking = true
                 }
