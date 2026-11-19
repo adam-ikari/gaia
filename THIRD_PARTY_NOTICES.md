@@ -9,7 +9,7 @@
 
 ## 1. AndroidX — Apache License 2.0
 
-- `androidx.core:core-ktx:1.13.1`
+- `androidx.core:core-ktx:1.15.0`
 - `androidx.appcompat:appcompat:1.7.0`
 - `androidx.preference:preference:1.2.1`
 - `androidx.dynamicanimation:dynamicanimation:1.1.0` —— **手势与动画的物理引擎**
@@ -20,7 +20,7 @@
 ## 2. Kotlin 标准库与 kotlinx-coroutines — Apache License 2.0（含 Kotlin 例外条款）
 
 - Kotlin 标准库（Kotlin 1.9.24 随 Android Gradle Plugin 引入）
-- `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1`（依赖 `kotlinx-coroutines-core:1.8.1`）
+- `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0`（依赖 `kotlinx-coroutines-core:1.9.0`）
 - 版权：JetBrains s.r.o. and Kotlin programming language contributors
 - 许可证全文：https://www.apache.org/licenses/LICENSE-2.0
 - Kotlin 例外条款（Kotlin Exception to the Apache 2.0 License）：https://kotlinlang.org/legal/apache-2.0-exception.html
@@ -93,7 +93,7 @@ librime 自带的 vendored 依赖,全部静态链接进我们的 `.so`:
 
 ## 4. 语音识别 — Apache License 2.0 / FunASR Model License 1.1
 
-- `com.bihe0832.android:lib-sherpa-onnx:6.25.21`（sherpa-onnx 的 Android 打包，随包提供 `libsherpa-onnx-jni.so`）
+- `com.bihe0832.android:lib-sherpa-onnx:8.6.10`（sherpa-onnx 的 Android 打包，随包提供 `libsherpa-onnx-jni.so`）
   - 上游：https://github.com/k2-fsa/sherpa-onnx
   - 打包来源：https://github.com/bihe0832/AndroidAppFactory
   - 上游项目为 Apache License 2.0。
