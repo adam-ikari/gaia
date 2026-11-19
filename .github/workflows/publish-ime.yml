@@ -77,6 +77,11 @@ jobs:
     # 「构建被杀掉」而不是「闸门没过」,那比失败更难看清。
     timeout-minutes: 120
 
+    # publish-*.sh 里的 gh release/create/upload 走 CLI,必须整 job 都有 token;
+    # 只给「解析 source_ref」那一步配过一次,结果 β 包编好后才在发 release 时失败。
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       # dispatch 输入是手填的。先过一道白名单字符集,再让**服务端**把它解析成一个完整
       # commit,理由不是防注入(它不会被当 shell 执行),是**可追溯**:
