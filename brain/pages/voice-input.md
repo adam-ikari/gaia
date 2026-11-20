@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [ime, voice, permission]
 created: "2026-10-24T14:31:03"
-updated: "2026-11-18T08:29:24"
+updated: "2026-11-20T22:33:59"
 ---
 
 <!-- compiled_truth -->
@@ -195,3 +195,9 @@ updated: "2026-11-18T08:29:24"
   summary: Rewrote compiled_truth to the new best understanding
   source: "2026-11-18 代码评审:模型切换后验证状态里的旧模型名未更新"
   affects: [voice-input]
+
+- time: 2026-11-20T22:33:59
+  kind: evidence
+  summary: "确认 beta-e4b4f6b 长按空格语音闪退根因:SenseVoice 模型解压在 filesDir,但 OfflineRecognizer 构造传了 context.assets;sherpa-onnx 8.6.10 的 JNI 用绝对路径调 AAssetManager_open 失败后 SHERPA_ONNX_EXIT(-1),直接杀进程。改为传 null AssetManager 走 newFromFile。"
+  source: "2026-11-20 Titan 2 真机报告 + SherpaLocalEngine.kt + sherpa-onnx file-utils.cc + 8.6.10 native strings"
+  affects: [voice-input, SherpaLocalEngine.kt]

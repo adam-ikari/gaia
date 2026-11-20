@@ -1,6 +1,7 @@
 package dev.hwkbd.ime.service.voice
 
 import android.content.Context
+import android.content.res.AssetManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,6 +17,34 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.zip.ZipInputStream
+
+private const val MODEL_FILE = "model.int8.onnx"
+private const val TOKENS_FILE = "tokens.txt"
+
+/**
+ * 构造 recognizer 的纯配置部分。[create] 可注入,便于单测钉住 JNI 入口:
+ * 模型是 filesDir 里的绝对路径,AssetManager 必须为 null,否则新版 sherpa-onnx
+ * 会拿绝对路径去 AAssetManager_open 并直接 exit(-1)。
+ */
+internal fun <T> buildSherpaRecognizer(
+    root: File,
+    create: (AssetManager?, OfflineRecognizerConfig) -> T,
+): T {
+    val config = OfflineRecognizerConfig(
+        featConfig = FeatureConfig(sampleRate = PcmRecorder.SAMPLE_RATE, featureDim = 80),
+        modelConfig = OfflineModelConfig(
+            senseVoice = OfflineSenseVoiceModelConfig(
+                model = File(root, MODEL_FILE).absolutePath,
+                language = "zh",
+                useInverseTextNormalization = true,
+            ),
+            tokens = File(root, TOKENS_FILE).absolutePath,
+            numThreads = 2,
+            provider = "cpu",
+        ),
+    )
+    return create(null, config)
+}
 
 /**
  * 本地离线识别：sherpa-onnx + SenseVoiceSmall(zh-en-ja-ko-yue, 2024-07-17)。
@@ -147,23 +176,8 @@ class SherpaLocalEngine(
         }
     }
 
-    private fun buildRecognizer(root: File): OfflineRecognizer {
-        val config = OfflineRecognizerConfig(
-            featConfig = FeatureConfig(sampleRate = PcmRecorder.SAMPLE_RATE, featureDim = 80),
-            modelConfig = OfflineModelConfig(
-                senseVoice = OfflineSenseVoiceModelConfig(
-                    model = File(root, MODEL_FILE).absolutePath,
-                    language = "zh",
-                    // 数字规范化：「九点」→「9点」，输入法里更好改。
-                    useInverseTextNormalization = true,
-                ),
-                tokens = File(root, TOKENS_FILE).absolutePath,
-                numThreads = 2,
-                provider = "cpu",
-            ),
-        )
-        return OfflineRecognizer(context.assets, config)
-    }
+    private fun buildRecognizer(root: File): OfflineRecognizer =
+        buildSherpaRecognizer(root, ::OfflineRecognizer)
 
     private fun beginListening(): Boolean {
         if (recognizer == null) return false
@@ -308,9 +322,6 @@ class SherpaLocalEngine(
         private const val MODEL_ID = "sense-voice-zh-en-ja-ko-yue"
         private const val MODEL_VERSION = "2024-07-17"
         private const val ASSET_ZIP = "sherpa/$MODEL_ID-$MODEL_VERSION.zip"
-        private const val MODEL_FILE = "model.int8.onnx"
-        private const val TOKENS_FILE = "tokens.txt"
-
         /** 解压目录的完成标记：内容带版本，换模型/换版本都会重新解压。 */
         private const val READY = "$MODEL_ID $MODEL_VERSION"
         private const val READY_MARKER = ".ready"
