@@ -10,7 +10,7 @@
 
 ## 每张图怎么读
 
-上面三行是这个键打出来的字，**下面三行是键帽上印的字母**，一一对齐。第 2 行右移一格、第 3 行右移两格，是键盘本来的错位，不是排版问题。
+每格上面是这个键打出来的字，**下面是键帽上印的字母**。Titan 2 的字母三排按 10 列对齐，不是普通电脑键盘那种斜向错位：第 2 排末尾是退格、第 3 排末尾是回车（都不参与 L1–L3 映射）；第 3 排 V 与 B 之间是占两个键宽的空格。
 
 ## L1 字母
 
@@ -24,12 +24,12 @@
 L2 符号数字
 
 0     1     2     3     (     )     -     _     /     :
-      @     4     5     6     *     #     +     "     '
-            !     7     8     9     .     ,     ?
+@     4     5     6     *     #     +     "     '     退格
+!     7     8     9     [ 空格占两列 ]     .     ,     ?     回车
 
 Q     W     E     R     T     Y     U     I     O     P
-      A     S     D     F     G     H     J     K     L
-            Z     X     C     V     B     N     M
+A     S     D     F     G     H     J     K     L     退格
+Z     X     C     V     [ 空格占两列 ]     B     N     M     回车
 ```
 
 ## L3 编程（按住 Sym）
@@ -40,12 +40,12 @@ Q     W     E     R     T     Y     U     I     O     P
 L3 编程
 
 Esc   ↑     ~     $     <     >     ^     PgUp  PgDn  Tab
-      ←     ↓     →     %     [     ]     `     Home  End
-            \     &     |     {     }     =     Ins
+←     ↓     →     %     [     ]     `     Home  End   退格
+\     &     |     {     }     [ 空格占两列 ]     =     Ins  回车
 
 Q     W     E     R     T     Y     U     I     O     P
-      A     S     D     F     G     H     J     K     L
-            Z     X     C     V     B     N     M
+A     S     D     F     G     H     J     K     L     退格
+Z     X     C     V     [ 空格占两列 ]     B     N     M     回车
 ```
 
 `Esc` `↑` `PgUp` `PgDn` `Tab` `←` `↓` `→` `Home` `End` `Ins` 这 11 个功能键位，中文全角态也原样不动。
@@ -58,12 +58,12 @@ Q     W     E     R     T     Y     U     I     O     P
 L3 编程(中文全角)
 
 同 Esc同 ↑  ～    ￥    《    》    ＾    同 PgUp同 PgDn同 Tab
-      同 ←  同 ↓  同 →  ％    【    】    ｀    同 Home同 End
-            、    ＆    ｜    ｛    ｝    ＝    同 Ins
+同 ←  同 ↓  同 →  ％    【    】    ｀    同 Home同 End   退格
+、    ＆    ｜    ｛    ｝    [ 空格占两列 ]    ＝    同 Ins   回车
 
 Q     W     E     R     T     Y     U     I     O     P
-      A     S     D     F     G     H     J     K     L
-            Z     X     C     V     B     N     M
+A     S     D     F     G     H     J     K     L     退格
+Z     X     C     V     [ 空格占两列 ]     B     N     M     回车
 ```
 
 `《》【】` 因此回到物理键上，状态行不必再摆它们。

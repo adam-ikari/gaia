@@ -13,10 +13,13 @@
       撑成 559px 的布局视口(见 brain 的 site-mobile)。
     -->
     <div class="kc-rows">
-      <div v-for="(row, ri) in rows" :key="ri" class="kc-row" :class="`kc-row-${ri}`">
-        <span v-for="k in row" :key="k.key" class="kc-cap">
-          <b class="kc-out">{{ k.out }}</b>
-          <i class="kc-print">{{ k.key }}</i>
+      <div v-for="(row, ri) in rows" :key="ri" class="kc-row">
+        <span v-for="(k, ki) in row" :key="ki" class="kc-cap" :class="{ 'kc-space': k.space }">
+          <template v-if="k.space"><span class="kc-space-label">空格</span></template>
+          <template v-else>
+            <b class="kc-out">{{ k.out }}</b>
+            <i class="kc-print">{{ k.key }}</i>
+          </template>
         </span>
       </div>
     </div>
@@ -29,13 +32,16 @@
  * 数据源:`KeyLayout.kt` 的 `default()` 里 `l2` / `l3` 两个列表。
  * 功能键在代码里是 `key:xxx`,`KeyNames` 给的名字;页面上要写成键帽上看得懂的样子。
  */
-type Cap = { key: string; out: string }
+type Cap = { key: string; out: string; space?: boolean }
 
-/** 物理键的三排(第 2 排右移一格、第 3 排右移两格,是真键盘的错位)。 */
+/**
+ * 物理键的三排**按列对齐**,不是普通电脑键盘的斜向错位。
+ * 底排 V 与 B 之间是一颗占两个键宽的空格;按列展开就是 `z x c v 空格 b n m`。
+ */
 const ROWS: string[][] = [
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-  ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
+  ['z', 'x', 'c', 'v', ' ', 'b', 'n', 'm'],
 ]
 
 const L2: Record<string, string> = {
@@ -65,7 +71,9 @@ const props = defineProps<{
 
 const table = props.layer === 'L2' ? L2 : L3
 const rows: Cap[][] = ROWS.map((row) =>
-  row.map((k) => ({ key: k.toUpperCase(), out: FUN[table[k]] ?? table[k] }))
+  row.map((k) => k === ' '
+    ? { key: '', out: '', space: true }
+    : { key: k.toUpperCase(), out: FUN[table[k]] ?? table[k] })
 )
 </script>
 
@@ -81,17 +89,18 @@ const rows: Cap[][] = ROWS.map((row) =>
 }
 
 .kc-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 8px;
 }
 
-/* 第 2、3 排的错位:真键盘上手指本来就往右偏,图里跟着偏,读的人才对得上键帽。 */
-.kc-row-1 {
-  padding-left: 5%;
+.kc-space {
+  grid-column: span 2;
 }
 
-.kc-row-2 {
-  padding-left: 10%;
+.kc-space-label {
+  font-size: 13px;
+  color: var(--gaia-cap-print);
 }
 
 .kc-cap {
@@ -149,13 +158,17 @@ const rows: Cap[][] = ROWS.map((row) =>
  */
 @media (max-width: 430px) {
   .kc-rows {
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
   }
 
   .kc-row {
-    flex-wrap: wrap;
-    gap: 6px;
-    padding-left: 0;
+    display: contents;
+  }
+
+  .kc-space {
+    grid-column: auto;
   }
 
   .kc-cap {

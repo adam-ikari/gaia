@@ -5,7 +5,7 @@ category: project
 status: active
 tags: [titan2, hardware, gesture]
 created: "2026-09-23T04:27:03"
-updated: "2026-10-01T08:03:33"
+updated: "2026-11-20T19:11:46"
 ---
 
 <!-- compiled_truth -->
@@ -14,6 +14,7 @@ Titan 2（Android 15）的物理键盘既是输入设备也是一块电容触摸
 ## 键盘事实
 
 - 4 行 QWERTY，**首行 6 个特殊键**：Shift / Sym / Back / Recent / Fn / Alt（Back、Recent 是物理导航键，会吃掉 `KEYCODE_BACK`、`KEYCODE_APP_SWITCH`）。
+- 字母三排按 **10 列对齐**，不是普通电脑键盘的斜向错位：第 2 排右端是退格、第 3 排右端是回车；第 3 排 V 与 B 之间是占两个键宽的空格。画键位图必须照这个网格，不能给后两排加左缩进（2026-11-20 用户纠正）。
 - **没有独立数字行**，字母键印有上档符号，官方说明 Alt = "Hold to type the upper symbols on letter keys" → 符号层必须由 Alt 层给出。
 - 系统自带行为：双击 Shift = Caps Lock、长按字母 = 单字大写、双击空格 = 插入句号+空格、长按 Sym = 唤起 Google 语音。
 - 系统快捷键设置里：Sym 可被指派为 Sym / Ctrl / Tab / Alt / Home…；Fn 默认短按回 Home、长按唤起助手，**官方建议设成 Ctrl**。
@@ -58,4 +59,10 @@ Titan 2（Android 15）的物理键盘既是输入设备也是一块电容触摸
   kind: note
   summary: "模拟器可以精确还原 Titan 2 的屏幕网格:AVD 手写 config.ini(hw.lcd.width/height=1440、density=320 ⇒ 576dp 宽),从开机起就是这个网格。注意 AOSP Launcher3 在正方形屏上必崩(calculateHotseatBorderSpace 除以零),要 disable 掉;也不能事后 wm size 改(改完系统瘫、Activity 起不来)"
   source: "2026-10-01 CI 实测"
+  affects: [tt2-hardware-constraints]
+
+- time: 2026-11-20T19:11:46
+  kind: decision
+  summary: "Titan 2 字母键盘按 10 列对齐,V/B 间空格占两列"
+  source: "2026-11-20 用户纠正 + Unihertz 官方键盘图"
   affects: [tt2-hardware-constraints]
