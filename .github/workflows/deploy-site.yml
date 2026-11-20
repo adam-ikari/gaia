@@ -116,6 +116,28 @@ jobs:
         with:
           path: web/docs/.vitepress/dist
 
+      # `upload` 返回成功只表示 artifact 已 finalize,元数据不一定立刻对 API 可见。
+      # 2026-11-20 实测:上传日志拿到 Artifact ID,紧接着 deploy-pages 查到 0 个,
+      # 几十秒后 API 又能查到那一个。`deploy-pages` 自己的重试只发生在部署阶段,
+      # 不覆盖这一步,所以失败得没有二次机会。这里等元数据出现再交棒。
+      - name: 等待 Pages artifact 对 API 可见
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for i in $(seq 1 30); do
+            id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+              --paginate --jq '.artifacts[] | select(.name == "github-pages") | .id' | head -1 || true)
+            if [ -n "$id" ]; then
+              echo "github-pages artifact $id 已可见(第 $i 次查询)"
+              exit 0
+            fi
+            echo "第 $i 次查询: artifact 尚未可见,10 秒后重试"
+            sleep 10
+          done
+          echo "::error::github-pages artifact 300 秒内未对 API 可见"
+          exit 1
+
       - id: deployment
         uses: actions/deploy-pages@v5
 
