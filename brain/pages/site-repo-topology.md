@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-10-30T11:19:12"
+updated: "2026-11-20T17:23:11"
 ---
 
 <!-- compiled_truth -->
@@ -133,7 +133,7 @@ Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-
 
 ## 「缺」与「坏」必须分开
 
-- **缺测试版** = 主下载断开 ⇒ **fatal**:首页按钮直接指向 `/media/gaia-beta.apk`。
+- **缺测试版** = 主下载断开 ⇒ **fatal**:首页主按钮的 ghproxy 坐标指向 release 资产,站点直链也在产物里。
 - **缺开发版** = 这个渠道还没上线 ⇒ **不 fatal**。照抄测试版的检查给它,「这次没有 dev 包」
   会让整个流程失败 ⇒ **测试版也更新不了、站点停在上一次**。一个可选功能能弄挂生产,最坏的形状。
 - **坏**(存在但截断)⇒ **fatal,所有已上线的 APK 一视同仁**。不对称不是按渠道重要性分的,
@@ -153,14 +153,27 @@ Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-
 标 prerelease,否则会 hijack GitHub 的 latest。manifest 里写死 release + 资产名,正是为了让
 部署侧**没有可猜的余地**。
 
+## 下载按钮:ghproxy 主链 + Pages 直链
+
+2026-11-20 用户要求用 ghproxy 加速页面 APK 下载。按钮主链是
+`https://ghproxy.net/https://github.com/<repo>/releases/download/<ref>/<asset>`,
+`repo/ref/asset` 由构建期从 manifest 的同一次取包数据注入,和页面上的 sha256/size 同源。
+代理只转发字节:2026-11-20 对真实 dev 资产取前 1KB,代理与直连逐字节一致,
+content-length/content-disposition 也一致;整包仍以页面显示的 sha256 为用户侧判据。
+
+Pages 那份 `/media/gaia-*.apk` **继续发布并逐字节验**,作为「代理不可用」的备用直链。
+主链跨站,浏览器会忽略 `<a download>`;文件名由 GitHub 资产的 Content-Disposition 给,
+备用直链仍靠 `download` 属性给可读的文件名。任一坐标缺失时主链退回本站直链,
+构建后的判据会查页面里确实有本次 release 的 ghproxy URL —— 不是只看源码常量。
+
 ## 站点源码里的不可省约束
 
-- **下载链接的 `download` 属性不能省**,URL 固定 `/media/gaia-beta.apk`、版本进文件名。
+- **本站直链的 `download` 属性不能省**,URL 固定 `/media/gaia-beta.apk`、版本进文件名。
   少了 `download`,VitePress 的 router 会把 `.apk` 当网页接管 ⇒ 渲染 404 页(真机报障,而
   直接访问同一 URL 却能下)。URL 固定是为了发版不用改 md —— 漏改的后果是 404 或永远下不到新版。
-- **包必须由 Pages 自己发**,不能链 GitHub 的 release 下载地址:那条链要跳两次(github.com →
-  release-assets),在 Titan 2 的浏览器上直接落到 Chrome 的「网页可能暂时无法连接」错误页
-  (真机复现,同机 curl 是 200)。
+- **不直接链 GitHub release 地址**:那条链要跳两次(github.com → release-assets),在 Titan 2
+  的浏览器上直接落到 Chrome 的「网页可能暂时无法连接」错误页(真机复现,同机 curl 是 200)。
+  ghproxy 把这一次请求收在代理域名里,所以用它做主链;Pages 那份仍留着兜底。
 
 
 ## Timeline
@@ -294,4 +307,22 @@ Pages 需配成 `build_type: workflow`,要求 workflow 有 `pages: write` + `id-
   kind: evidence
   summary: "改名核对那条把 dev 包大小写错了:线上与本地的 app-dev-a77b6fb.apk 都是 **96,260,037** 字节,不是 96,260,036(β 的 86,897,758 与两个 sha256 不变)。顺带记下 `brain append-timeline --kind` 只吃 decision / evidence / reversal / note,写 correction 会被拒 —— 而被拒的那条正好是「更正」,所以更正归到 evidence 里。数字抄错和抄漏一样会进 durable record,「写后读回」不是形式动作。"
   source: "2026-10-30 自查(写后读回抓到的)"
+  affects: [site-repo-topology]
+
+- time: 2026-11-20T16:40:39
+  kind: decision
+  summary: "站点 APK 主下载改为 ghproxy 代理 release 资产,Pages 直链保留兜底"
+  source: "2026-11-20 用户「使用ghproxy加速页面apk下载」"
+  affects: [site-repo-topology]
+
+- time: 2026-11-20T16:41:06
+  kind: reversal
+  summary: "撤销「包必须由 Pages 自己发,不能链 GitHub release 下载地址」:按用户要求改走 ghproxy 代理 release 资产做主链;直接链 GitHub 的双跳问题由代理规避,Pages 仍发同一份字节做兜底"
+  source: "2026-11-20 用户「使用ghproxy加速页面apk下载」"
+  affects: [site-repo-topology, web/docs/.vitepress/download.ts, tools/release/publish-site.sh]
+
+- time: 2026-11-20T17:23:11
+  kind: decision
+  summary: "补齐 ghproxy 主链后的缺包定义"
+  source: "2026-11-20 实现后的一致性修订"
   affects: [site-repo-topology]

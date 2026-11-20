@@ -1,10 +1,13 @@
 /**
  * 两条下载渠道 —— **全部链接与文件名的唯一来源**。
  *
- * | 渠道 | 站点路径(固定) | 下载文件名 | 装到手机上叫什么 |
+ * | 渠道 | 加速链接 | 站点直链(备用) | 装到手机上叫什么 |
  * | --- | --- | --- | --- |
- * | Beta版 | `/media/gaia-beta.apk` | `gaia-ime-beta-<hash>.apk` | `盖亚输入法 β` |
- * | dev版 | `/media/gaia-dev.apk` | `gaia-ime-dev-<hash>.apk` | `盖亚输入法 dev` |
+ * | Beta版 | ghproxy → `beta-<hash>/app-beta-<hash>.apk` | `/media/gaia-beta.apk` | `盖亚输入法 β` |
+ * | dev版 | ghproxy → `dev-latest/app-dev-<hash>.apk` | `/media/gaia-dev.apk` | `盖亚输入法 dev` |
+ *
+ * 加速链接由构建期的 release 坐标拼出,指向**同一份 release 资产**;
+ * 站点自己的 `/media/*.apk` 留作代理不可用时的直链,仍由部署链路逐字节校验。
  *
  * ## 为什么没有正式版渠道(2026-10-23)
  *
@@ -21,12 +24,11 @@
  * 版本号显示的是 APK 里的 `versionName`(`0.7.11-beta.a2f69d8`),
  * 也是装完在设置页看到的那个字符串。
  *
- * ## 为什么 URL 固定、身份进文件名
+ * ## 为什么 md 里不写链接
  *
- * 沿用这个站已经定过的原则:链接永远是 `/media/gaia-beta.apk`,**发版不用改 md**。
- * 原因不是偷懒 —— 把版本塞进 URL 意味着每发一版改一次 `index.md`,
+ * 发版不用改 `index.md`。版本进 ghproxy URL 会每发一版改一次页面,
  * 而漏改的后果是 404 或者**永远下不到新版**,这正是这个站踩过的坑。
- * 用户存下来的文件名由 `<a download>` 给,与 URL 无关。
+ * 加速链接从构建期的 release 坐标拼;直链固定 `/media/gaia-*.apk`。
  *
  * ## 身份从哪来
  *
@@ -34,6 +36,8 @@
  * 在**构建期**从 release 资产名读出来,注入 `VITE_BETA_VERSION` / `VITE_DEV_VERSION`;
  * 完整版本号则由同一个脚本从下载到的 APK 的 `versionName` 读出,
  * 注入 `VITE_BETA_VERSION_NAME` / `VITE_DEV_VERSION_NAME`。
+ * ghproxy 要的 `VITE_GITHUB_REPO` / `VITE_*_RELEASE` / `VITE_*_ASSET` 也从同一份
+ * manifest 数据注入 —— 链接指向的资产,就是页面校验值算的那份资产。
  * 不从 tag 推导:资产名是「远端确实存着什么」,是这件事的权威。
  * 若改成从 tag 推导,就有了 tag / 注入值 / APK 内 manifest 三个可能互相漂移的来源,
  * 不一致的表现是「文件名说 A、装完设置页写 B」。
@@ -50,9 +54,28 @@
 
 import { withBase } from 'vitepress'
 
+/** 免费公共代理。只代理 GitHub release 地址,不代理站点自己的页面与包。 */
+const GHPROXY = 'https://ghproxy.net/'
+
 /** 站点上的路径。固定,不带版本 —— 漏改 md 的可能性被结构性消灭。 */
 export const BETA_DOWNLOAD_PATH = '/media/gaia-beta.apk'
 export const DEV_DOWNLOAD_PATH = '/media/gaia-dev.apk'
+
+/**
+ * 把构建期注入的 release 坐标拼成 ghproxy 地址。
+ *
+ * 仓库名、`tag`、资产名分段编码:`tag` 可能带 `+`,资产名可能带空格,
+ * 直接拼接会让 URL 在浏览器里变成另一个地址,而它指向的字节不是同一个东西。
+ * 坐标缺一个就返回空串,调用方退回 Pages 直链 —— 宁可慢,不许点出 404。
+ */
+function ghproxyUrl(repo: string | undefined, tag: string | undefined, asset: string | undefined): string {
+  const parts = (repo || '').trim().split('/').filter(Boolean)
+  const ref = (tag || '').trim()
+  const name = (asset || '').trim()
+  if (parts.length !== 2 || !usable(ref) || !usable(name)) return ''
+  const github = `https://github.com/${parts.map(encodeURIComponent).join('/')}/releases/download/${encodeURIComponent(ref)}/${encodeURIComponent(name)}`
+  return GHPROXY + github
+}
 
 /** 本地构建等拿不到版本号时的兜底文件名。 */
 const FALLBACK_FILENAME = 'gaia-ime.apk'
@@ -105,9 +128,29 @@ export const DEV_VERSION_NAME = HAS_DEV ? versionName(import.meta.env.VITE_DEV_V
 export const BETA_FILENAME = usable(betaVersion) ? `gaia-ime-beta-${betaVersion.trim()}.apk` : FALLBACK_FILENAME
 export const DEV_FILENAME = HAS_DEV ? `gaia-ime-dev-${devVersion.trim()}.apk` : FALLBACK_FILENAME
 
-/** VitePress 的 `base` 要作用到这个路径上,所以两边都过 `withBase`,不能各写一遍。 */
-export const BETA_DOWNLOAD_URL = withBase(BETA_DOWNLOAD_PATH)
-export const DEV_DOWNLOAD_URL = withBase(DEV_DOWNLOAD_PATH)
+/** 站点直链仍保留:代理挂了或不想走第三方时,按钮下面有路可退。 */
+export const BETA_DIRECT_DOWNLOAD_URL = withBase(BETA_DOWNLOAD_PATH)
+export const DEV_DIRECT_DOWNLOAD_URL = withBase(DEV_DOWNLOAD_PATH)
+
+/**
+ * 主下载走 ghproxy 到 release 资产,坐标来自 manifest 的同一份数据。
+ * 任一坐标缺失就退回本站直链 —— 静态站没有运行时探测,拼出 404 比慢更糟。
+ */
+const betaGhproxyUrl = ghproxyUrl(
+  import.meta.env.VITE_GITHUB_REPO,
+  import.meta.env.VITE_BETA_RELEASE,
+  import.meta.env.VITE_BETA_ASSET,
+)
+const devGhproxyUrl = ghproxyUrl(
+  import.meta.env.VITE_GITHUB_REPO,
+  import.meta.env.VITE_DEV_RELEASE,
+  import.meta.env.VITE_DEV_ASSET,
+)
+
+export const BETA_DOWNLOAD_URL = betaGhproxyUrl || BETA_DIRECT_DOWNLOAD_URL
+export const DEV_DOWNLOAD_URL = HAS_DEV ? devGhproxyUrl || DEV_DIRECT_DOWNLOAD_URL : ''
+export const HAS_BETA_GHPROXY = !!betaGhproxyUrl
+export const HAS_DEV_GHPROXY = HAS_DEV && !!devGhproxyUrl
 
 /* ---------------------------------------------------------------- 下载校验值 */
 

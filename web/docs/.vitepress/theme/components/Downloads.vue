@@ -13,11 +13,11 @@
     <p class="gi-dl-row">
       <span v-for="c in channels" :key="c.label" class="gi-dl-cell">
         <!--
-          **`download` 属性不能省**(2026-10-02 真机报障:点按钮是 404 页,
+          `download` 属性在**本站直链**上不能省(2026-10-02 真机报障:点按钮是 404 页,
           直接访问同一 URL 却能下载)。VitePress 把站内 `.apk` 链接交给前端路由,
           而 `treatAsHtml` 的已知扩展名表里没有 apk → preventDefault → 404 页。
-          文件名也要给:URL 是固定的 `/media/gaia-beta.apk`,里面没有身份,
-          而「哪个版本、哪个 commit」是用户唯一能拿回来问的东西。
+          ghproxy 是跨站地址,浏览器会忽略 `download`,文件名由 release 资产的
+          Content-Disposition 给;下面的直链仍带着可读的文件名。
         -->
         <a
           class="gi-dl-btn"
@@ -36,6 +36,12 @@
           用户才能自己分辨「没下全」和「包有问题」。
         -->
         <VerifyLine v-if="c.sha" :sha="c.sha" :size="c.size" label="校验" />
+        <a
+          v-if="c.proxy"
+          class="gi-dl-direct"
+          :href="c.directUrl"
+          :download="c.filename"
+        >ghproxy 连不上？用本站直链</a>
       </span>
     </p>
   </div>
@@ -63,25 +69,31 @@
  */
 import VerifyLine from './VerifyLine.vue'
 import {
+  BETA_DIRECT_DOWNLOAD_URL,
   BETA_DOWNLOAD_URL,
   BETA_FILENAME,
   BETA_SHA256,
   BETA_SIZE,
   BETA_VERSION,
   BETA_VERSION_NAME,
+  DEV_DIRECT_DOWNLOAD_URL,
   DEV_DOWNLOAD_URL,
   DEV_FILENAME,
   DEV_SHA256,
   DEV_SIZE,
   DEV_VERSION,
   DEV_VERSION_NAME,
+  HAS_BETA_GHPROXY,
   HAS_DEV,
+  HAS_DEV_GHPROXY,
 } from '../../download'
 
 interface Channel {
   label: string
   version: string
   url: string
+  directUrl: string
+  proxy: boolean
   filename: string
   sha: string
   size: string
@@ -97,6 +109,8 @@ const channels: Channel[] = [
     label: '下载 Beta版',
     version: BETA_VERSION_NAME || BETA_VERSION,
     url: BETA_DOWNLOAD_URL,
+    directUrl: BETA_DIRECT_DOWNLOAD_URL,
+    proxy: HAS_BETA_GHPROXY,
     filename: BETA_FILENAME,
     sha: BETA_SHA256,
     size: BETA_SIZE,
@@ -107,6 +121,8 @@ const channels: Channel[] = [
         label: '下载 dev版',
         version: DEV_VERSION_NAME || DEV_VERSION,
         url: DEV_DOWNLOAD_URL,
+        directUrl: DEV_DIRECT_DOWNLOAD_URL,
+        proxy: HAS_DEV_GHPROXY,
         filename: DEV_FILENAME,
         sha: DEV_SHA256,
         size: DEV_SIZE,
@@ -148,6 +164,18 @@ const channels: Channel[] = [
 
 .gi-dl-cell :deep(.gi-verify-label) {
   white-space: nowrap;
+}
+
+.gi-dl-direct {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 4px;
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .gi-dl-btn {

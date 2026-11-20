@@ -610,8 +610,8 @@ rm -rf "$BUILD_DIR"
 #   · `release` / `asset` —— 站点上那个包是从哪个 release 的哪个资产取来的;
 #   · `size` / `sha256`  —— 那份字节是不是页面写给用户看的那一份
 #     (GitHub 的资产**可以被替换**;没有这两个值,「部署成功」只说明拿到过某个包);
-#   · `target`           —— 它在站点上的路径(页面的链接是固定的 `/media/gaia-beta.apk`,
-#     版本进 `download` 属性而不是 URL,见 brain 的 site-repo-topology);
+#   · `target`           —— 它在站点上的备用直链路径(主按钮走 ghproxy,
+#     Pages 仍保留这份字节并用它做逐字节验,见 brain 的 site-repo-topology);
 #   · `source_commit`    —— 页面显示的版本号对应哪个 commit(runner 检出的就是它)。
 #
 # 写在 `public/` 里而不是构建后再塞:少一个「构建之后再动产物」的步骤就少一处出错的地方。
@@ -658,6 +658,12 @@ export VITE_DEV_VERSION_NAME="${DEV_VERSION_NAME:-}"
 export VITE_DEV_SHA256="${DEV_SHA256:-}"
 export VITE_DEV_SIZE="${DEV_SIZE:-}"
 export VITE_HAS_DEV="${DEV_HAS:-}"
+# ghproxy 链接的坐标必须与页面校验值来自同一次取包;少一个就退回本站直链。
+export VITE_GITHUB_REPO="${REPO:-}"
+export VITE_BETA_RELEASE="${BETA_REF:-}"
+export VITE_BETA_ASSET="${BETA_ASSET:-}"
+export VITE_DEV_RELEASE="${DEV_REF:-}"
+export VITE_DEV_ASSET="${DEV_ASSET:-}"
 
 ( cd "$WEB" && npm run build ) > "$WORK/build.log" 2>&1 \
   || { tail -40 "$WORK/build.log" >&2; die "构建挂了(完整日志 $WORK/build.log)"; }
@@ -755,6 +761,22 @@ else
       || die "静态资源里没有 $f 的校验值 ${want:0:12}… —— 数字没渲染出来,用户无从核对"
   done
   ok "页面的校验值与产物里的包字节一致"
+
+  # 主下载必须指向**这次取包的那份 release 资产**,不能是上一次留下的硬编码 URL。
+  # 判据落在构建后的 js/html(用户浏览器真正读到的东西),不是源码或 manifest。
+  check_ghproxy_link() {
+    local label=$1 ref=$2 asset=$3 url hit
+    url="https://ghproxy.net/https://github.com/$REPO/releases/download/$ref/$asset"
+    hit=$(find "$BUILD_DIR" \( -name '*.html' -o -name '*.js' \) ! -path "$BUILD_DIR/media/*" \
+            -exec grep -lF -- "$url" {} + | head -1)
+    [ -n "$hit" ] \
+      || die "$label 的页面里没有 ghproxy 链接 $url —— 按钮退回了直链,或坐标不是这次取包的那份"
+    ok "$label 的 ghproxy 链接指向本次 release 资产"
+  }
+  check_ghproxy_link "测试版" "$BETA_REF" "$BETA_ASSET"
+  if [ "${DEV_HAS:-}" = 1 ]; then
+    check_ghproxy_link "开发版" "$DEV_REF" "$DEV_ASSET"
+  fi
 
   # Pages 的上限是**已发布站点 ≤ 1GB**(与 git 那个 100MB 单文件上限是两回事)。
   # 两条渠道现在都在产物里,合计 ~233MB,离上限还远 —— 但「远」不是判据,留一条实测的线:
