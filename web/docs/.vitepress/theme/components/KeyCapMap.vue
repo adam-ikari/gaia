@@ -104,7 +104,6 @@ const rows: Cap[][] = ROWS.map((row) =>
 }
 
 .kc-cap {
-  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -159,16 +158,13 @@ const rows: Cap[][] = ROWS.map((row) =>
 @media (max-width: 430px) {
   .kc-rows {
     display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
     gap: 6px;
   }
 
   .kc-row {
     display: contents;
-  }
-
-  .kc-space {
-    grid-column: auto;
   }
 
   .kc-cap {
