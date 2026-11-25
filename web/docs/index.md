@@ -14,7 +14,7 @@ note: 只为 Unihertz Titan 2
 </div>
 <div class="gaia-band-visual">
 <CandidateSlots />
-<Shot src="screen-01-idle.png" alt="整屏截图：实验场页面的空输入框，底部一行输入法：左边 拼、全，中间是这一层能按的键，右边三个按钮。" />
+<Shot src="screen-01-idle.webp" alt="空闲时的输入法行：左边 拼、全，中间是这一层能按的键，右边三个按钮。" />
 </div>
 </div>
 :::
@@ -23,7 +23,7 @@ note: 只为 Unihertz Titan 2
 <div class="gaia-band-inner gaia-band-narrow">
 <h2>翻页跟手。</h2>
 <p>翻页时整页跟着手指走。滑到一半松手，它会退回原来那页，退回的过程从当前位置接着算。</p>
-<Shot src="screen-04-page-swipe.png" alt="整屏截图：实验场页面，底部候选行换成新的一页。" />
+<Shot src="screen-04-page-swipe.webp" alt="左右滑动后的候选行：五格候选换成新的一页。" />
 </div>
 :::
 
@@ -53,7 +53,7 @@ note: 只为 Unihertz Titan 2
 <h2>键盘分三层。</h2>
 <p>字母、符号数字、编程。按 Alt 或 Sym 换层：按一下临时切过去，双击锁住，锁住后再按一下解开。</p>
 <p>Titan 2 没有独立数字行，符号得换层。中英切换按 Shift 加空格，锁着哪层都管用。</p>
-<Shot src="screen-07-alt-layer.png" alt="整屏截图：实验场页面，输入法行左边依次是 拼、全、alt，alt 下面有一道下划线；中间是这一层的符号键。" />
+<Shot src="screen-07-alt-layer.webp" alt="状态行：左边依次是 拼、全、alt，alt 下面有一道下划线；中间是这一层的符号键。" />
 </div>
 :::
 
@@ -80,8 +80,8 @@ note: 只为 Unihertz Titan 2
 <p>网址框换成网址开头的键，邮箱框换成 .com、@qq.com 这些常用的结尾；数字框里，数字直接锁上。</p>
 <p>电话框给数字加 <code>+</code> <code>-</code>；日期时间框给 <code>-</code> <code>:</code> 和一串零。哪类框给什么，出厂就带着，不用配。</p>
 <div class="gaia-shot-pair">
-<Shot src="screen-05-url-field.png" alt="整屏截图：网址框聚焦，底部输入法行中间依次是 ; … -- http:// https:// www.，右边是键盘图标、设置和收起。" />
-<Shot src="screen-06-number-field.png" alt="整屏截图：数字框聚焦，底部输入法行左边是 0-9，下面有一道下划线，表示这一层锁住了。" />
+<Shot src="screen-05-url-field.webp" alt="网址框聚焦：中间依次是 ; … -- http:// https:// www.，右边是键盘图标、设置和收起。" />
+<Shot src="screen-06-number-field.webp" alt="数字框聚焦：左边 0-9 带下划线，表示这一层锁住了。" />
 </div>
 </div>
 :::
@@ -99,8 +99,8 @@ note: 只为 Unihertz Titan 2
 <p>随包带着三万八千多个词、六万七千多条读法。一个词有几种读法就收几条。</p>
 <p>懒得打全拼就敲首字母：<code>nh</code> 就是「你好」。拼音串会自动按音节分开，看得到自己打成了什么。</p>
 <div class="gaia-shot-pair">
-<Shot src="screen-02-composing.png" alt="整屏截图：输入框里打着拼音，底部候选行正中间那格是首选。" />
-<Shot src="screen-03-committed.png" alt="整屏截图：首选已经上屏，输入框里是「哦」。" />
+<Shot src="screen-02-composing.webp" alt="组词中：候选行正中间那格是首选。" />
+<Shot src="screen-03-committed.webp" alt="首选已上屏，输入框里是「哦」。" />
 </div>
 </div>
 :::
@@ -124,8 +124,8 @@ note: 只为 Unihertz Titan 2
 </div>
 <div class="gaia-band-visual">
 <div class="gaia-shot-pair">
-<Shot src="08-settings.png" alt="整屏截图：输入框下方留白，底部一行输入法，左边 拼、全，中间是这一层的键。" />
-<Shot src="09-licenses.png" alt="整屏截图：应用设置页，常规一组里有主题、全角符号、长按上屏、语音、左右滑翻页等开关。" />
+<Shot src="08-settings.webp" alt="底部输入法行：左边 拼、全，中间是这一层的键，右边设置和收起。" />
+<Shot src="09-licenses.webp" alt="应用设置页：主题、全角符号、长按上屏、语音、翻页等开关。" />
 </div>
 </div>
 </div>

@@ -74,7 +74,6 @@ html {
     padding: 56px 20px;
   }
 
-  /* 320–430px 上两台机器并排每台只剩 130px，屏幕里的字全糊掉；叠起来。 */
   .gaia-shot-pair {
     flex-direction: column;
     gap: 20px;

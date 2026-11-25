@@ -5,26 +5,15 @@ category: decision
 status: active
 tags: [site, mockup, titan2]
 created: "2026-11-24T16:39:12"
-updated: "2026-11-25T09:34:41"
+updated: "2026-11-25T10:34:52"
 ---
 
 <!-- compiled_truth -->
-首页 9 张截图叠进 Titan 2 机身图，机身图取自 Unihertz 官网产品图。2026-11-25 按用户反馈改成：截图用 `out/media/shots/` 的 1440×1440 **整屏图**，不再只贴底部输入法行；机身最大宽度从 620px 缩到 360px；一张带里放两台机器时用 `gaia-shot-pair` 并排，≤430px 叠放。
+首页 9 张截图叠进 Titan 2 机身图。截图取 `out/media/shots/` 的 1440×1440 整屏图，转 720×720 WebP；机身 `titan2-shell.webp` 来自 Unihertz 官网产品图，裁 464×550，屏幕区挖透明。`Shot.vue` 保留 `src`/`alt` 接口，屏幕区四个百分比：left 4.74% / top 14.36% / width 90.52% / height 76.36%。机身最大宽 360px，同带两台并排、≤430px 叠放。
 
-## 当前落法
+2026-11-25 图片从 PNG 改成 WebP（屏幕 326px 显示，出 720px 图），9 张截图加机身从 1.1MB 降到 148KB；`loading="lazy"` 不变。此前「只贴底部输入法行」的画法已被推翻，见 timeline。
 
-- `public/img/titan2-shell.png`：官网正面产品图裁成 464×550（偏移 +268+140），背景与屏幕区 (22,79)-(442,499) 挖成透明孔，源 URL 与裁切参数在 PNG 文本元数据里。
-- `Shot.vue` 保留 `src`/`alt` 接口，`index.md` 不用改组件名。屏幕区四个百分比：left 4.74% / top 14.36% / width 90.52% / height 76.36%，换机身图必须一起改。
-- `screen-*.png` 是 `out/media/shots/` 整屏图的拷贝；早先的 `crop-*.png`（1440×96 底部行）已删。
-- `.gaia-shot-pair` 在 home.css 里分栏、在 responsive.css 的 ≤430px 断点里叠放；并排时要压掉 `Shot.vue` 给连续两张图加的 14px margin，否则两台机器错位。
-
-## 为什么改
-
-第一版把 1440×96 的输入法行贴在屏幕底部、上面留黑，用户反馈「真机图太大了，截图又只有底部」。整屏图虽然 UI 缩小后字也小，但画面完整；机身缩到 360px 后不再压过正文。
-
-## 验证
-
-`npm run build` 通过；7 档视口 sitecheck 全过；puppeteer 看过 1280 / 576 / 375 三档，含并排与叠放两种形态。无真机验证。
+验证：`npm run build`、7 档 sitecheck 全过；puppeteer 确认 9 张截图 naturalWidth=720、无请求失败，并看过 1280/576/375 三档。无真机验证。
 
 
 ## Timeline
@@ -70,3 +59,15 @@ updated: "2026-11-25T09:34:41"
   summary: "整屏截图版已发布:提交 9c61599,dispatch run 45526201098 全绿,线上 screen-01-idle.png 与本地 sha256 一致,首页不再引用 crop-*"
   source: "git log、gh run watch、curl+sha256sum 2026-11-25"
   affects: [site-device-composite, site-repo-topology]
+
+- time: 2026-11-25T10:34:52
+  kind: decision
+  summary: "图片改 WebP，按显示 2 倍出图"
+  source: "2026-11-25 用户「优化图片加载速度」"
+  affects: [site-device-composite]
+
+- time: 2026-11-25T10:34:52
+  kind: decision
+  summary: "图片改 WebP：截图 1440→720px、机身 464×550 保原尺寸；1.1MB→148KB"
+  source: "2026-11-25 用户要求优化图片加载速度"
+  affects: [site-device-composite, site-style]
