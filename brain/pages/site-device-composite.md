@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, mockup, titan2]
 created: "2026-11-24T16:39:12"
-updated: "2026-11-24T16:39:12"
+updated: "2026-11-25T08:19:42"
 ---
 
 <!-- compiled_truth -->
@@ -50,3 +50,9 @@ updated: "2026-11-24T16:39:12"
   summary: "9 张截图全部叠进 Titan 2 官网产品图;机身图屏幕区必须挖透明孔"
   source: "2026-11-24 本机实现与 puppeteer 验证"
   affects: [site-style, site-device-composite]
+
+- time: 2026-11-25T08:19:42
+  kind: evidence
+  summary: "已发布:提交 88e86c4 推到 origin/master,dispatch deploy-site.yml run 45516835713 成功(含逐字节验线上),线上 titan2-shell.png 的 sha256 与本地一致"
+  source: "git log、gh run watch、curl+sha256sum 2026-11-25"
+  affects: [site-device-composite, site-repo-topology]

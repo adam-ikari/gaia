@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, monorepo, release, deploy]
 created: "2026-10-08T01:16:20"
-updated: "2026-11-20T17:23:11"
+updated: "2026-11-25T08:19:42"
 ---
 
 <!-- compiled_truth -->
@@ -326,3 +326,9 @@ Pages 那份 `/media/gaia-*.apk` **继续发布并逐字节验**,作为「代理
   summary: "补齐 ghproxy 主链后的缺包定义"
   source: "2026-11-20 实现后的一致性修订"
   affects: [site-repo-topology]
+
+- time: 2026-11-25T08:19:42
+  kind: evidence
+  summary: "2026-11-25 站点更新按既有链路发布:push 只推源码,部署靠手动 dispatch deploy-site.yml;run 45516835713 成功,线上机身图字节与本地一致"
+  source: "2026-11-25 用户确认「推完手动派发部署」"
+  affects: [site-repo-topology, site-device-composite]
