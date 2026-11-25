@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, mockup, titan2]
 created: "2026-11-24T16:39:12"
-updated: "2026-11-25T09:22:08"
+updated: "2026-11-25T09:34:41"
 ---
 
 <!-- compiled_truth -->
@@ -64,3 +64,9 @@ updated: "2026-11-25T09:22:08"
   summary: "推翻「crop-* 输入法行贴屏幕底部」:改为整屏截图铺满屏幕区;机身最大宽度 620px→360px;两台机器并排"
   source: "2026-11-25 用户反馈「真机图太大了 截图又只有底部 完整屏幕截图」"
   affects: [site-device-composite, site-style]
+
+- time: 2026-11-25T09:34:41
+  kind: evidence
+  summary: "整屏截图版已发布:提交 9c61599,dispatch run 45526201098 全绿,线上 screen-01-idle.png 与本地 sha256 一致,首页不再引用 crop-*"
+  source: "git log、gh run watch、curl+sha256sum 2026-11-25"
+  affects: [site-device-composite, site-repo-topology]
