@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [site, mockup, titan2]
 created: "2026-11-24T16:39:12"
-updated: "2026-11-25T10:34:52"
+updated: "2026-11-25T11:01:11"
 ---
 
 <!-- compiled_truth -->
@@ -71,3 +71,9 @@ updated: "2026-11-25T10:34:52"
   summary: "图片改 WebP：截图 1440→720px、机身 464×550 保原尺寸；1.1MB→148KB"
   source: "2026-11-25 用户要求优化图片加载速度"
   affects: [site-device-composite, site-style]
+
+- time: 2026-11-25T11:01:11
+  kind: evidence
+  summary: "WebP 版已发布:提交 7c54e04,run 45534797414 前两次因 deploy-pages 查到 0 artifact 失败、第三次成功;线上截图与机身图 sha256 与本地一致"
+  source: "gh run view、curl+sha256sum 2026-11-25"
+  affects: [site-device-composite, site-repo-topology]
