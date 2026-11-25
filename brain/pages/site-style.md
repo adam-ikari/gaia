@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [Apple 风格:design, theme]
 created: "2026-10-08T01:04:00"
-updated: "2026-10-23T13:21:42"
+updated: "2026-11-24T16:39:12"
 ---
 
 <!-- compiled_truth -->
@@ -82,3 +82,9 @@ updated: "2026-10-23T13:21:42"
   summary: "下载按钮显示 APK 的完整 versionName(0.7.11-beta.<hash>),不再只有 hash;发布脚本从下载到的包 manifest 读出并在构建期注入,测试版读不出就拒绝发布"
   source: "2026-10-23 用户要求「beta版本要显示版本号的」"
   affects: [site-style, site-copy, release-flow]
+
+- time: 2026-11-24T16:39:12
+  kind: decision
+  summary: "站点截图改为 Titan 2 机身图 + Vue 叠加合成;详见 [[site-device-composite]]"
+  source: "2026-11-24 用户要求"
+  affects: [site-style, site-device-composite]
