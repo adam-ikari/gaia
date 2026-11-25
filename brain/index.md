@@ -1,8 +1,8 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-11-25T08:38:25.139Z._
+_Auto-generated. Last updated 2026-11-25T10:19:14.492Z._
 
-- [apk-review-2026-11-25](pages/apk-review-2026-11-25.md) — category: reference | tags: [apk, review, security] | 范围：`app/src/main/java` 自研 Kotlin 55 文件 / 14,292 行，排除 vendored librime、资源、测试、构建脚本。
+- [apk-review-2026-11-25](pages/apk-review-2026-11-25.md) — category: reference | tags: [apk, review, security] | 评审 27 条已于 2026-11-25 全部修复，提交 `80d6754`。
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [chinese-ime-lm-survey](pages/chinese-ime-lm-survey.md) — category: reference | tags: [survey, license, eval] | - **它是什么**:`metasequoiaime/chinese-ime-lm`(Rust,仓库 GPL-3.0,2025-11 建,869 stars),面向中文输入法的语言模型工程,配套输入法是 MSIME。
 - [clipboard-panel](pages/clipboard-panel.md) — category: decision | tags: [ime, clipboard, l6, ui] | ## 剪贴板历史面板(2026-10-16 定案,2026-10-17 补读取防御)
