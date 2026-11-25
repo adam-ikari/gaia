@@ -13,6 +13,7 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import dev.hwkbd.ime.BuildConfig
 import dev.hwkbd.ime.ImeRuntime
 import dev.hwkbd.ime.R
 import dev.hwkbd.ime.ime.Haptics
@@ -101,7 +102,8 @@ class ImeService : InputMethodService() {
      * 读一次系统剪贴板并记进历史。剪贴板监听在 onCreate 注册、全程生效(含 IME 隐藏时
      * 别的 App 复制触发回调)。Android 10+ 的后台读取限制对当前 IME 多半豁免,但豁免边界
      * 未在真机确证 —— `primaryClip` 读取包 try/catch 防一次 SecurityException 崩进程。
-     * 敏感标记(密码管理器会设)只有 Android 13+ 有。
+     * 敏感标记(密码管理器会设)只有 Android 13+ 有;低版本一律按敏感处理,
+     * 免得密码明文进历史。
      */
     private fun readClipboard() {
         val clip = try { clipManager?.primaryClip ?: return } catch (_: SecurityException) { return }
@@ -111,9 +113,13 @@ class ImeService : InputMethodService() {
             clip.description.extras
                 ?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true
         } else {
-            false
+            true
         }
-        clipHistory.record(text, sensitive)
+        clipHistory.record(
+            text,
+            sensitive,
+            knownSensitive = android.os.Build.VERSION.SDK_INT >= 33,
+        )
         controller.setL5Clipboard(clipHistory.entries)
     }
 
@@ -344,7 +350,7 @@ class ImeService : InputMethodService() {
         //
         // 为什么不用旧引擎兜底:用户 2026-10-03「不用对比 直接替换」。未就绪期间的表现
         // 是「敲拼音没候选」,而不是崩溃或静默换引擎。
-        val rime = RimeEngine(this)
+        val rime = RimeEngine(this, postToMain = { mainHandler.post(it) })
         ImeRuntime.rime = rime
         val registry = ImeRegistry.builtin().registerMethod(PinyinInputMethod(rime))
         Thread({
@@ -392,6 +398,8 @@ class ImeService : InputMethodService() {
         // 反过来说,如果这里还有保存动作,说明还在走旧引擎那条路。
         clipManager?.removePrimaryClipChangedListener(clipListener)
         executor.shutdown()
+        ImeRuntime.rime?.close()
+        ImeRuntime.rime = null
         super.onDestroy()
     }
 
@@ -1507,14 +1515,22 @@ class ImeService : InputMethodService() {
                 // (见 [composingAckPending] 的完整经过)。
                 composingAckPending = true
                 // 写完之后 App 侧到底有什么:`getComposingRegion` / `getSelectedRegion`
-                // 都是隐藏 API,所以直接读 App 的文本 —— 那是我们唯一真正关心的东西。
+                // 都是隐藏 API,所以直接读 App 的文本;原文只进 debug 日志(E2E 用),release 只留长度。
                 val before = runCatching { ic.getTextBeforeCursor(200, 0)?.toString() }.getOrNull()
                 val after = runCatching { ic.getTextAfterCursor(200, 0)?.toString() }.getOrNull()
-                android.util.Log.i(
-                    TAG,
-                    "syncComposing: wrote=\"$shown\" len=${shown.length} " +
-                        "before=$before after=$after prev=\"$composing\""
-                )
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.i(
+                        TAG,
+                        "syncComposing: wrote=\"$shown\" len=${shown.length} " +
+                            "before=$before after=$after prev=\"$composing\""
+                    )
+                } else {
+                    android.util.Log.i(
+                        TAG,
+                        "syncComposing: len=${shown.length} prevLen=${composing.length} " +
+                            "beforeLen=${before?.length} afterLen=${after?.length}"
+                    )
+                }
             }
             composing = shown
         }

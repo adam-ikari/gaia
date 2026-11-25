@@ -124,6 +124,11 @@ class L4PanelView @JvmOverloads constructor(
     private var strokeColor = ContextCompat.getColor(context, R.color.candidate_divider)
     private var fgColor = ContextCompat.getColor(context, R.color.candidate_fg)
 
+    /** 退场动画量字宽用,字段复用(不在 onDraw 里每帧 new)。 */
+    private val measureText = TextView(context).apply {
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+    }
+
     init {
         orientation = HORIZONTAL
         // 用 START + 显式居中边距(见 layoutPage),不能用 gravity CENTER:
@@ -394,8 +399,7 @@ class L4PanelView @JvmOverloads constructor(
     override fun onDraw(canvas: android.graphics.Canvas) {
         super.onDraw(canvas)
         if (exiting.isEmpty()) return
-        val tv = android.widget.TextView(context) // 只为量一次文字宽度,不入视图树
-        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+        val tv = measureText // 只为量文字宽度,不入视图树
         // 透明度取自退场弹簧的当前值,逐帧重算(键帽 bg 的 alpha 在 [runExitAnimation] 里写)
         val textAlpha = (255 * exitAlpha.currentValue).toInt().coerceIn(0, 255)
         for (g in exiting) {

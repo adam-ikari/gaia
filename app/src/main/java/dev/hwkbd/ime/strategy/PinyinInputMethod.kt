@@ -61,6 +61,9 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
         /** 测试注入点:用任意 [InputMethod] 构造策略。生产代码不用这个。 */
         internal fun forTest(engine: InputMethod) = PinyinInputMethod(engine)
 
+        /** 连续撇折叠,复用而非每次按键新建(见评审 2026-11-25 第 24 条)。 */
+        private val APOSTROPHE_RUN = Regex("'+")
+
         /**
          * 查询前归一:滤掉字母与 `'` 以外的字符、连续 `'` 并成一个、丢掉开头的 `'`
          * (开头没有前一个音节,分节位无意义)。**末尾 `'` 保留** —— 它表示"本音节到此为止"。
@@ -77,7 +80,7 @@ class PinyinInputMethod(private val engine: InputMethod) : InputMethod {
          */
         internal fun normalize(raw: String): String =
             raw.filter { it in 'a'..'z' || it == '\'' }
-                .replace(Regex("'+"), "'")
+                .replace(APOSTROPHE_RUN, "'")
                 .trimStart('\'')
     }
 }

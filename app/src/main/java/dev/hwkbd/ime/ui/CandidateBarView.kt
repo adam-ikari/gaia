@@ -8,6 +8,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
+import dev.hwkbd.ime.BuildConfig
 import dev.hwkbd.ime.R
 import dev.hwkbd.ime.ime.ImeState
 
@@ -187,9 +188,6 @@ class CandidateBarView @JvmOverloads constructor(
     /** 翻页指尖速度跟踪(px/s):松手时决定惯性滑多远、补完动画多长。 */
     private val pageSpeed = SpeedTracker()
 
-    /** 飞字指尖速度跟踪(px/s):飞出去的速度与飞多远由它决定。 */
-    private val flySpeed = SpeedTracker()
-
     /**
      * 触感反馈。所有震动都收口在 [Haptics](一个总开关),这里只负责在"状态真的改变"时点一下。
      * 由 service 注入,View 自己不去碰 Vibrator —— 否则开关控制不住(见 [setHaptics])。
@@ -267,14 +265,18 @@ class CandidateBarView @JvmOverloads constructor(
     // 之前这三者全都没有记录,于是只能靠猜。**每一次 `setState` 都打**,
     // 因为它本身就是低频事件(按键/生命周期),不像 `onDraw` 那样每帧都来。
     fun setState(state: ImeState) {
+        // debug 保留原格式(scenarios.mjs 解析 words=);release 只留数量/序号。
+        val rawPart = if (BuildConfig.DEBUG) "raw=\"${state.raw}\" " else ""
+        // 词表是「这一页应该显示什么」的权威值,供与画面自动比对(见 scenarios.mjs)。
+        val wordsPart = if (BuildConfig.DEBUG) {
+            "words=${state.pageSlots().filterNotNull().joinToString("|") { it.word }}"
+        } else {
+            "words=${state.pageSlots().count { it != null }}"
+        }
         android.util.Log.i(
             TAG,
-            "setState: page=${state.page}/${state.totalPages} raw=\"${state.raw}\" " +
-                "n=${state.candidates.size} hl=${state.highlight} " +
-                // **词表也打出来**:这是「这一页应该显示什么」的权威值。
-                // 有了它,「画出来的词」与「controller 说的那一页的词」才能被自动比对,
-                // 而不是靠人眼看截图 —— 见 scenarios.mjs 的 `page-words-match`。
-                "words=${state.pageSlots().filterNotNull().joinToString("|") { it.word }}"
+            "setState: page=${state.page}/${state.totalPages} $rawPart" +
+                "n=${state.candidates.size} hl=${state.highlight} $wordsPart"
         )
         // ## 无人驱动的飞字残留,在每次状态进来时收一次(2026-10-28)
         //
@@ -296,6 +298,9 @@ class CandidateBarView @JvmOverloads constructor(
         lastRaw = state.raw
         val pageTurned = state.page != lastPage
         if (pageTurned) {
+            // 换页前停掉旧候选的入场动画,别让它的 onFrame 按旧索引写新页槽位。
+            swapAnim?.cancel()
+            swapSlots.clear()
             if (rawChanged) {
                 // 拼音变了 ⇒ 这是新候选表的第一页,不是用户翻页。清掉可能还在跑的
                 // 整页过渡,直接换词,别画"滑回第一页"。
@@ -669,11 +674,13 @@ class CandidateBarView @JvmOverloads constructor(
             pageCommitted = true
             pageFrom = slots
             pageTo = if (pageDir > 0f) pageNextSlots else pagePrevSlots
+            val toPart = if (BuildConfig.DEBUG) {
+                "to=${pageTo.filterNotNull().joinToString("|") { it.word }}"
+            } else ""
             android.util.Log.i(
                 TAG,
                 "commit: 过线当帧翻 travel=${travel.toInt()} thr=${pageCommitPx().toInt()} " +
-                    "dir=$pageDir slide=${pageSlide.toInt()} " +
-                    "to=${pageTo.filterNotNull().joinToString("|") { it.word }}"
+                    "dir=$pageDir slide=${pageSlide.toInt()} $toPart"
             )
 haptics?.confirm()
         }
@@ -1257,14 +1264,13 @@ pageSlide = pageSettleTarget
         flyWord = slots.getOrNull(zone)?.word ?: ""
         flyOutSlots = slots
         flyP = 0f
-        flySpeed.reset()
         invalidate()
     }
 
     /**
      * 飞字拖动进度(0..1):词随手指上移,其余候选按比例渐隐。
      *
-     * 顺带记录指尖速度(飞出去多远由它决定)与**过阈值的一次震动反馈**:
+     * 顺带给一次**过阈值的震动反馈**:
      * 上滑越过阈值是"这次上屏定了"的确认点,给一下轻震让手指不用看屏幕也知道成了 ——
      * 2026-09-30 用户要求。震动只在这一处触发(首次越过阈值那一下),拖动过程中不震,
      * 免得一路嗡嗡。
@@ -1273,7 +1279,6 @@ pageSlide = pageSettleTarget
         if (flyP < 0f || flyBack.isRunning) return
         val p = progress.coerceIn(0f, 1f)
         val crossed = flyP < 1f && p >= 1f // 本次拖动里第一次越过阈值
-        // 速度在 ACTION_MOVE 里用**原始 y** 统一采样(见那里的注释),这里不再重复喂。
         flyP = p
         if (crossed) haptics?.confirm() // 过阈值 = "这次上屏定了"
         invalidate()
@@ -1428,7 +1433,6 @@ pageSlide = pageSettleTarget
                 // 只在真的开始拖动后才喂 —— 按下到过死区之间手是静止的,不必。
                 if (pageDragging || rubberDrag.active || flyP >= 0f) {
                     pageSpeed.add(event.eventTime, event.x)
-                    flySpeed.add(event.eventTime, event.y)
                     rubberSpeed.add(event.eventTime, event.x)
                 }
                 lastX = event.x
@@ -1532,12 +1536,6 @@ pageSlide = pageSettleTarget
                     "touch UP: 无主(${pageFrom.size}/${pageTo.size} 残留) 按下槽=$downCell " +
                         "swipeArmed=$swipeArmed ⇒ 继续走点按/轻扫判定"
                 )
-// 陈旧过渡不许吞抬手(见上面那段)。埋点打出来,「抬手被哪个分支吃掉」不再需要猜。
-                android.util.Log.i(
-                    TAG,
-                    "touch UP: 无主(${pageFrom.size}/${pageTo.size} 残留) downCell=$downCell " +
-                        "swipeArmed=$swipeArmed => 继续走点按/轻扫判定"
-                )
                 // 下面就是点按/长拍/轻扫的判定,原样保留。
                 when {
                     longPressFired -> Unit // 长按已在定时器里处理
@@ -1555,6 +1553,8 @@ pageSlide = pageSettleTarget
             }
             MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(longPressRunnable)
+                // 起飞弹簧还在跑时先取消它,否则与淡回弹簧两路同时写 flyP。
+                if (flyDriven) flyUp.cancel()
                 cancelFlyDrag()
                 // 橡皮筋被打断:直接弹回,不弹震动(不是用户主动确认的动作)
                 cancelRubber()
@@ -1899,10 +1899,13 @@ private fun onTap(x: Float) {
             pageSlide.toInt() * 3 + rubberDrag.raw.toInt() * 5 + width * 11 + height
         if (sig != lastDrawSig) {
             lastDrawSig = sig
+            // debug 保留原格式(scenarios.mjs 解析 words=);release 只留已画的槽数。
+            val wordsPart = if (BuildConfig.DEBUG) {
+                "words=${slots.filterNotNull().joinToString("|") { it.word }} "
+            } else ""
             android.util.Log.i(
                 TAG,
-                "draw: kind=${KIND_NAME[kind]} drawn=$nonNull/${slots.size} " +
-                    "words=${slots.filterNotNull().joinToString("|") { it.word }} " +
+                "draw: kind=${KIND_NAME[kind]} drawn=$nonNull/${slots.size} " + wordsPart +
                     "page=$page/$totalPages hl=$highlight flyP=$flyP " +
                     "turn=${pageFrom.size}/${pageTo.size} slide=${pageSlide.toInt()} " +
                     "rubber=${rubberDrag.raw.toInt()} size=${width}x$height vis=$visibility"

@@ -1,5 +1,6 @@
 package dev.hwkbd.ime.ime
 
+import android.os.SystemClock
 import dev.hwkbd.ime.keymap.Layer
 
 /**
@@ -14,7 +15,7 @@ import dev.hwkbd.ime.keymap.Layer
  * 流与它的收集器一起删掉了。**状态行现在是状态的纯函数**(见 `StatusRow`),不再需要时间输入。
  */
 class ModifierGestures(
-    private val now: () -> Long = System::currentTimeMillis,
+    private val now: () -> Long = SystemClock::uptimeMillis,
     /** 长按阈值:按住超过它就不算"快速独立敲击"(松开时恢复按下前的状态)。 */
     val holdMs: Long = DEFAULT_HOLD_MS,
     /** 敲击窗口(双击判定):窗口内的敲击算连击,窗口外的重新从 1 开始。 */

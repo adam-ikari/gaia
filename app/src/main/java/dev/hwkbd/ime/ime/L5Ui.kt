@@ -430,11 +430,12 @@ class L5Ui(
         const val ROWS_PER_PAGE = 2
 
         /**
-         * 剪贴板条目的键帽文字:**敏感内容遮罩**,普通内容截断到 [CLIP_LABEL_MAX]。
-         * 敏感项点击仍上屏全文 —— 遮罩防的是「面板上明文摆着密码」,不是禁用。
+         * 剪贴板条目的键帽文字:**敏感或平台无标记时遮罩**,只有明确非敏感的才截断到 [CLIP_LABEL_MAX]。
+         * Android 13 以下拿不到 `EXTRA_IS_SENSITIVE`(`knownSensitive=false`),按项目约定默认敏感。
+         * 遮罩项点击仍上屏全文 —— 遮罩防的是「面板上明文摆着密码」,不是禁用。
          */
         private fun clipLabel(item: ClipItem): String = when {
-            item.sensitive -> "••••"
+            item.sensitive || !item.knownSensitive -> "••••"
             item.text.length <= CLIP_LABEL_MAX -> item.text
             else -> item.text.take(CLIP_LABEL_MAX) + "…"
         }

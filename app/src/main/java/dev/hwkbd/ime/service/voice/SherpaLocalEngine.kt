@@ -58,9 +58,9 @@ internal fun <T> buildSherpaRecognizer(
 class SherpaLocalEngine(
     private val context: Context,
     private val callbacks: VoiceCallbacks,
+    private val postToMain: (Runnable) -> Unit = { Handler(Looper.getMainLooper()).post(it) },
 ) {
 
-    private val main = Handler(Looper.getMainLooper())
     private val pcm = ByteArrayOutputStream()
 
     @Volatile
@@ -97,10 +97,10 @@ class SherpaLocalEngine(
         cancelled = false
         stopRequested = false
         if (recognizer == null) {
-            pendingStart = true
-            callbacks.state(VoiceState.PREPARING)
+            // 不设 pendingStart:start 返回 FAILED 后控制器会补一个空格,
+            // 模型迟到加载不能再偷偷开始录音。prepare 只负责预热。
             prepare()
-            return StartResult.STARTED
+            return StartResult.FAILED
         }
         return if (beginListening()) StartResult.STARTED else StartResult.FAILED
     }
@@ -146,32 +146,34 @@ class SherpaLocalEngine(
 
     private fun loadModel() {
         val loaded = runCatching { buildRecognizer(ensureExtracted()) }
-        main.post {
-            loading = false
-            val ok = loaded.getOrNull()
-            if (destroyed) {
-                ok?.let { runCatching { it.release() } }
-                return@post
-            }
-            if (ok == null) {
-                Log.w(TAG, "本地语音模型加载失败", loaded.exceptionOrNull())
-                if (pendingStart) {
-                    pendingStart = false
-                    callbacks.state(VoiceState.IDLE)
-                    callbacks.error(VoiceError(VoiceErrorKind.UNAVAILABLE, "本地模型加载失败"))
-                }
-                return@post
-            }
-            recognizer = ok
+        postToMain { onModelLoaded(loaded) }
+    }
+
+    internal fun onModelLoaded(loaded: Result<OfflineRecognizer?>) {
+        loading = false
+        val ok = loaded.getOrNull()
+        if (destroyed) {
+            ok?.let { runCatching { it.release() } }
+            return
+        }
+        if (ok == null) {
+            Log.w(TAG, "本地语音模型加载失败", loaded.exceptionOrNull())
             if (pendingStart) {
                 pendingStart = false
-                if (stopRequested || cancelled) {
-                    // 模型还没加载完就松手了:这次按压根本没开始录,静默收尾即可。
-                    stopRequested = false
-                    callbacks.state(VoiceState.IDLE)
-                } else if (!beginListening()) {
-                    callbacks.error(VoiceError(VoiceErrorKind.GENERIC, "无法开始录音"))
-                }
+                callbacks.state(VoiceState.IDLE)
+                callbacks.error(VoiceError(VoiceErrorKind.UNAVAILABLE, "本地模型加载失败"))
+            }
+            return
+        }
+        recognizer = ok
+        if (pendingStart) {
+            pendingStart = false
+            if (stopRequested || cancelled) {
+                // 模型还没加载完就松手了:这次按压根本没开始录,静默收尾即可。
+                stopRequested = false
+                callbacks.state(VoiceState.IDLE)
+            } else if (!beginListening()) {
+                callbacks.error(VoiceError(VoiceErrorKind.GENERIC, "无法开始录音"))
             }
         }
     }
@@ -193,8 +195,8 @@ class SherpaLocalEngine(
             },
             onLevel = { callbacks.level(it) },
             onError = { message ->
-                main.post {
-                    if (gen != generation || !collecting) return@post
+                postToMain {
+                    if (gen != generation || !collecting) return@postToMain
                     collecting = false
                     val failed = recorder
                     recorder = null
@@ -221,13 +223,13 @@ class SherpaLocalEngine(
 
     private fun finish(audio: ByteArray, gen: Int) {
         val result = runCatching { decodeAudio(audio) }
-        main.post {
+        postToMain {
             decoding = false
             if (destroyed) {
                 releaseRecognizer()
-                return@post
+                return@postToMain
             }
-            if (cancelled || gen != generation) return@post
+            if (cancelled || gen != generation) return@postToMain
             callbacks.state(VoiceState.IDLE)
             val text = result.getOrNull()
             when {

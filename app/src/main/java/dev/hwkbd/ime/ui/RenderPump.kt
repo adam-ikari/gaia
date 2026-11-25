@@ -1,9 +1,13 @@
 package dev.hwkbd.ime.ui
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
+
+private const val TAG = "RenderPump"
 
 /**
  * 渲染请求的**合并器**:一轮里的多次请求合成一次渲染。
@@ -51,7 +55,14 @@ class RenderPump(private val render: () -> Unit) {
             yield()
             var more = true
             while (more) more = requests.tryReceive().isSuccess
-            render()
+            try {
+                render()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 一帧画崩了不能让收集循环永久退出,否则之后的 request() 全部无效。
+                Log.e(TAG, "render failed", e)
+            }
         }
     }
 

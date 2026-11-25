@@ -17,11 +17,11 @@ import java.io.File
  * **表项必须判空**:函数指针表允许不同版本增删成员(`get_status` 就是后加的)。
  * native 侧的 `api()` 拿不到表时所有入口都返回失败值,不留半初始化状态。
  *
- * ## 全部方法都必须在 IME 主线程调,除 [nativeJoinMaintenance]
+ * ## initialize / joinMaintenance 可以在 setup 线程,session 必须在 IME 主线程
  *
- * librime 的 session 状态机不是线程安全的。部署(把 `*.yaml` 编成 `*.bin`)在
- * librime 自己的 maintenance 线程里,那个必须等,所以它是唯一一个可以(且应该)
- * 在后台线程调的入口。
+ * librime 的 session 状态机不是线程安全的。[initialize] 与 [joinMaintenance] 是部署
+ * 入口,允许在 prepare 的后台线程调;session 的创建([createSession])以及所有传
+ * session 的方法必须在 IME 主线程调用与使用 —— 不能后台建好再拿到主线程用。
  */
 object RimeNative {
 
@@ -61,9 +61,9 @@ object RimeNative {
     fun apiProbe(): String = if (loaded) nativeApiProbe() else LOAD_FAILED
 
     /**
-     * 初始化。**必须先在后台线程做完部署**([nativeJoinMaintenance])再用。
+     * 初始化。setup 后台线程调;部署([joinMaintenance])在其后,session 回 IME 主线程创建。
      *
-     * @param schemaId 只做简体 ⇒ 固定 `luna_pinyin_simp`;换它等于换用户空间(用户词会"消失")
+     * @param schemaId 只做简体 ⇒ 固定 `luna_pinyin`;换它等于换用户空间(用户词会"消失")
      * @return 0 = 成功,非 0 = 失败
      */
     fun initialize(userDir: String, sharedDir: String, buildDir: String, schemaId: String, appId: String): Int =
@@ -75,13 +75,14 @@ object RimeNative {
     // 上层拿到的是"要么是有效结果、要么是安全的空值",不必在每个调用点写
     // `if (!available)`。RimeEngine 因此不必知道 native 到底存不存在。
 
-    /** 等部署结束。**唯一可以(且应该)在后台线程调的入口。 */
+    /** 等部署结束。与 [initialize] 同为 setup 入口,可在后台线程调。 */
     fun joinMaintenance() { if (loaded) nativeJoinMaintenance() }
 
     fun createSession(): Long = if (loaded) nativeCreateSession() else 0L
 
     fun destroySession(session: Long) { if (loaded && session != 0L) nativeDestroySession(session) }
 
+    /** 释放全局状态。可重复调用,之后 [initialize] 仍能重新初始化(native 侧保证)。 */
     fun destroy() { if (loaded) nativeDestroy() }
 
     fun reset(session: Long) { if (loaded && session != 0L) nativeReset(session) }

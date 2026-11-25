@@ -1,5 +1,7 @@
 package dev.hwkbd.ime.ime
 
+import android.os.SystemClock
+
 /**
  * 按键与滑动之间的**门**:手指按在键上时、以及刚敲完键的一小段里,键盘滑动一律不接。
  *
@@ -78,7 +80,7 @@ package dev.hwkbd.ime.ime
  * @param blockMs 抬手后的静默窗长度(ms),可运行时改
  */
 class KeyEventGate(
-    private val now: () -> Long = System::currentTimeMillis,
+    private val now: () -> Long = SystemClock::uptimeMillis,
     var blockMs: Long = DEFAULT_BLOCK_MS,
 ) {
 

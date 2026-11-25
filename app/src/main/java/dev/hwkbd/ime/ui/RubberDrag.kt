@@ -13,8 +13,9 @@ import kotlin.math.max
  * 把进度清零,紧接着的 `move` 拿刚设的基线算出 `raw = 0` —— **橡皮筋的位移恒为 0**,
  * 而 [CandidateBarView.onDraw] 的守卫是 `raw > 0f`,于是那个分支一次都进不去。
  *
- * 数学([Rubber])一直是对的,坏的是状态被重复初始化。翻页那边没这个毛病,
- * 因为 `beginPageDrag` 在 `pageFrom/pageTo` 非空时**不**重置 —— 不对称就在这儿。
+ * 数学([Rubber])一直是对的,坏的是状态被重复初始化。翻页那边当年同源:[beginPageDrag]
+ * 虽不重置两个角色,却每帧重设基线 `pageDragBaseX = x + pageSlide * dir`,把位移锁在 0。
+ * 修法对齐:[CandidateBarView.beginPageDrag] 现在同向拖动时也是空操作,与 [begin] 一致。
  *
  * 所以规矩写进类型:[begin] 对**同方向**的重复调用必须是空操作,由 [begin] 自己保证,
  * 调用方可以每帧无条件调。把状态收进纯类还有个好处:能 JVM 单测,不用真机。

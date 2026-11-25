@@ -63,8 +63,8 @@ class SoftKeyboardView @JvmOverloads constructor(
         textSize = 13f * resources.displayMetrics.scaledDensity
     }
 
-    private var downX = 0f
-    private var downY = 0f
+    /** 每个指针的起手坐标(pointerId → x,y):多指时各按自己的按下点判定。 */
+    private val downPoints = HashMap<Int, Pair<Float, Float>>()
 
     private enum class Special { SHIFT, ALT, SYM, SPACE, DEL, ENTER }
     private data class Slot(val label: String, val sub: String?, val code: Int, val special: Special?)
@@ -123,23 +123,27 @@ class SoftKeyboardView @JvmOverloads constructor(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                downX = event.x
-                downY = event.y
-                performClick()
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = event.actionIndex
+                downPoints[event.getPointerId(i)] = event.getX(i) to event.getY(i)
             }
-            MotionEvent.ACTION_UP -> {
-                val dx = event.x - downX
-                val dy = event.y - downY
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val i = event.actionIndex
+                val (sx, sy) = downPoints.remove(event.getPointerId(i)) ?: return true
+                val dx = event.getX(i) - sx
+                val dy = event.getY(i) - sy
                 when {
-                    kotlin.math.abs(dx) < touchSlop && kotlin.math.abs(dy) < touchSlop ->
-                        slotAt(downX, downY)?.let(::press)
+                    kotlin.math.abs(dx) < touchSlop && kotlin.math.abs(dy) < touchSlop -> {
+                        slotAt(sx, sy)?.let(::press)
+                        performClick()
+                    }
                     swipeSelectEnabled && dy < -flingDistance && -dy > kotlin.math.abs(dx) ->
-                        zoneIndexAt(downX)?.let { onSelectZone?.invoke(it) }
+                        zoneIndexAt(sx)?.let { onSelectZone?.invoke(it) }
                     swipePageEnabled && kotlin.math.abs(dx) > flingDistance && kotlin.math.abs(dx) > kotlin.math.abs(dy) ->
                         onPage?.invoke(if (dx < 0) 1 else -1)
                 }
             }
+            MotionEvent.ACTION_CANCEL -> downPoints.clear()
         }
         return true
     }

@@ -6,9 +6,15 @@ package dev.hwkbd.ime.ime
  * @property text 剪贴板原文(上屏用的就是它)。
  * @property sensitive 系统标记为敏感(Android 13+ `ClipDescription.EXTRA_IS_SENSITIVE`,
  *   如密码管理器复制的内容)。面板对它**遮罩显示**(`••••`),点击仍可上屏 —— 上屏是
- *   用户主动动作,遮罩防的是"面板上明文摆着密码"。旧系统无此标记,一律 false。
+ *   用户主动动作,遮罩防的是"面板上明文摆着密码"。
+ * @property knownSensitive 平台是否给出了敏感标记(`sensitive` 是权威值)。false = 旧系统
+ *   拿不到 `EXTRA_IS_SENSITIVE`,按项目约定默认按敏感处理(面板遮罩)。
  */
-data class ClipItem(val text: String, val sensitive: Boolean)
+data class ClipItem(
+    val text: String,
+    val sensitive: Boolean = false,
+    val knownSensitive: Boolean = false,
+)
 
 /**
  * 剪贴板历史(2026-10-16 用户「剪贴板功能:历史面板,复用 L5 浮层」)。
@@ -35,12 +41,13 @@ class ClipHistory(private val capacity: Int = DEFAULT_CAPACITY) {
      *
      * @param text 剪贴板原文
      * @param sensitive 是否被系统标记为敏感(见 [ClipItem.sensitive])
+     * @param knownSensitive 平台是否给出了敏感标记(见 [ClipItem.knownSensitive])
      */
-    fun record(text: String, sensitive: Boolean = false) {
+    fun record(text: String, sensitive: Boolean = false, knownSensitive: Boolean = false) {
         if (text.isEmpty()) return
-        // 相邻重复:保留既有那条(连同它的 sensitive 标记),不重复记
+        // 相邻重复:保留既有那条(连同它的敏感标记),不重复记
         if (items.firstOrNull()?.text == text) return
-        items.addFirst(ClipItem(text, sensitive))
+        items.addFirst(ClipItem(text, sensitive, knownSensitive))
         while (items.size > capacity) items.removeLast()
     }
 

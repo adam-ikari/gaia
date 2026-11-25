@@ -553,9 +553,9 @@ class L5PanelTest {
     fun `剪贴板 tab 每条一行 敏感遮罩 长文本截断`() {
         val ui = L5Ui.factory(
             listOf(
-                ClipItem("normal text", sensitive = false),
-                ClipItem("password", sensitive = true),
-                ClipItem("x".repeat(50), sensitive = false),
+                ClipItem("normal text", sensitive = false, knownSensitive = true),
+                ClipItem("password", sensitive = true, knownSensitive = true),
+                ClipItem("x".repeat(50), sensitive = false, knownSensitive = true),
             )
         )
         val clip = ui.tabs.first { it.id == L5Ui.CLIP_TAB_ID }
@@ -570,6 +570,21 @@ class L5PanelTest {
         assertTrue("长条目截断", keys[2].label.endsWith("…"))
         assertEquals("普通条目上屏原文", "normal text", (keys[0].out as KeyOut.Text).text)
         assertEquals("敏感条目上屏仍是全文(遮罩不是禁用)", "password", (keys[1].out as KeyOut.Text).text)
+    }
+
+    /** 无平台敏感标记(旧系统/调用方没传)的条目一律遮罩,但仍可上屏全文。 */
+    @Test
+    fun `剪贴板无平台敏感标记时默认遮罩`() {
+        val ui = L5Ui.factory(
+            listOf(
+                ClipItem("old-system-password"),
+                ClipItem("explicit-safe", sensitive = false, knownSensitive = true),
+            )
+        )
+        val keys = ui.tabs.first { it.id == L5Ui.CLIP_TAB_ID }.pages.flatMap { it.keys }
+        assertEquals("••••", keys[0].label)
+        assertEquals("explicit-safe", keys[1].label)
+        assertEquals("遮罩不禁用", "old-system-password", (keys[0].out as KeyOut.Text).text)
     }
 
     @Test

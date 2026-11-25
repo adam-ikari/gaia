@@ -109,7 +109,7 @@ class FakePinyinInputMethod(
         } else {
             consumedChars ?: return null // 不参与 ⇒ 走旧路径
         }
-        if (consumed <= 0) return null // 引擎说不清 / 全消费 ⇒ 走旧路径
+        if (consumed < 0) return null // 只有负数才是「说不清」;0 = 全吃掉,与真引擎同语义
         val raw = queried.lastOrNull() ?: return null
         val word = candidatesOf(raw).getOrNull(index) ?: return null
         // 预览**只作埋点**,不参与判定(真引擎那份也是「按回车会提交什么」)。

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- E2E 在非 root 真机上用 am start 拉起实验场;release 不导出。 -->
+    <application>
+        <activity
+            android:name=".playground.PlaygroundActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

@@ -70,6 +70,16 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        override fun onCreate(savedInstanceState: Bundle?) {
+            super.onCreate(savedInstanceState)
+            pendingVoiceEnable = savedInstanceState?.getBoolean(KEY_PENDING_VOICE_ENABLE, false) == true
+        }
+
+        override fun onSaveInstanceState(outState: Bundle) {
+            super.onSaveInstanceState(outState)
+            outState.putBoolean(KEY_PENDING_VOICE_ENABLE, pendingVoiceEnable)
+        }
+
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.prefs, rootKey)
 
@@ -211,6 +221,10 @@ class SettingsActivity : AppCompatActivity() {
             n >= 1_048_576 -> "%.1f MB".format(n / 1_048_576.0)
             n >= 1024 -> "%.0f KB".format(n / 1024.0)
             else -> "$n B"
+        }
+
+        private companion object {
+            const val KEY_PENDING_VOICE_ENABLE = "pending_voice_enable"
         }
     }
 }

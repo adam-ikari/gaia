@@ -88,14 +88,21 @@ object CrashReporter {
             appendLine("---- stack ----")
             appendLine(stack)
         }
-        Log.e(TAG, "崩溃已捕获:\n$entry")
+        Log.e(TAG, "崩溃已捕获,完整栈见本地文件")
         runCatching { writeFile(ctx, entry) }
     }
 
+    @Synchronized
     private fun writeFile(ctx: Context, entry: String) {
         val dir: File = ctx.getExternalFilesDir(DIR) ?: ctx.filesDir
         if (!dir.exists()) dir.mkdirs()
-        val f = File(dir, "${SimpleDateFormat(Redaction.FILENAME_TIMESTAMP, Locale.US).format(Date())}.txt")
+        val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss", Locale.US).format(Date())
+        var f = File(dir, "$stamp.txt")
+        var seq = 1
+        while (f.exists()) {
+            f = File(dir, "$stamp-$seq.txt")
+            seq++
+        }
         f.writeText(entry)
         trim(dir)
     }

@@ -485,7 +485,6 @@ class KeyLayout(
                 if (line.isEmpty() || line.startsWith("#")) return@forEachIndexed
                 if (line.startsWith("[") && line.endsWith("]")) {
                     val name = line.removeSurrounding("[", "]")
-                    section = name
                     // L4 段:`[L4]` = 默认套,`[L4 url]` = 上下文套 id=url
                     l4Id = when {
                         name == "L4" -> L4_DEFAULT
@@ -497,6 +496,7 @@ class KeyLayout(
                         if (l == null) {
                             errors += lineNo
                         } else {
+                            section = l.name // 非法段名不改写 section,528 行的 valueOf 才不会抛
                             maps.getOrPut(l) { mutableMapOf() }
                         }
                     }

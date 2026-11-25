@@ -15,7 +15,7 @@
 
     <application
         android:name=".ImeApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -50,14 +50,14 @@
         <!-- 真机按键探测：抓 Sym / Fn / 方向键真实 keycode -->
         <activity
             android:name=".probe.KeyProbeActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/probe_title"
             android:windowSoftInputMode="stateVisible" />
 
-        <!-- 实验场:干净输入框试拼音/飞字/层切换(exported 便于 adb 直启测试) -->
+        <!-- 实验场:干净输入框试拼音/飞字/层切换(adb root 可直启,无需 exported) -->
         <activity
             android:name=".playground.PlaygroundActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/playground_title"
             android:windowSoftInputMode="stateVisible" />
     </application>

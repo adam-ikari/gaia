@@ -6,14 +6,25 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import kotlin.math.abs
 import kotlin.math.ceil
+
+/** NaN 经 coerceIn 会原样返回,让 onDraw 的收敛判据恒假、无限自绘。 */
+internal fun normalizeVoiceLevel(level: Float): Float =
+    if (level.isNaN()) 0f else level.coerceIn(0f, 1f)
+
+/** 升降同一档缓动;差值小于 0.01 就吸附到目标,免得浮点尾数让自绘不收尾。 */
+internal fun approachVoiceLevel(shown: Float, target: Float): Float {
+    val next = shown + (target - shown) * 0.35f
+    return if (abs(target - next) < 0.01f) target else next
+}
 
 /**
  * 语音 HUD 里的音量表:一排竖条,亮起的条数跟着采集响度走。
  *
  * 输入是 [setLevel] 的 0..1(dBFS 映射,见 PcmRecorder)。条数比连续进度条更适合
  * 输入法这条 48dp 的窄条:一眼能看出「有没有收到声音」,不需要读刻度。
- * 上升立即跟上、下降缓慢回落,说话停顿时不至于瞬间归零。
+ * 升降都按同一档缓动,说话停顿时不至于瞬间归零。
  */
 class VoiceLevelView @JvmOverloads constructor(
     context: Context,
@@ -27,8 +38,7 @@ class VoiceLevelView @JvmOverloads constructor(
     private var barColor = 0xFFFFFFFF.toInt()
 
     fun setLevel(level: Float) {
-        target = level.coerceIn(0f, 1f)
-        if (target > shown) shown = target
+        target = normalizeVoiceLevel(level)
         postInvalidateOnAnimation()
     }
 
@@ -40,8 +50,7 @@ class VoiceLevelView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (width <= 0 || height <= 0) return
-        shown += (target - shown) * 0.35f
-        if (target - shown < 0.01f) shown = target
+        shown = approachVoiceLevel(shown, target)
 
         val gap = width * 0.04f
         val barWidth = (width - gap * (BARS - 1)) / BARS

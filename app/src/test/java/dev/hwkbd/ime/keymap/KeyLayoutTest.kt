@@ -104,6 +104,15 @@ class KeyLayoutTest {
     }
 
     @Test
+    fun `非法段名后跟 a=b 返回错误列表不抛异常`() {
+        // 评审 2026-11-25 第 5 条:[L2x] 曾被写进 section,随后的 a=b 在 Layer.valueOf 抛异常,
+        // 逃出 parseText 让 KeyLayoutStore.load 的 Elvis 兜底接不住。
+        val parsed = KeyLayout.parseText("[L2x]\na=b")
+        assertNull(parsed.layout)
+        assertEquals(listOf(1), parsed.errors)
+    }
+
+    @Test
     fun `withL4From 只换 L4 物理三层不动`() {
         // 模拟"早年用过编辑器的机器":文件里留着 [L1]/[L2]/[L3] 段,且与出厂表不同
         val fromFile = KeyLayout.parseText(

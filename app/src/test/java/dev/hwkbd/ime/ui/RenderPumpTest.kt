@@ -91,4 +91,25 @@ class RenderPumpTest {
         flush()
         assertEquals(0, rig.renders)
     }
+
+    /** 一帧 render 抛异常不能让收集循环退出,否则之后的 request() 全部无效、界面冻住。 */
+    @Test
+    fun `render 抛异常后仍继续接收下一次请求`() = runTest {
+        var renders = 0
+        var failOnce = true
+        val pump = RenderPump {
+            renders++
+            if (failOnce) {
+                failOnce = false
+                throw RuntimeException("render boom")
+            }
+        }
+        backgroundScope.launch { pump.run() }
+        pump.request()
+        flush()
+        assertEquals("抛异常的那一帧仍是渲染了一次", 1, renders)
+        pump.request()
+        flush()
+        assertEquals("异常后收集循环必须还活着", 2, renders)
+    }
 }

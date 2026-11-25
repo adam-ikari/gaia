@@ -99,6 +99,9 @@ class L5PanelView @JvmOverloads constructor(
     /** 重建签名:tab/页/主题都没变就不重建(每帧渲染都进来,免得无谓地重建键格)。 */
     private var lastSig = ""
 
+    /** 最近一次 setContent 的状态:延后的滚动回调读它,不捕获旧 tabIndex。 */
+    private var currentUi: L5Ui? = null
+
     init {
         orientation = VERTICAL
         addView(tabScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -120,15 +123,17 @@ class L5PanelView @JvmOverloads constructor(
      *   在重建后报一次,免得将来某页又需要不同高度时漏报(报少了顶裁)。
      */
     fun setContent(ui: L5Ui, theme: ImeTheme): Boolean {
+        currentUi = ui
         fg = theme.fg
         keyBg = tint(theme.pressed, KEY_ALPHA)
         stroke = theme.divider
         accent = tint(theme.accent, ACCENT_ALPHA)
         panelBg = tint(theme.barBg, PANEL_ALPHA)
         panelInk = theme.barBg
-        // 签名含**当前页键的内容** —— 剪贴板 tab 的条目会变而 tab/页不变,只看 tab/页的话
-        // 面板会停在旧内容上(与候选行「签名要含显示内容」同一条教训)。
-        val sig = "${theme.id}/${ui.tabIndex}/${ui.pageIndex}/${ui.pageKeys().hashCode()}"
+        // 签名含**当前页键的内容**与 tab 序列:剪贴板 tab 从空变非空要重建 tab 条,
+        // 条目变化而 tab/页不变时也要重建键格(与候选行「签名要含显示内容」同一条教训)。
+        val tabSig = ui.tabs.joinToString("|") { "${it.id}:${it.label}" }
+        val sig = "${theme.id}/${ui.tabIndex}/${ui.pageIndex}/${ui.pageKeys().hashCode()}/$tabSig"
         if (sig == lastSig) return false
         lastSig = sig
         // 翻页/重建把跟手位移清掉:旧页的位移不该带到新页的键上。
@@ -165,8 +170,7 @@ class L5PanelView @JvmOverloads constructor(
         }
         // 选中项可能在可视区外(标签长、条被滑走)⇒ 把它滚回来。
         // 布局还没测量,所以推到下一帧做 —— 现在算出来的 left/width 都是 0。
-        val selected = ui.tabIndex
-        post { ensureSelectedTabVisible(selected) }
+        post { currentUi?.let { ensureSelectedTabVisible(it.tabIndex) } }
     }
 
     /**

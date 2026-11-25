@@ -1747,6 +1747,19 @@ class ImeControllerTest {
         assertEquals(null, r.pendingLongPress())
     }
 
+    /** 按住 A 未松又按 B:B 不能覆盖 A 的槽,松开 A 仍要补出 A。 */
+    @Test
+    fun `second letter during armed long press does not steal the slot`() {
+        val r = rig()
+        r.down(KeyEvent.KEYCODE_A)
+        assertEquals(KeyEvent.KEYCODE_A, r.pendingLongPress())
+        r.down(KeyEvent.KEYCODE_B)
+        assertEquals("B 不该覆盖 A 的待判定", KeyEvent.KEYCODE_A, r.pendingLongPress())
+        r.c.onKeyUp(KeyEvent.KEYCODE_A)
+        assertEquals("松开 A 仍要出 A", "ba", r.c.state.raw)
+        assertNull(r.pendingLongPress())
+    }
+
     /** 开关关:回到旧行为 —— DOWN 即出字母,连发照旧(长按连续上屏)。 */
     @Test
     fun `switch off restores key repeat`() {
@@ -1889,6 +1902,21 @@ class ImeControllerTest {
         r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
         assertEquals(1, r.h.voiceStops)
         assertTrue(r.h.commits.isEmpty())
+    }
+
+    /** 语音已 fired 后按别的键:不能把空格槽换成别的键,松开空格必须停收音。 */
+    @Test
+    fun `key during running voice does not steal the space slot`() {
+        val r = rig()
+        r.c.voiceInputEnabled = true
+        r.down(KeyEvent.KEYCODE_SPACE)
+        r.c.onLongPressFire()
+        assertEquals(1, r.h.voiceStarts.size)
+
+        r.down(KeyEvent.KEYCODE_A)
+        r.c.onKeyUp(KeyEvent.KEYCODE_SPACE)
+        assertEquals("松开空格必须停收音", 1, r.h.voiceStops)
+        assertTrue("空格不该补上屏", r.h.commits.isEmpty())
     }
 
     /** 开关开着也照样能短按空格:松手补一个空格,不启动识别。 */

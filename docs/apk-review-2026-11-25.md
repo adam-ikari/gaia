@@ -97,3 +97,14 @@
 - 所有条目来自源码静态阅读，未在 Titan 2 真机或模拟器上复现；涉及 Native 内存泄漏、跨线程、时间回拨的条目为契约违反与代码推导。
 - 已确认的契约来源：`rime/RimeNative.kt:20-24`、`telemetry/Redaction.kt:21`、`ime/ImeState.kt` 与 UI 各文件的现有单测。
 - 行号对应 2026-11-25 的 `master`（HEAD `d15cd73`）。
+
+## 修复记录（2026-11-25）
+
+27 条全部改完。`./gradlew testDebugUnitTest` 415 条通过，`processReleaseManifest` 通过；未跑真机与 E2E。
+
+- 敏感日志按 `BuildConfig.DEBUG` 分流：debug 保持原格式（`env-reset.sh` / `harness.mjs` / `scenarios.mjs` 的解析不变），release 只打长度与数量。
+- `PlaygroundActivity` 在主 manifest 为 `exported=false`，`app/src/debug/AndroidManifest.xml` 覆写为 `true`：E2E 在非 root 真机用 `am start` 拉起它；release 仍收紧。`KeyProbeActivity` 全构建不导出。
+- librime 部署留后台，`createSession` 移到 IME 主线程；`close()` 的销毁与置 0 进同一把锁。
+- 语音模型未就绪时 `start()` 返回 `FAILED` 且不设 `pendingStart`：控制器补一个空格，模型迟到加载不会再偷偷录音，也不再双 Toast。
+- 剪贴板用 `knownSensitive` 区分平台是否给出标记：旧系统默认遮罩，API 33+ 按系统标记显示。
+- 手势计时默认改 `SystemClock.uptimeMillis()`；`ImeController` 注入 `nanoTime/1e6` 的单调时钟，避免 JVM 单测里 `SystemClock` 桩恒 0。

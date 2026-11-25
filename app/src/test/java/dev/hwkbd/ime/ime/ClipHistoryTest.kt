@@ -55,10 +55,19 @@ class ClipHistoryTest {
     @Test
     fun `sensitive 标记跟着条目走`() {
         val h = ClipHistory()
-        h.record("pw", sensitive = true)
-        h.record("ok")
+        h.record("pw", sensitive = true, knownSensitive = true)
+        h.record("ok", knownSensitive = true)
         assertEquals(true, h.entries.first { it.text == "pw" }.sensitive)
         assertEquals(false, h.entries.first { it.text == "ok" }.sensitive)
+        assertEquals(true, h.entries.first { it.text == "pw" }.knownSensitive)
+        assertEquals(true, h.entries.first { it.text == "ok" }.knownSensitive)
+    }
+
+    @Test
+    fun `无平台敏感标记时默认未确认`() {
+        val h = ClipHistory()
+        h.record("pw")
+        assertEquals(false, h.entries.first().knownSensitive)
     }
 
     @Test

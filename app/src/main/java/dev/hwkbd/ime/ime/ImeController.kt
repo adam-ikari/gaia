@@ -2,6 +2,7 @@ package dev.hwkbd.ime.ime
 
 import dev.hwkbd.ime.engine.Candidate
 import android.view.KeyEvent
+import dev.hwkbd.ime.BuildConfig
 import dev.hwkbd.ime.keymap.KeyLayout
 import dev.hwkbd.ime.keymap.KeyOut
 import dev.hwkbd.ime.keymap.L4Key
@@ -92,9 +93,10 @@ class ImeController(
      * 修饰键手势(敲击计数 / 敲击窗口 / 按住时长 / 解锁吸收窗)。
      * **所有"时间"都在这一个纯 Kotlin 对象里**(原先散成七八个字段 + 状态上的 `tapAt`),
      * 它只做判定、不管显示(状态行是状态的纯函数,见 `StatusRow`)。
-     * 构造参数留给测试注入假时钟;生产用系统时钟。
+     * 构造参数留给测试注入假时钟;这里注入单调时钟(nanoTime)—— JVM 单测里
+     * `SystemClock` 的桩恒为 0,靠 Thread.sleep 熬过阈值/窗口的判据会失效。
      */
-    val gestures = ModifierGestures()
+    val gestures = ModifierGestures(now = { System.nanoTime() / 1_000_000L })
 
     /** 长按阈值(转发给 [ModifierGestures],别处不再各留一份常量)。 */
     private val holdMs: Long get() = gestures.holdMs
@@ -426,6 +428,8 @@ class ImeController(
      * 所以中文全角态长按出的是中文标点,不是 ASCII。
      */
     private fun tryArmLongPress(code: Int, caps: Boolean): Boolean {
+        // 一个槽只放一次按压:第二键不能覆盖第一键(否则第一键 UP 认不出自己,被吞)
+        if (lp.code != 0) return false
         // **只支持字母键**(2026-10-16 用户定):数字 / 标点 / 空格 / 功能键都不长按,
         // 这条做成结构性的第一道闸,不依赖"出厂 L2/L3 表里恰好只有字母"这个巧合。
         if (code !in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) return false
@@ -475,6 +479,8 @@ class ImeController(
      * - L5 面板开着 ⇒ 空格归面板态,敲键应先收面板。
      */
     private fun tryArmVoiceLongPress(code: Int): Boolean {
+        // 语音已 fired 时别的键不能覆盖空格槽(否则松开空格不再 stopVoiceInput)
+        if (lp.code != 0) return false
         if (code != KeyEvent.KEYCODE_SPACE) return false
         if (!voiceInputEnabled) return false
         if (fieldProfile().digitsOnly || state.secure) return false
@@ -819,14 +825,24 @@ class ImeController(
         // `global` 与 `li` 并排打出来:两者相等就是**在第 0 页**。
         // 真实故障下会看到 `li=3 global=3`(第 0 页,正常)与 `li=0 global=10`
         // (翻过页)并存 —— 只看 `li` 永远看不出错。
-        android.util.Log.i(
-            "ImeService",
-            "select: zone=$displayIndex li=$li global=$globalIndex word=\"${c.word}\" " +
-                "page=${state.page}/${state.totalPages} raw=\"${state.raw}\" " +
-                "order=${state.displayOrder(logical.size).joinToString()} " +
-                "pageWords=${logical.joinToString("|") { it.word }} " +
-                "consumed=${sel?.consumed}"
-        )
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                "ImeService",
+                "select: zone=$displayIndex li=$li global=$globalIndex word=\"${c.word}\" " +
+                    "page=${state.page}/${state.totalPages} raw=\"${state.raw}\" " +
+                    "order=${state.displayOrder(logical.size).joinToString()} " +
+                    "pageWords=${logical.joinToString("|") { it.word }} " +
+                    "consumed=${sel?.consumed}"
+            )
+        } else {
+            android.util.Log.i(
+                "ImeService",
+                "select: zone=$displayIndex li=$li global=$globalIndex wordLen=${c.word.length} " +
+                    "page=${state.page}/${state.totalPages} rawLen=${state.raw.length} " +
+                    "order=${state.displayOrder(logical.size).joinToString()} " +
+                    "pageWordCount=${logical.size} consumed=${sel?.consumed}"
+            )
+        }
 
         val consumed = sel?.consumed
 
@@ -868,10 +884,17 @@ class ImeController(
             // topSpelling 返回空 ⇒ 回退显示原始拼写,只是没有分隔符,不是错误显示。
             refreshSpelling()
             querySeq++
-            android.util.Log.i(
-                "ImeService",
-                "query#$querySeq from=选词后剩余 raw=\"${rem.raw}\" n=${state.candidates.size}"
-            )
+            if (BuildConfig.DEBUG) {
+                android.util.Log.i(
+                    "ImeService",
+                    "query#$querySeq from=选词后剩余 raw=\"${rem.raw}\" n=${state.candidates.size}"
+                )
+            } else {
+                android.util.Log.i(
+                    "ImeService",
+                    "query#$querySeq from=选词后剩余 rawLen=${rem.raw.length} n=${state.candidates.size}"
+                )
+            }
         }
         host.render()
         return true
@@ -1136,7 +1159,11 @@ class ImeController(
         //
         // 窗口只存在于首次启动那几秒;之后就绪了,走正常路径。
         if (!inputMethod().isReady) {
-            android.util.Log.i("ImeService", "query: 引擎未就绪,不查询(raw=\"${state.raw}\")")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.i("ImeService", "query: 引擎未就绪,不查询(raw=\"${state.raw}\")")
+            } else {
+                android.util.Log.i("ImeService", "query: 引擎未就绪,不查询(rawLen=${state.raw.length})")
+            }
             host.render()
             return
         }
@@ -1158,17 +1185,24 @@ class ImeController(
         // ---- 谁在写候选列表(埋点)------------------------------------
         //
         // 用户报「候选行自己交替闪烁」——「交替」意味着**两个来源在轮流写**。
-        // 一次按键只应写一次;这里把序号、调用者、raw、候选数一起打出来:
+        // 一次按键只应写一次;这里把序号、调用者、raw(仅 debug)、候选数一起打出来:
         // 序号不连续或调用者成对出现,就是重复刷新。
         //
         // `from` 由**调用方显式传**,不是这里 `Throwable().stackTrace` 走栈 ——
         // 走栈能自动得到调用者,但每次按键都要爬一遍调用栈,而这是输入法的热路径
         // (每个字母都走一遍)。显式传是零成本,而且中文标签比 `类名.方法名` 好读。
         querySeq++
-        android.util.Log.i(
-            "ImeService",
-            "query#$querySeq from=$from raw=\"${state.raw}\" n=${state.candidates.size}"
-        )
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                "ImeService",
+                "query#$querySeq from=$from raw=\"${state.raw}\" n=${state.candidates.size}"
+            )
+        } else {
+            android.util.Log.i(
+                "ImeService",
+                "query#$querySeq from=$from rawLen=${state.raw.length} n=${state.candidates.size}"
+            )
+        }
         // ----------------------------------------------------------------
         host.render()
     }
@@ -1225,10 +1259,17 @@ class ImeController(
         val sig = "${state.raw}|$n"
         if (sig == lastCandidateSig) return
         lastCandidateSig = sig
-        android.util.Log.i(
-            "ImeService",
-            "candidates[$why]: raw=\"${state.raw}\" n=$n pages=${state.totalPages}"
-        )
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                "ImeService",
+                "candidates[$why]: raw=\"${state.raw}\" n=$n pages=${state.totalPages}"
+            )
+        } else {
+            android.util.Log.i(
+                "ImeService",
+                "candidates[$why]: rawLen=${state.raw.length} n=$n pages=${state.totalPages}"
+            )
+        }
     }
 
     fun clearComposition() {
@@ -1387,15 +1428,21 @@ class ImeController(
         // 数字类等输入框可能一个可显示 tab 都没有(没有场景、字符盘全被过滤)。
         // 不进入空面板:否则状态说 L5、视图却取不到 tab。返回 false 让调用方知道没打开。
         if (opening && (next == null || next.tabs.isEmpty())) {
-            android.util.Log.i("ImeService", "panel: L5 无可用键,保持 OFF raw=\"${state.raw}\"")
             return false
         }
         state.panelMode = if (opening) PanelMode.L5 else PanelMode.OFF
         state.l5 = next
-        android.util.Log.i(
-            "ImeService",
-            "panel: ${state.panelMode}${if (state.panelMode == PanelMode.L5) " tab=0" else ""} raw=\"${state.raw}\"",
-        )
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                "ImeService",
+                "panel: ${state.panelMode}${if (state.panelMode == PanelMode.L5) " tab=0" else ""} raw=\"${state.raw}\"",
+            )
+        } else {
+            android.util.Log.i(
+                "ImeService",
+                "panel: ${state.panelMode}${if (state.panelMode == PanelMode.L5) " tab=0" else ""} rawLen=${state.raw.length}",
+            )
+        }
         host.render()
         return true
     }

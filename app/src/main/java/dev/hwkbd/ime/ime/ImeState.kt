@@ -322,9 +322,8 @@ class ImeState {
         }.toList()
     }
 
-    /** 显示槽 → 逻辑序映射:满 5 用 4-2-1-3-5,不足时同规则紧凑(中→左内→右内→左外→右外),避免空洞。 */
-    fun displayOrder(logicalSize: Int): IntArray =
-        if (logicalSize >= pageSize) DISPLAY_ORDER else COMPACT_ORDER
+    /** 显示槽 → 逻辑序映射:满 5 与不足 5 同规则紧凑(中→左内→右内→左外→右外),避免空洞。 */
+    fun displayOrder(logicalSize: Int): IntArray = DISPLAY_ORDER
 
     /** 有效显示位(有候选的槽)。 */
     fun validDisplays(): List<Int> = pageSlots().mapIndexed { i, c -> if (c != null) i else -1 }.filter { it >= 0 }
@@ -333,11 +332,8 @@ class ImeState {
     fun pageItems(): List<Candidate> = pageSlots().filterNotNull()
 
     companion object {
-        /** 满 5 候选:4 2 1 3 5(槽=Shift/Sym/空格/Ctrl/Alt → 候选4/2/1/3/5,首选恒在中槽)。 */
+        /** 显示序(唯一一份):4 2 1 3 5(槽=Shift/Sym/空格/Ctrl/Alt → 候选4/2/1/3/5,首选恒在中槽)。 */
         val DISPLAY_ORDER = intArrayOf(3, 1, 0, 2, 4)
-
-        /** 不足 5 候选:同规则紧凑(槽2=首选,槽1=候选2,槽3=候选3,槽0=候选4…),从中间往两侧补。 */
-        val COMPACT_ORDER = intArrayOf(3, 1, 0, 2, 4)
 
         /** 拼音分节符。值与 [dev.hwkbd.ime.strategy.ChineseLanguage.SEPARATOR] 相同 ——
          *  不能反过来 import:strategy 包依赖 ime 包,ime 不准反向依赖。

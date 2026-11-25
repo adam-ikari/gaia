@@ -1,5 +1,6 @@
 package dev.hwkbd.ime.rime
 
+import dev.hwkbd.ime.BuildConfig
 import dev.hwkbd.ime.strategy.PinyinConsumption
 import android.content.Context
 import android.util.Log
@@ -54,10 +55,14 @@ import java.io.File
  *
  * ## 线程
  *
- * librime 的 session 不是线程安全的:[query]/[select] 只在 IME 主线程调;
- * 部署([prepare])在后台线程,两者用 [lock] 互斥。
+ * librime 的 session 不是线程安全的:它在 IME 主线程创建、[query]/[select] 也只在
+ * IME 主线程调;部署([prepare])在后台线程,两者用 [lock] 互斥。
  */
-class RimeEngine(private val context: Context) : InputMethod {
+class RimeEngine(
+    private val context: Context,
+    /** 切到 IME 主线程创建 session;默认直接执行,单测不必造 Looper。 */
+    private val postToMain: (() -> Unit) -> Unit = { it() },
+) : InputMethod {
 
     override val id: String get() = "pinyin"
 
@@ -91,7 +96,8 @@ class RimeEngine(private val context: Context) : InputMethod {
      * 初始化 + 部署。**必须在后台线程调**:首次部署要把 `*.yaml` 编成 `*.bin`,
      * 几秒到几十秒,放主线程会 ANR。
      *
-     * @param onDone 回调在**后台线程**;UI 更新要自己切线程
+     * @param onDone 成功时在 session 创建后回调(经 [postToMain],生产是 IME 主线程;
+     *   默认实现则在部署线程);失败仍在 [prepare] 调用线程同步回调
      */
     fun prepare(onDone: (Boolean) -> Unit) {
         if (!available) {
@@ -122,11 +128,13 @@ class RimeEngine(private val context: Context) : InputMethod {
         }
         Thread({
             RimeNative.joinMaintenance()
-            val s = RimeNative.createSession()
-            synchronized(lock) { session = s }
-            ready = s != 0L
-            Log.i(TAG, "就绪 version=${RimeNative.version()} schema=$SCHEMA_ID session=$s")
-            onDone(ready)
+            // 部署留在后台;session 的创建与后续使用都在 IME 主线程(见 RimeNative 契约)。
+            postToMain {
+                val s = synchronized(lock) { RimeNative.createSession().also { session = it } }
+                ready = s != 0L
+                Log.i(TAG, "就绪 version=${RimeNative.version()} schema=$SCHEMA_ID session=$s")
+                onDone(ready)
+            }
         }, "rime-deploy").apply { isDaemon = true }.start()
     }
 
@@ -228,11 +236,13 @@ class RimeEngine(private val context: Context) : InputMethod {
         val consumed = RimeNative.selectCandidate(s, index)
         if (consumed < 0) return null
         // 预览**只作埋点**:它就是「按回车会提交什么」,拿来对照能一眼看出缓冲被截错了。
+        // debug 留全文供 E2E 判据;release 输入内容不进 logcat,只留序号与消费量。
         val preview = RimeNative.commitTextPreview(s)
-        android.util.Log.i(
-            TAG,
-            "consume: index=$index word=\"$selectedWord\" consumed=$consumed preview=\"$preview\"",
-        )
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, "consume: index=$index word=\"$selectedWord\" consumed=$consumed preview=\"$preview\"")
+        } else {
+            Log.i(TAG, "consume: index=$index consumed=$consumed")
+        }
         // 2026-10-06:**不再把 0 折进 null**。
         //
         // 原文写的是「`<= 0` 一律当说不清…… 两者上层动作相同,不必区分」。
@@ -343,8 +353,9 @@ class RimeEngine(private val context: Context) : InputMethod {
         synchronized(lock) {
             if (session != 0L) RimeNative.destroySession(session)
             session = 0
+            // destroy() 也进锁:与 query / prepare 的 session 操作互斥。
+            RimeNative.destroy()
         }
-        RimeNative.destroy()
     }
 
     private companion object {
