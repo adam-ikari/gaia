@@ -1,6 +1,6 @@
 <template>
   <!--
-    截图不再单独摆一行，而是叠进 Titan 2 的机身图里。
+    截图叠进 Titan 2 的机身图里，整张铺满屏幕区。
 
     机身图是 Unihertz 官网产品图的裁切：屏幕那一块在图片里挖成透明孔，
     真正的画面由下面的 <img> 垫在机身图下面。换截图只换 src，不用重做图片。
@@ -11,9 +11,7 @@
   -->
   <figure class="gaia-shot">
     <div class="gaia-shot-stage">
-      <div class="gaia-shot-screen" :class="{ 'is-row': isRow }">
-        <img :src="href" :alt="alt" loading="lazy" decoding="async" />
-      </div>
+      <img class="gaia-shot-screen" :src="href" :alt="alt" loading="lazy" decoding="async" />
       <img class="gaia-shot-shell" :src="shellHref" alt="" aria-hidden="true" />
     </div>
   </figure>
@@ -31,19 +29,19 @@ const props = defineProps<{
 
 const href = computed(() => withBase(`/img/${props.src}`))
 const shellHref = computed(() => withBase('/img/titan2-shell.png'))
-/** `crop-*` 是 1440×96 的输入法行，贴在屏幕底部；其余是 1440×1440 整屏。 */
-const isRow = computed(() => props.src.startsWith('crop-'))
 </script>
 
 <style scoped>
 .gaia-shot {
   margin: 0;
+  min-width: 0;
 }
 
 .gaia-shot-stage {
   position: relative;
   width: 100%;
-  max-width: 620px;
+  /* 一台机器在页面里不该和正文抢宽度：之前的 620px 让整屏图比标题还显眼。 */
+  max-width: 360px;
   margin: 0 auto;
   aspect-ratio: 464 / 550;
 }
@@ -54,7 +52,7 @@ const isRow = computed(() => props.src.startsWith('crop-'))
   display: block;
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.16));
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.14));
 }
 
 .gaia-shot-screen {
@@ -63,25 +61,8 @@ const isRow = computed(() => props.src.startsWith('crop-'))
   top: 14.36%;
   width: 90.52%;
   height: 76.36%;
-  overflow: hidden;
-  background: #000;
-}
-
-.gaia-shot-screen img {
   display: block;
-  width: 100%;
-  height: 100%;
   object-fit: cover;
-}
-
-/* 输入法只画屏幕最底下那一行；上面保持黑底，不在图里凭空造 UI。 */
-.gaia-shot-screen.is-row img {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: auto;
-  object-fit: fill;
 }
 
 .gaia-shot + .gaia-shot {

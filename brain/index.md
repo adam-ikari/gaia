@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-11-25T00:19:42.214Z._
+_Auto-generated. Last updated 2026-11-25T01:22:08.819Z._
 
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
 - [chinese-ime-lm-survey](pages/chinese-ime-lm-survey.md) — category: reference | tags: [survey, license, eval] | - **它是什么**:`metasequoiaime/chinese-ime-lm`(Rust,仓库 GPL-3.0,2025-11 建,869 stars),面向中文输入法的语言模型工程,配套输入法是 MSIME。
@@ -26,7 +26,7 @@ _Auto-generated. Last updated 2026-11-25T00:19:42.214Z._
 - [sensitivity-tiers](pages/sensitivity-tiers.md) — category: decision | tags: [gesture, threshold, sensitivity, deadzone] | ## 三条正交的防线(2026-10-16 之后的口径)
 - [site-analytics](pages/site-analytics.md) — category: decision | tags: [Cloudflare Workers 自建 Umami:analytics, umami, cloudflare] | 站点统计走**自建 Umami**,部署在 Cloudflare Workers + D1(用户从 Umami/Plausible/GoatCounter/
 - [site-copy](pages/site-copy.md) — category: decision | tags: [按 adamblog 的写作规则去 AI 味, 并对 Titan 2 量身定做的口径:copy, voice, titan2] | 站点文案的规则**不在本仓库**，在 `adamblog` 项目里。
-- [site-device-composite](pages/site-device-composite.md) — category: decision | tags: [site, mockup, titan2] | 首页全部 9 张截图不再单独摆横条，统一叠进 Titan 2 机身图里。
+- [site-device-composite](pages/site-device-composite.md) — category: decision | tags: [site, mockup, titan2] | 首页 9 张截图叠进 Titan 2 机身图，机身图取自 Unihertz 官网产品图。
 - [site-e2e-video](pages/site-e2e-video.md) — category: project | tags: [ci, testing, video] | 站点的演示视频由 **CI 端到端测试顺便录出来**,不手工录。
 - [site-mobile](pages/site-mobile.md) — category: decision | tags: [视口被撑开是首要故障, 3D 投影的尺寸必须实测:mobile, responsive, css, 3d, viewport] | # 移动端版式:先量视口,再看图
 - [site-repo-topology](pages/site-repo-topology.md) — category: decision | tags: [site, monorepo, release, deploy] | 站点与应用在**同一个仓**(2026-10-27:网站仓 `adam-ikari/gaia` 删除,本仓改名为 `gaia`)。

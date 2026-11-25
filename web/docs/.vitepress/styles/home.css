@@ -166,8 +166,30 @@
  * `.gaia-band p` 的 margin 是 0(段间距离由上面那条 `p + p` 管),而图是 `<figure>`:
  * 不补这一条,输入法那一行就贴在最后一句话下面。
  */
-.gaia-band-narrow > * + figure {
+.gaia-band-narrow > * + figure,
+.gaia-band-narrow > * + .gaia-shot-pair {
   margin-top: 36px;
+}
+
+/*
+ * 一张带子里放两台机器时并排，不再上下堆成两屏高。
+ * 每个 figure 由 Shot.vue 管自己的最大宽度，这里只负责分栏和间距。
+ */
+.gaia-shot-pair {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}
+
+.gaia-shot-pair > .gaia-shot {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Shot.vue 给连续两张图加了 14px 上下间距；并排时那会变成两台机器错位。 */
+.gaia-shot-pair > .gaia-shot + .gaia-shot {
+  margin-top: 0;
 }
 
 .gaia-band h2 {

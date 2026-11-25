@@ -5,30 +5,26 @@ category: decision
 status: active
 tags: [site, mockup, titan2]
 created: "2026-11-24T16:39:12"
-updated: "2026-11-25T08:19:42"
+updated: "2026-11-25T09:22:08"
 ---
 
 <!-- compiled_truth -->
-首页全部 9 张截图不再单独摆横条，统一叠进 Titan 2 机身图里。用户明确选了三件事（2026-11-24 三问）：
+首页 9 张截图叠进 Titan 2 机身图，机身图取自 Unihertz 官网产品图。2026-11-25 按用户反馈改成：截图用 `out/media/shots/` 的 1440×1440 **整屏图**，不再只贴底部输入法行；机身最大宽度从 620px 缩到 360px；一张带里放两台机器时用 `gaia-shot-pair` 并排，≤430px 叠放。
 
-1. 机身图抓 Unihertz 官网产品图，不用自绘外壳；
-2. 9 张截图全部合成，不是只做首屏；
-3. 产出用 Vue 组件叠加，不是离线生成 PNG。
+## 当前落法
 
-## 落法
+- `public/img/titan2-shell.png`：官网正面产品图裁成 464×550（偏移 +268+140），背景与屏幕区 (22,79)-(442,499) 挖成透明孔，源 URL 与裁切参数在 PNG 文本元数据里。
+- `Shot.vue` 保留 `src`/`alt` 接口，`index.md` 不用改组件名。屏幕区四个百分比：left 4.74% / top 14.36% / width 90.52% / height 76.36%，换机身图必须一起改。
+- `screen-*.png` 是 `out/media/shots/` 整屏图的拷贝；早先的 `crop-*.png`（1440×96 底部行）已删。
+- `.gaia-shot-pair` 在 home.css 里分栏、在 responsive.css 的 ≤430px 断点里叠放；并排时要压掉 `Shot.vue` 给连续两张图加的 14px margin，否则两台机器错位。
 
-- 机身素材：`web/docs/public/img/titan2-shell.png`。源是 Unihertz Titan 2 产品页的 CDN 图（`titan-2-...-2923626.jpg`），裁到 464×550（偏移 +268+140），背景从四角 flood-fill 成透明，**屏幕区 (22,79)-(442,499) 挖成透明孔**。源 URL 与裁切参数写进 PNG 的文本元数据。
-- `Shot.vue` 保留 `src`/`alt` 接口，`index.md` 不用改。屏幕区用四个百分比定位：left 4.74% / top 14.36% / width 90.52% / height 76.36%；机身图换了这四个数必须一起改。
-- `crop-*` 是 1440×96 输入法行，贴在屏幕底部、上面保持黑底（不凭空造 App UI）；`08/09` 是 1440×1440 整屏，铺满屏幕区。可用 `fit` prop 覆盖自动判断。
-- 用户没要求改 hero，hero 保持原样。
+## 为什么改
 
-## 踩过的坑
-
-机身图屏幕区第一版填了**不透明黑**，直接盖掉下面的截图，页面看着像屏幕全黑。孔必须是透明的，黑底由 `.gaia-shot-screen` 的 CSS 背景提供。背景抠图用 flood-fill 阈值 18 会在深底分区留下白色锯齿边，提到 55 才干净。
+第一版把 1440×96 的输入法行贴在屏幕底部、上面留黑，用户反馈「真机图太大了，截图又只有底部」。整屏图虽然 UI 缩小后字也小，但画面完整；机身缩到 360px 后不再压过正文。
 
 ## 验证
 
-`npm run build` 通过；`tools/sitecheck/mobile-check.mjs` 7 档视口 innerWidth 全等于设备宽、无横向滚动。puppeteer 逐分区截图看过浅底/深底、行截图/整屏截图、576×576 Titan 2 视口。没有真机验证。
+`npm run build` 通过；7 档视口 sitecheck 全过；puppeteer 看过 1280 / 576 / 375 三档，含并排与叠放两种形态。无真机验证。
 
 
 ## Timeline
@@ -56,3 +52,15 @@ updated: "2026-11-25T08:19:42"
   summary: "已发布:提交 88e86c4 推到 origin/master,dispatch deploy-site.yml run 45516835713 成功(含逐字节验线上),线上 titan2-shell.png 的 sha256 与本地一致"
   source: "git log、gh run watch、curl+sha256sum 2026-11-25"
   affects: [site-device-composite, site-repo-topology]
+
+- time: 2026-11-25T09:22:08
+  kind: decision
+  summary: "改为整屏截图 + 机身缩到 360px + 两台并排"
+  source: "2026-11-25 用户「真机图太大了 截图又只有底部 完整屏幕截图」"
+  affects: [site-device-composite]
+
+- time: 2026-11-25T09:22:08
+  kind: reversal
+  summary: "推翻「crop-* 输入法行贴屏幕底部」:改为整屏截图铺满屏幕区;机身最大宽度 620px→360px;两台机器并排"
+  source: "2026-11-25 用户反馈「真机图太大了 截图又只有底部 完整屏幕截图」"
+  affects: [site-device-composite, site-style]
