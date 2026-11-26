@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-11-25T10:19:14.492Z._
+_Auto-generated. Last updated 2026-11-26T04:01:25.283Z._
 
 - [apk-review-2026-11-25](pages/apk-review-2026-11-25.md) — category: reference | tags: [apk, review, security] | 评审 27 条已于 2026-11-25 全部修复，提交 `80d6754`。
 - [branch-and-gate-model](pages/branch-and-gate-model.md) — category: decision | tags: [release, ci, tooling, workflow] | ## 本仓库的分支保护不可用,所以规范必须自己说明边界
