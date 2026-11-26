@@ -5,7 +5,7 @@ category: reference
 status: active
 tags: [apk, review, security]
 created: "2026-11-25T16:38:25"
-updated: "2026-11-26T12:01:25"
+updated: "2026-11-26T14:55:35"
 ---
 
 <!-- compiled_truth -->
@@ -46,4 +46,10 @@ updated: "2026-11-26T12:01:25"
   kind: evidence
   summary: "修复版 beta 已在 Titan 2 真机安装:sha256 与本地一致,versionName 0.7.12-beta.ffd3769,设置页正常渲染,logcat 无 FATAL;完整 E2E 未跑(beta 的 Playground 不导出、远端设备焦点被外部切换)"
   source: "2026-11-26 a2mcp 真机验证"
+  affects: [apk-review-2026-11-25]
+
+- time: 2026-11-26T14:55:35
+  kind: evidence
+  summary: "真机复验脱敏发现 updateSelection raw= 漏网并修复;重编 beta 后 logcat 只有 rawLen/wordLen/数量/beforeLen/afterLen,无原文"
+  source: 2026-11-26 Titan 2 adb logcat
   affects: [apk-review-2026-11-25]

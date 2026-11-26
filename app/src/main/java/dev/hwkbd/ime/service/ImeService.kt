@@ -621,10 +621,17 @@ class ImeService : InputMethodService() {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        android.util.Log.i(
-            TAG,
-            "updateSelection sel=$newSelStart..$newSelEnd comp=$candidatesStart..$candidatesEnd raw=$composing",
-        )
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                TAG,
+                "updateSelection sel=$newSelStart..$newSelEnd comp=$candidatesStart..$candidatesEnd raw=$composing",
+            )
+        } else {
+            android.util.Log.i(
+                TAG,
+                "updateSelection sel=$newSelStart..$newSelEnd comp=$candidatesStart..$candidatesEnd rawLen=${composing.length}",
+            )
+        }
         // App 回报了与我们一致的组词区 → 它自己会把拼音显示在输入框里,悬浮条让位
         if (composing.isNotEmpty() && candidatesStart >= 0 && candidatesEnd == candidatesStart + composing.length) {
             appRendersComposing = true

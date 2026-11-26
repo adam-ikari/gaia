@@ -108,3 +108,5 @@
 - 语音模型未就绪时 `start()` 返回 `FAILED` 且不设 `pendingStart`：控制器补一个空格，模型迟到加载不会再偷偷录音，也不再双 Toast。
 - 剪贴板用 `knownSensitive` 区分平台是否给出标记：旧系统默认遮罩，API 33+ 按系统标记显示。
 - 手势计时默认改 `SystemClock.uptimeMillis()`；`ImeController` 注入 `nanoTime/1e6` 的单调时钟，避免 JVM 单测里 `SystemClock` 桩恒 0。
+
+**真机复验补修（2026-11-26）**：在 Titan 2 上用 beta 包敲拼音抓 logcat，发现 `ImeService.kt:626` 的 `updateSelection ... raw=$composing` 未做 debug/release 分流，release 仍会写拼音原串。已改成 debug 留原值、release 打 `rawLen`。重编 beta 装回真机再验：日志只有 `rawLen`、`wordLen`、`words=5`（数量）、`beforeLen/afterLen`、`consume: index/consumed`，没有原串、词表、preview 或上下文正文。
