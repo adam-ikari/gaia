@@ -143,7 +143,7 @@ export const scenarios = [
         // 先组词:候选行必须存在
         c.device.key(K.n, K.i)
         await sleep(500) // > 300ms 静默窗,否则 swipeArmed=false 不接管
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         sw(1100, 400, 300) // 第一段:翻页,抬手后弹簧开始走
         // **两段之间必须有间隔**(2026-10-08 真机实测)。
         //
@@ -229,7 +229,7 @@ export const scenarios = [
     desc: '选完候选后剩下的拼音留在缓冲里',
     steps: [
       async (c) => {
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         for (const ch of 'nihao') c.device.key(kcOf(ch))
         await sleep(1200)
         c.shot('composing-nihao')
@@ -301,7 +301,7 @@ export const scenarios = [
         // 「组词区被外力破坏就 abandonComposition」的对账,把我们**自己那一次
         // `setComposingText` 的回声**当成了破坏。框架对一次写入会连报两条中间态
         // (`comp=0..1`、`comp=-1..-1`),第三条 `[1,4)` 才是真的 —— 对账在前两条上就自杀了。
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         c.device.key(kcOf('n'))
         await sleep(900)
         const log2 = c.device.takeLog('from=|ABANDON|winmode:')
@@ -370,7 +370,7 @@ export const scenarios = [
         c.device.key(K.n, K.i)
         await sleep(900)
         c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         await sleep(400) // > 300ms 静默窗,否则候选行不接管这次横滑
         // 横滑翻页(有 `page begin:` 埋点 ⇒ 能确认手势真的到了候选行)。
         c.device.swipe(1100, ROW, 400, ROW, 300)
@@ -387,7 +387,7 @@ export const scenarios = [
         // 现在 pageStep / page begin# / end: 判定提交 三处都有埋点,
         // 所以这个场景失败时能**自己说出是哪一环没动**,不用再猜。
         const pageLog = c.device.takeLog('page begin#|end: |pageStep:')
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         c.device.key(K.space) // 显示槽 2 = 当前页的首选
         await sleep(900)
         const log = c.device.takeLog('select: zone=.*')
@@ -475,7 +475,7 @@ export const scenarios = [
         await sleep(900)
         c.shot('composing')
         c.expect(c.device.imeShown(), '组词中输入法窗口显示(全屏飞字态)')
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         c.device.key(K.space)
         await sleep(900)
         const t = c.device.editText()
@@ -530,7 +530,7 @@ export const scenarios = [
       async (c) => {
         c.device.key(K.n, K.i)
         await sleep(900)
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         // 划到刚过线就松手(动画开始播),立刻再按下并往回拖 —— 打断提交动画。
         c.device.swipe(1100, 1100, 500, 1100, 120)
         c.device.swipe(500, 1100, 1100, 1100, 120)
@@ -643,7 +643,7 @@ if (rings.length === 0) {
         )
 
         // ## 已在第一页,再往前滑 —— 应该进橡皮筋而不是翻页
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         c.device.swipe(500, ROW, 1100, ROW, 200)
         await sleep(900)
         const log = c.device.takeLog('page end:|rubber end:|rubber settle:|rubber ring:')
@@ -738,7 +738,7 @@ if (rings.length === 0) {
         // 后者只在 `commitFly`(飞字提交)那条日志里出现,**量词阶段根本不会有**。
         // (第一版就写成 `hasComposition`,于是无论组词有没有都必红 —— 自己造的假信号。)
         c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         c.device.swipe(1100, 1100, 500, 1100, 200)
         await sleep(700)
         const log1 = c.device.takeLog('page (begin|end)')
@@ -781,7 +781,7 @@ if (rings.length === 0) {
         c.device.key(K.n, K.i)
         await sleep(900)
         c.expectLog(c.device.takeLog('updateSelection.*comp=[0-9]'), 'updateSelection')
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         // 连翻三页再翻回一页:每一次落定都得对上,包括往回翻
         for (let i = 0; i < 3; i++) {
           c.device.swipe(1200, 1100, 800, 1100, 250)
@@ -983,7 +983,7 @@ const selOf = (log) => {
           // 的 FlyDetector),所以起点取槽心即可。
           const zx = Math.round((kbdW * (cs.slot + 0.5)) / 5)
 
-          c.device.shell('logcat -c')
+          c.device.shell('logcat -c -b main -b system -b events')
           c.device.swipe(zx, 1199, zx, 632, 250)
           await sleep(1000)
           const after = c.device.takeLog('(select:|fly select:)')
@@ -1021,7 +1021,7 @@ const selOf = (log) => {
             const leftOff = (kbdW - barW) / 2 // 候选行通栏 ⇒ 0
             const visual = Math.floor((probeX - leftOff) / (barW / 5))
             const zoned = Math.floor(probeX / (kbdW / 5))
-            c.device.shell('logcat -c')
+            c.device.shell('logcat -c -b main -b system -b events')
             c.device.swipe(probeX, 1199, probeX, 632, 250)
             await sleep(1000)
             const sel = selOf(c.device.takeLog('(select:|fly select:)'))
@@ -1047,7 +1047,7 @@ const selOf = (log) => {
       async (c) => {
         c.device.key(K.n, K.i)
         await sleep(900)
-        c.device.shell('logcat -c')
+        c.device.shell('logcat -c -b main -b system -b events')
         c.device.swipe(841, 1199, 989, 632, 250) // 真机实测坐标:上滑 → 槽2(首选)
         await sleep(900)
         const log = c.device.takeLog('fly (select|judge)')
