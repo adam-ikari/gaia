@@ -121,6 +121,20 @@ a shell ime set "$IME" || true
 a shell ime disable com.android.inputmethod.latin 2>/dev/null || true
 say "输入法:"; a shell ime list -s || true
 
+RC=0
+
+# ---- 回归场景 ----
+# 必须先跑场景再采图。采图结尾停在设置/许可页,2026-11-27 实测:
+# 之后 harness 的 am start 返回成功但实验场没有前台,19 个场景全在共同前置红。
+# 场景自己的前置会重建实验场与焦点;跑完再采图,shots 的 openPlayground 也会重新归位。
+if [ -n "${SCENES:-}" ]; then
+  for s in $(echo "$SCENES" | tr ',' ' '); do
+    say "场景 $s"
+    AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 300 node tools/aitest/harness.mjs run "$s" \
+      || { echo "::error::场景 $s 失败"; RC=1; }
+  done
+fi
+
 # ---- 素材 ----
 # **必须留在这个 step 里**:文件头第 1 条说过,step 一结束 action 就 `emu kill`。
 # 拆到后面的 step 跑起来时 `adb devices` 已经空了。
@@ -128,7 +142,6 @@ say "输入法:"; a shell ime list -s || true
 # RC 攒着最后再退:`|| echo warning` 单独一行看着无害,实际是**把整轮红变成绿** ——
 # 2026-10-30 那次九张裁切全废(ffmpeg ENOENT)、核心场景也没过,流水线却是绿的,
 # 因为脚本的退出码被这条 echo 吃掉了。产物只剩不许上站的全屏帧。
-RC=0
 if [ -n "${SHOOTS:-}" ]; then
   mkdir -p out/media
   say "采集素材(截图 + 录屏)"
@@ -136,15 +149,6 @@ if [ -n "${SHOOTS:-}" ]; then
   AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 900 node tools/aitest/shots.mjs out/media/shots \
     || { echo "::error::素材脚本有失败项(裁切/自检/录屏,见上面)"; RC=1; }
   ls -la out/media out/media/shots 2>/dev/null || true
-fi
-
-# ---- 回归场景 ----
-if [ -n "${SCENES:-}" ]; then
-  for s in $(echo "$SCENES" | tr ',' ' '); do
-    say "场景 $s"
-    AITEST_DEVICE="$SERIAL" ADB="$ADB_BIN" timeout 300 node tools/aitest/harness.mjs run "$s" \
-      || { echo "::error::场景 $s 失败"; RC=1; }
-  done
 fi
 
 # ---- 收尾证据 ----
