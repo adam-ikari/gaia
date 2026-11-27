@@ -139,7 +139,7 @@ export class Device {
    */
   probeIme(timeoutMs = 90000) {
     this.clearField()
-    this.shell('logcat -c -b main -b system -b events')
+    this.shell('logcat -c')
     this.key(42) // KEYCODE_N
     // **两个条件都要满足**(2026-10-03 加第二个)。
     //
@@ -237,7 +237,7 @@ export class Device {
     const out = this.shell(
       `logcat -d -s ImeService:* CandidateBar:* ImeRoot:* SpringChannel:* RimeEngine:* 2>/dev/null | grep -E "${pattern}" | tail -20`,
     )
-    this.shell('logcat -c -b main -b system -b events')
+    this.shell('logcat -c')
     return out.trim()
   }
 
