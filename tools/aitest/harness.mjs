@@ -139,7 +139,7 @@ export class Device {
    */
   probeIme(timeoutMs = 90000) {
     this.clearField()
-    this.shell('logcat -c')
+    this.shell('logcat -c -b main -b system -b events')
     this.key(42) // KEYCODE_N
     // **两个条件都要满足**(2026-10-03 加第二个)。
     //
@@ -237,7 +237,7 @@ export class Device {
     const out = this.shell(
       `logcat -d -s ImeService:* CandidateBar:* ImeRoot:* SpringChannel:* RimeEngine:* 2>/dev/null | grep -E "${pattern}" | tail -20`,
     )
-    this.shell('logcat -c')
+    this.shell('logcat -c -b main -b system -b events')
     return out.trim()
   }
 
@@ -497,7 +497,8 @@ async function main() {
   // 先收摊再汇总:子进程还在写 full.log,让它活得比汇总更久没有意义。
   try { logProc.kill() } catch {}
 
-  report.crashesDuringRun = device.crashCount() - crashesBefore
+  const crashesAfter = device.crashCount()
+  report.crashesDuringRun = crashesAfter - crashesBefore
 
   // AI 视觉判卷:有 API Key 时对每张截图执行场景定义的 judge 问题
   const { judgeEvidence } = await import('./judge.mjs')
@@ -532,6 +533,7 @@ async function main() {
   console.log(`\n${verdict}`)
   console.log(`证据: ${runDir}`)
   console.log(`报告: ${reportFile}`)
+  console.log(`── crash 计数: ${crashesAfter} (before=${crashesBefore}, delta=${report.crashesDuringRun})`)
   if (report.crashesDuringRun > 0) console.log(`⚠ 测试期间发生 ${report.crashesDuringRun} 次崩溃!`)
   process.exitCode = passed === total - skipped && report.crashesDuringRun === 0 ? 0 : 1
 }
